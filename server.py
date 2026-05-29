@@ -1,0 +1,3945 @@
+from __future__ import annotations
+
+import csv
+import ctypes
+from ctypes import wintypes
+import datetime as dt
+import hashlib
+import json
+import mimetypes
+import os
+import re
+import shutil
+import subprocess
+import sys
+import threading
+import time
+import tkinter as tk
+from tkinter import filedialog
+import uuid
+import webbrowser
+from dataclasses import asdict, dataclass
+from http import HTTPStatus
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from urllib.error import HTTPError, URLError
+from urllib.parse import parse_qs, unquote, urlencode, urlparse
+from urllib.request import Request, urlopen
+
+
+LAUNCHER = Path(__file__).resolve().parent
+DEFAULT_COLLECTION_ROOT = Path(
+    os.environ.get(
+        "MORPHEUS_EMUGUI_COLLECTION",
+        r"E:\Emulation\Software Library\Sinclair\ZX Spectrum\Desasteron Spectrum Collection",
+    )
+).expanduser()
+DESASTERON_COLLECTION = DEFAULT_COLLECTION_ROOT
+COLLECTIONS_BASE = Path(
+    os.environ.get("MORPHEUS_EMUGUI_COLLECTIONS_BASE", str(DESASTERON_COLLECTION.parent))
+).expanduser()
+COLLECTION = DESASTERON_COLLECTION
+REPORTS = COLLECTION / "_reports"
+WEB = LAUNCHER / "web"
+DATA = LAUNCHER / "data"
+EMULATOR_PROFILE_DIR = DATA / "emulator-profiles"
+STATE_FILE = DATA / "state.json"
+LOG_FILE = DATA / "launcher.log"
+CONFIG_FILE = DATA / "config.json"
+METADATA_FILE = COLLECTION / "collection-metadata.json"
+HOST = "127.0.0.1"
+PORT = 8765
+
+DEFAULT_EMULATORS = {
+    "eightyone": {
+        "name": "EightyOne Desasteron",
+        "type": "eightyone",
+        "path": r"E:\Emulation\Systems\Sinclair\EightyOne\EightyOne-Desasteron.exe",
+        "working_dir": r"E:\Emulation\Systems\Sinclair\EightyOne",
+        "supported_extensions": [".tap", ".tzx", ".z80", ".sna", ".rom"],
+        "eightyone_config_target": r"%APPDATA%\EightyOne\EightyOne-Desasteron.ini",
+    },
+    "spectaculator": {
+        "name": "Spectaculator Direct",
+        "type": "spectaculator",
+        "path": r"E:\Emulation\Systems\Sinclair\Spectaculator\Spectaculator.exe",
+        "working_dir": r"E:\Emulation\Systems\Sinclair\Spectaculator",
+        "supported_extensions": [".tap", ".tzx", ".z80", ".sna", ".szx", ".rom"],
+        "pok_helper_path": r"E:\Emulation\Systems\Sinclair\Spectaculator\SpecStub.exe",
+    },
+    "spectaculator_stub": {
+        "name": "Spectaculator SpecStub",
+        "type": "spectaculator_stub",
+        "path": r"E:\Emulation\Systems\Sinclair\Spectaculator\SpecStub.exe",
+        "working_dir": r"E:\Emulation\Systems\Sinclair\Spectaculator",
+        "hidden": True,
+    },
+    "default": {
+        "name": "Windows Default App",
+        "type": "default",
+        "path": "",
+        "hidden": True,
+    },
+}
+
+JOBS_LOCK = threading.Lock()
+JOBS: dict[str, dict[str, object]] = {}
+TGDB_LOOKUP_CACHE: dict[str, dict[str, str]] = {}
+DEFAULT_SCRAPERS = {
+    "manual": {
+        "id": "manual",
+        "name": "Manual Metadata",
+        "type": "manual",
+        "enabled": True,
+        "configured": True,
+        "supports_assets": False,
+    },
+    "screenscraper": {
+        "id": "screenscraper",
+        "name": "ScreenScraper",
+        "type": "screenscraper",
+        "enabled": False,
+        "configured": False,
+        "supports_assets": True,
+        "base_url": "https://api.screenscraper.fr/api2",
+        "username": "",
+        "password": "",
+        "developer_id": "",
+        "developer_password": "",
+        "system_id": "135",
+        "softname": "DesasteronSpectrumLauncher",
+        "preferred_language": "en",
+        "preferred_region": "wor",
+    },
+    "thegamesdb": {
+        "id": "thegamesdb",
+        "name": "TheGamesDB",
+        "type": "thegamesdb",
+        "enabled": False,
+        "configured": False,
+        "supports_assets": True,
+        "base_url": "https://api.thegamesdb.net/v1",
+        "api_key": "",
+        "platform_id": "4913",
+    },
+}
+
+
+@dataclass
+class Game:
+    id: str
+    title: str
+    title_key: str
+    sort_title: str
+    tosec_title: str
+    memory: str
+    system: str
+    section: str
+    category: str
+    type: str
+    language: str
+    extension: str
+    path: str
+    file_name: str
+    letter: str
+    view: str = "collection"
+    year: str = ""
+    publisher: str = ""
+    version: str = ""
+    demo: str = ""
+    video: str = ""
+    copyright_status: str = ""
+    development_status: str = ""
+    media_type: str = ""
+    media_label: str = ""
+    genre: str = ""
+    developer: str = ""
+    platform: str = ""
+    region: str = ""
+    players: str = ""
+    coop: str = ""
+    rating: str = ""
+    youtube_id: str = ""
+    description: str = ""
+    screenshot: str = ""
+    loading_screen: str = ""
+    scraper_source: str = ""
+    scraper_id: str = ""
+    languages: tuple[str, ...] = ()
+    countries: tuple[str, ...] = ()
+    tosec_tags: tuple[str, ...] = ()
+    flags: tuple[str, ...] = ()
+    dump_flags: tuple[str, ...] = ()
+    more_info: tuple[str, ...] = ()
+    tags: tuple[str, ...] = ()
+    hardware: tuple[str, ...] = ()
+    default_emulator: str = ""
+    emulator_profile: str = ""
+    has_poks: bool = False
+    pok_count: int = 0
+    favourite: bool = False
+    is_ulaplus: bool = False
+    import_status: str = ""
+    import_match_count: int = 0
+    import_system_match_count: int = 0
+    import_matches: tuple[dict[str, object], ...] = ()
+
+
+class Library:
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self.games: list[Game] = []
+        self.game_by_id: dict[str, Game] = {}
+        self.poks_by_title_memory: dict[tuple[str, str], list[dict[str, str]]] = {}
+        self.poks_by_file: dict[str, dict[str, str]] = {}
+        self.poks_by_game_id: dict[str, list[dict[str, str]]] = {}
+        self.pok_by_id: dict[str, dict[str, str]] = {}
+        self.rebuild()
+
+    def rebuild(self, progress=None) -> None:
+        with self._lock:
+            init_state()
+            favourites = load_favourites()
+            poks = load_poks()
+            games = load_games(poks, favourites, progress)
+            self.games = games
+            self.game_by_id = {game.id: game for game in games}
+            self.poks_by_title_memory = poks
+            self.poks_by_file = {normalize_rel_path(pok.get("output_path", "")): pok for rows in poks.values() for pok in rows}
+            self.poks_by_game_id = self.build_game_pok_links(games)
+            self.pok_by_id = {pok["id"]: pok for rows in poks.values() for pok in rows}
+
+    def list_games(self, view: str = "collection") -> list[dict]:
+        with self._lock:
+            if view == "all":
+                return [asdict(game) for game in self.games]
+            return [asdict(game) for game in self.games if game.view == view]
+
+    def get_game(self, game_id: str) -> Game | None:
+        with self._lock:
+            return self.game_by_id.get(game_id)
+
+    def get_poks(self, game: Game) -> list[dict[str, str]]:
+        with self._lock:
+            linked = self.poks_by_game_id.get(game.id, [])
+            if linked:
+                return list(linked)
+            return list(self.poks_by_title_memory.get((game.title_key, game.memory), []))
+
+    def get_pok(self, pok_id: str) -> dict[str, str] | None:
+        with self._lock:
+            return self.pok_by_id.get(pok_id)
+
+    def set_favourite(self, game_id: str, favourite: bool) -> Game | None:
+        with self._lock:
+            game = self.game_by_id.get(game_id)
+            if game:
+                game.favourite = favourite
+            return game
+
+    def remove_game(self, game_id: str) -> None:
+        with self._lock:
+            self.games = [game for game in self.games if game.id != game_id]
+            self.game_by_id.pop(game_id, None)
+            self.poks_by_game_id.pop(game_id, None)
+
+    def replace_game(self, game_id: str, replacement: Game | None = None) -> None:
+        with self._lock:
+            self.games = [game for game in self.games if game.id != game_id]
+            if replacement:
+                self.games.append(replacement)
+            mark_import_view_matches(self.games)
+            self.game_by_id = {game.id: game for game in self.games}
+            self.poks_by_game_id = self.build_game_pok_links(self.games)
+
+    def build_game_pok_links(self, games: list[Game]) -> dict[str, list[dict[str, str]]]:
+        links: dict[str, list[dict[str, str]]] = {}
+        metadata = load_metadata()
+        linked_paths_by_game_id = {
+            str(item.get("id", "")): [normalize_rel_path(path) for path in item.get("poks", []) if path]
+            for item in metadata.get("games", [])
+        }
+        for game in games:
+            poks = []
+            seen: set[str] = set()
+            for rel_path in linked_paths_by_game_id.get(game.id, []):
+                pok = self.poks_by_file.get(rel_path)
+                if pok and pok["id"] not in seen:
+                    poks.append(pok)
+                    seen.add(pok["id"])
+            if poks:
+                links[game.id] = poks
+        return links
+
+
+def init_state() -> None:
+    DATA.mkdir(parents=True, exist_ok=True)
+    if not STATE_FILE.exists():
+        save_state({"favourites": [], "recent": []})
+    init_config()
+    activate_collection(load_active_collection_id())
+
+
+def load_state() -> dict:
+    init_state_file_only()
+    try:
+        return json.loads(STATE_FILE.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {"favourites": [], "recent": []}
+
+
+def save_state(state: dict) -> None:
+    DATA.mkdir(parents=True, exist_ok=True)
+    STATE_FILE.write_text(json.dumps(state, indent=2), encoding="utf-8")
+
+
+def init_state_file_only() -> None:
+    DATA.mkdir(parents=True, exist_ok=True)
+    if not STATE_FILE.exists():
+        STATE_FILE.write_text('{"favourites": [], "recent": []}', encoding="utf-8")
+
+
+def init_config() -> None:
+    DATA.mkdir(parents=True, exist_ok=True)
+    if not CONFIG_FILE.exists():
+        save_config({
+            "collections": discover_collections(),
+            "default_collection": "desasteron",
+            "emulators": DEFAULT_EMULATORS,
+            "emulator_profiles": [],
+            "scrapers": DEFAULT_SCRAPERS,
+        })
+        return
+    config = load_config()
+    known = {item.get("id") for item in config.get("collections", [])}
+    changed = False
+    if "emulators" not in config:
+        config["emulators"] = DEFAULT_EMULATORS
+        changed = True
+    else:
+        for emulator_id, defaults in DEFAULT_EMULATORS.items():
+            if emulator_id not in config["emulators"]:
+                config["emulators"][emulator_id] = defaults
+                changed = True
+            else:
+                for key, value in defaults.items():
+                    if key not in config["emulators"][emulator_id]:
+                        config["emulators"][emulator_id][key] = value
+                        changed = True
+    if "emulator_profiles" not in config:
+        config["emulator_profiles"] = []
+        changed = True
+    if "scrapers" not in config:
+        config["scrapers"] = DEFAULT_SCRAPERS
+        changed = True
+    else:
+        for scraper_id, defaults in DEFAULT_SCRAPERS.items():
+            if scraper_id not in config["scrapers"]:
+                config["scrapers"][scraper_id] = defaults
+                changed = True
+            elif isinstance(config["scrapers"].get(scraper_id), dict):
+                for key, value in defaults.items():
+                    if key not in config["scrapers"][scraper_id]:
+                        config["scrapers"][scraper_id][key] = value
+                        changed = True
+    for item in discover_collections():
+        if item["id"] not in known:
+            config.setdefault("collections", []).append(item)
+            known.add(item["id"])
+            changed = True
+    if changed:
+        save_config(config)
+
+
+def load_config() -> dict:
+    try:
+        return json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {
+            "collections": discover_collections(),
+            "default_collection": "desasteron",
+            "emulators": DEFAULT_EMULATORS,
+            "emulator_profiles": [],
+            "scrapers": DEFAULT_SCRAPERS,
+        }
+
+
+def save_config(config: dict) -> None:
+    DATA.mkdir(parents=True, exist_ok=True)
+    CONFIG_FILE.write_text(json.dumps(config, indent=2, ensure_ascii=False), encoding="utf-8")
+
+
+def expand_config_path(value: object) -> Path | None:
+    text = str(value or "").strip().strip('"').strip("'").strip()
+    if not text:
+        return None
+    return Path(os.path.expandvars(text)).expanduser()
+
+
+def configured_emulators(include_hidden: bool = True) -> dict[str, dict[str, object]]:
+    config = load_config()
+    emulators = config.get("emulators") or {}
+    merged: dict[str, dict[str, object]] = {}
+    for emulator_id, defaults in DEFAULT_EMULATORS.items():
+        merged[emulator_id] = {**defaults, **(emulators.get(emulator_id) or {})}
+    for emulator_id, emulator in emulators.items():
+        if emulator_id not in merged and isinstance(emulator, dict):
+            merged[emulator_id] = emulator
+    if include_hidden:
+        return merged
+    return {key: value for key, value in merged.items() if not value.get("hidden")}
+
+
+def save_emulator_config(emulators: dict[str, dict[str, object]]) -> None:
+    config = load_config()
+    current = configured_emulators(include_hidden=True)
+    for emulator_id, updates in emulators.items():
+        if emulator_id not in current:
+            continue
+        merged = {**current[emulator_id], **updates}
+        if emulator_id in DEFAULT_EMULATORS:
+            merged["type"] = DEFAULT_EMULATORS[emulator_id]["type"]
+            merged["hidden"] = DEFAULT_EMULATORS[emulator_id].get("hidden", False)
+        current[emulator_id] = merged
+    config["emulators"] = current
+    save_config(config)
+
+
+def configured_scrapers() -> dict[str, dict[str, object]]:
+    config = load_config()
+    scrapers = config.get("scrapers") or {}
+    merged: dict[str, dict[str, object]] = {}
+    for scraper_id, defaults in DEFAULT_SCRAPERS.items():
+        current = scrapers.get(scraper_id) if isinstance(scrapers, dict) else {}
+        merged[scraper_id] = {**defaults, **(current or {})}
+    if isinstance(scrapers, dict):
+        for scraper_id, scraper in scrapers.items():
+            if scraper_id not in merged and isinstance(scraper, dict):
+                merged[scraper_id] = scraper
+    for scraper_id, scraper in merged.items():
+        scraper["id"] = scraper_id
+        scraper["configured"] = scraper_configured(scraper)
+    return merged
+
+
+def scraper_configured(scraper: dict[str, object]) -> bool:
+    if scraper.get("type") == "manual":
+        return True
+    if scraper.get("type") == "screenscraper":
+        return all(str(scraper.get(key, "")).strip() for key in ("username", "password", "system_id"))
+    if scraper.get("type") == "thegamesdb":
+        return all(str(scraper.get(key, "")).strip() for key in ("api_key", "platform_id"))
+    return bool(scraper.get("configured", False))
+
+
+def scrapers_payload() -> dict[str, object]:
+    providers = []
+    for scraper in configured_scrapers().values():
+        public = {key: value for key, value in scraper.items() if key not in {"password", "developer_password", "api_key"}}
+        public["has_password"] = bool(str(scraper.get("password", "")).strip())
+        public["has_developer_password"] = bool(str(scraper.get("developer_password", "")).strip())
+        public["has_api_key"] = bool(str(scraper.get("api_key", "")).strip())
+        providers.append(public)
+    return {
+        "providers": providers,
+        "asset_root": collection_relative(collection_asset_root()),
+    }
+
+
+def collection_asset_root() -> Path:
+    return COLLECTION / "_assets" / "scraped"
+
+
+def update_scraper_config(scrapers: object) -> dict:
+    if not isinstance(scrapers, dict):
+        return {"ok": False, "error": "Expected scraper settings"}
+    config = load_config()
+    current = configured_scrapers()
+    for scraper_id, updates in scrapers.items():
+        if scraper_id not in current or not isinstance(updates, dict):
+            continue
+        merged = {**current[scraper_id]}
+        if scraper_id == "screenscraper":
+            for key in (
+                "enabled",
+                "username",
+                "password",
+                "developer_id",
+                "developer_password",
+                "system_id",
+                "softname",
+                "preferred_language",
+                "preferred_region",
+                "base_url",
+            ):
+                if key in updates:
+                    value = updates[key]
+                    merged[key] = bool(value) if key == "enabled" else clean_metadata_text(value, max_len=180)
+        elif scraper_id == "thegamesdb":
+            for key in ("enabled", "api_key", "platform_id", "base_url"):
+                if key in updates:
+                    value = updates[key]
+                    merged[key] = bool(value) if key == "enabled" else clean_metadata_text(value, max_len=180)
+        current[scraper_id] = merged
+    config["scrapers"] = current
+    save_config(config)
+    return {"ok": True, "providers": scrapers_payload()["providers"]}
+
+
+def file_sha256(path: Path) -> str:
+    h = hashlib.sha256()
+    with path.open("rb") as f:
+        for block in iter(lambda: f.read(1024 * 1024), b""):
+            h.update(block)
+    return h.hexdigest()
+
+
+def managed_profiles() -> list[dict[str, object]]:
+    profiles = load_config().get("emulator_profiles", [])
+    return [profile for profile in profiles if isinstance(profile, dict)]
+
+
+def emulator_profiles_payload() -> list[dict[str, object]]:
+    payload = []
+    for profile in managed_profiles():
+        item = dict(profile)
+        source = expand_config_path(item.get("source_path"))
+        managed = expand_config_path(item.get("managed_path"))
+        item["source_exists"] = bool(source and source.exists())
+        item["managed_exists"] = bool(managed and managed.exists())
+        item["source_newer"] = False
+        item["source_hash_changed"] = False
+        if source and source.exists():
+            source_mtime = source.stat().st_mtime
+            item["current_source_mtime"] = source_mtime
+            item["source_newer"] = source_mtime > float(item.get("source_mtime") or 0) + 0.5
+            try:
+                item["source_hash_changed"] = file_sha256(source) != item.get("source_hash")
+            except OSError:
+                item["source_hash_changed"] = False
+        payload.append(item)
+    return payload
+
+
+def import_emulator_profile(data: dict) -> dict:
+    emulator_id = clean_id(str(data.get("emulator_id", "")))
+    if emulator_id not in configured_emulators(include_hidden=True):
+        return {"ok": False, "error": "Unknown emulator"}
+    source = expand_config_path(data.get("source_path"))
+    if not source or not source.exists() or not source.is_file():
+        return {"ok": False, "error": f"Missing profile file: {source}"}
+    name = clean_metadata_text(data.get("name", "")) or source.stem
+    profile_id = unique_profile_id(emulator_id, name)
+    destination_dir = EMULATOR_PROFILE_DIR / emulator_id
+    destination_dir.mkdir(parents=True, exist_ok=True)
+    destination = destination_dir / f"{profile_id}{source.suffix.lower() or '.profile'}"
+    destination.write_bytes(source.read_bytes())
+    stat = source.stat()
+    profile = {
+        "id": profile_id,
+        "emulator_id": emulator_id,
+        "name": name,
+        "kind": "file",
+        "source_path": str(source),
+        "managed_path": str(destination),
+        "source_mtime": stat.st_mtime,
+        "source_hash": file_sha256(source),
+        "imported_at": dt.datetime.now(dt.UTC).isoformat(timespec="seconds"),
+        "priority": int(data.get("priority") or 100),
+        "rule": normalize_profile_rule(data.get("rule", {})),
+    }
+    config = load_config()
+    profiles = [item for item in config.get("emulator_profiles", []) if item.get("id") != profile_id]
+    profiles.append(profile)
+    config["emulator_profiles"] = profiles
+    save_config(config)
+    return {"ok": True, "profile": profile, "profiles": emulator_profiles_payload()}
+
+
+def update_emulator_profile(data: dict) -> dict:
+    profile_id = str(data.get("profile_id", "")).strip()
+    if not profile_id:
+        return {"ok": False, "error": "Missing profile id"}
+    config = load_config()
+    profiles = config.get("emulator_profiles", [])
+    for profile in profiles:
+        if profile.get("id") != profile_id:
+            continue
+        name = clean_metadata_text(data.get("name", "")) or str(profile.get("name") or profile_id)
+        try:
+            priority = int(data.get("priority") or profile.get("priority") or 100)
+        except (TypeError, ValueError):
+            priority = 100
+        profile["name"] = name
+        profile["priority"] = max(0, min(9999, priority))
+        profile["rule"] = normalize_profile_rule(data.get("rule", profile.get("rule", {})))
+        save_config(config)
+        return {"ok": True, "profile": profile, "profiles": emulator_profiles_payload()}
+    return {"ok": False, "error": "Unknown profile"}
+
+
+def delete_emulator_profile(profile_id: str) -> dict:
+    config = load_config()
+    profiles = []
+    removed = None
+    for profile in config.get("emulator_profiles", []):
+        if profile.get("id") == profile_id:
+            removed = profile
+            continue
+        profiles.append(profile)
+    if not removed:
+        return {"ok": False, "error": "Unknown profile"}
+    config["emulator_profiles"] = profiles
+    save_config(config)
+    managed = expand_config_path(removed.get("managed_path"))
+    if managed and managed.exists() and managed.is_relative_to(EMULATOR_PROFILE_DIR):
+        try:
+            managed.unlink()
+        except OSError:
+            pass
+    return {"ok": True, "profiles": emulator_profiles_payload()}
+
+
+def update_emulator_profile_from_source(profile_id: str) -> dict:
+    config = load_config()
+    profiles = config.get("emulator_profiles", [])
+    for profile in profiles:
+        if profile.get("id") != profile_id:
+            continue
+        source = expand_config_path(profile.get("source_path"))
+        managed = expand_config_path(profile.get("managed_path"))
+        if not source or not source.exists() or not managed:
+            return {"ok": False, "error": "Profile source is missing"}
+        managed.parent.mkdir(parents=True, exist_ok=True)
+        managed.write_bytes(source.read_bytes())
+        stat = source.stat()
+        profile["source_mtime"] = stat.st_mtime
+        profile["source_hash"] = file_sha256(source)
+        profile["imported_at"] = dt.datetime.now(dt.UTC).isoformat(timespec="seconds")
+        save_config(config)
+        return {"ok": True, "profile": profile, "profiles": emulator_profiles_payload()}
+    return {"ok": False, "error": "Unknown profile"}
+
+
+def pick_path(kind: str, title: str = "", initial: str = "") -> dict:
+    result: dict[str, object] = {"ok": False, "path": ""}
+    event = threading.Event()
+
+    def run_dialog() -> None:
+        try:
+            root = tk.Tk()
+            root.withdraw()
+            root.attributes("-topmost", True)
+            initial_path = expand_config_path(initial)
+            initial_dir = str(initial_path if initial_path and initial_path.is_dir() else (initial_path.parent if initial_path else COLLECTIONS_BASE))
+            if kind == "folder":
+                selected = filedialog.askdirectory(title=title or "Select folder", initialdir=initial_dir, parent=root)
+            else:
+                filetypes = [
+                    ("Emulator/profile files", "*.exe *.ini *.cfg *.conf *.json *.reg"),
+                    ("Executables", "*.exe"),
+                    ("INI files", "*.ini"),
+                    ("All files", "*.*"),
+                ]
+                selected = filedialog.askopenfilename(title=title or "Select file", initialdir=initial_dir, filetypes=filetypes, parent=root)
+            root.destroy()
+            if selected:
+                result.update({"ok": True, "path": selected})
+            else:
+                result.update({"ok": False, "cancelled": True, "error": "Selection cancelled"})
+        except Exception as exc:
+            result.update({"ok": False, "error": str(exc)})
+        finally:
+            event.set()
+
+    thread = threading.Thread(target=run_dialog, daemon=True)
+    thread.start()
+    event.wait()
+    return result
+
+
+def unique_profile_id(emulator_id: str, name: str) -> str:
+    base = clean_id(f"{emulator_id}-{name}") or f"{emulator_id}-profile"
+    used = {str(profile.get("id", "")) for profile in managed_profiles()}
+    if base not in used:
+        return base
+    i = 2
+    while f"{base}-{i}" in used:
+        i += 1
+    return f"{base}-{i}"
+
+
+def clean_id(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
+
+
+def normalize_profile_rule(rule: object) -> dict[str, object]:
+    if not isinstance(rule, dict):
+        rule = {}
+    systems = [str(item).strip().upper() for item in rule.get("systems", []) if str(item).strip()]
+    tags = [str(item).strip() for item in rule.get("tags", []) if str(item).strip()]
+    return {"systems": dedupe(systems), "tags": dedupe(tags)}
+
+
+def select_managed_profile(emulator_id: str, game: Game) -> dict[str, object] | None:
+    candidates = [profile for profile in managed_profiles() if profile.get("emulator_id") == emulator_id]
+    if game.emulator_profile:
+        for profile in candidates:
+            if profile.get("id") == game.emulator_profile:
+                return profile
+    candidates.sort(key=lambda item: int(item.get("priority") or 100))
+    fallback = None
+    for profile in candidates:
+        rule = profile.get("rule") if isinstance(profile.get("rule"), dict) else {}
+        systems = set(rule.get("systems") or [])
+        tags = set(rule.get("tags") or [])
+        if not systems and not tags:
+            fallback = fallback or profile
+            continue
+        if systems and game.system in systems:
+            return profile
+        if tags and tags.intersection(game.tags or ()):
+            return profile
+    return fallback
+
+
+def discover_collections() -> list[dict[str, object]]:
+    collections = [
+        {
+            "id": "desasteron",
+            "name": DESASTERON_COLLECTION.name,
+            "root": str(DESASTERON_COLLECTION),
+            "role": "library",
+            "writable": True,
+            "auto_metadata": True,
+        }
+    ]
+    for path in sorted(COLLECTIONS_BASE.iterdir(), key=lambda item: item.name.lower()):
+        if not path.is_dir() or path.resolve() == DESASTERON_COLLECTION.resolve():
+            continue
+        if not looks_like_collection(path):
+            continue
+        collection_id = unique_collection_id(path.name, {item["id"] for item in collections})
+        collections.append(
+            {
+                "id": collection_id,
+                "name": path.name,
+                "root": str(path),
+                "role": "source",
+                "writable": False,
+                "auto_metadata": False,
+            }
+        )
+    return collections
+
+
+def looks_like_collection(path: Path) -> bool:
+    if (path / "collection-metadata.json").exists():
+        return True
+    for child in path.iterdir():
+        if child.is_file() and child.suffix.lower() in {".tap", ".tzx", ".z80", ".sna", ".szx", ".pok"}:
+            return True
+        if child.is_dir() and child.name.lower() in {"games", "tap", "tzx", "48k", "128k", "poks", "cheats"}:
+            return True
+    return False
+
+
+def unique_collection_id(name: str, used: set[str]) -> str:
+    base = normalize_title(name).replace(" ", "-") or stable_id(name)
+    candidate = base
+    i = 2
+    while candidate in used:
+        candidate = f"{base}-{i}"
+        i += 1
+    return candidate
+
+
+def collections_payload() -> dict:
+    init_config()
+    active = active_collection()
+    collections = []
+    for item in load_config().get("collections", []):
+        root = Path(str(item.get("root", "")))
+        collections.append(
+            {
+                "id": item.get("id", ""),
+                "name": item.get("name", root.name),
+                "root": str(root),
+                "role": item.get("role", "source"),
+                "writable": bool(item.get("writable", False)),
+                "auto_metadata": bool(item.get("auto_metadata", False)),
+                "incoming_count": incoming_file_count(root) if bool(item.get("writable", False)) else 0,
+                "trash_count": trash_file_count(root) if bool(item.get("writable", False)) else 0,
+                "active": item.get("id") == active.get("id"),
+                "available": root.exists(),
+            }
+        )
+    return {"collections": collections, "active": active}
+
+
+def incoming_file_count(root: Path) -> int:
+    incoming = root / "incoming"
+    return file_count_in_tree(incoming, {".tap", ".tzx"})
+
+
+def trash_file_count(root: Path) -> int:
+    trash = root / "_Deleted"
+    return file_count_in_tree(trash, {".tap", ".tzx"})
+
+
+def file_count_in_tree(root: Path, extensions: set[str] | None = None) -> int:
+    if not root.exists() or not root.is_dir():
+        return 0
+    try:
+        return sum(1 for path in root.rglob("*") if path.is_file() and (extensions is None or path.suffix.lower() in extensions))
+    except OSError:
+        return 0
+
+def add_collection(root: str, name: str = "", writable: bool = False, auto_metadata: bool = False) -> dict:
+    path = Path(root).expanduser().resolve()
+    if not path.exists() or not path.is_dir():
+        return {"ok": False, "error": f"Folder does not exist: {path}"}
+    config = load_config()
+    for item in config.get("collections", []):
+        if Path(str(item.get("root", ""))).resolve() == path:
+            if name.strip():
+                item["name"] = name.strip()
+            item["writable"] = writable
+            item["auto_metadata"] = auto_metadata
+            item["role"] = "library" if writable else "source"
+            save_config(config)
+            return {"ok": True, "collection": item, "existing": True}
+    used = {item.get("id", "") for item in config.get("collections", [])}
+    collection_id = unique_collection_id(name or path.name, used)
+    item = {
+        "id": collection_id,
+        "name": name.strip() or path.name,
+        "root": str(path),
+        "role": "library" if writable else "source",
+        "writable": writable,
+        "auto_metadata": auto_metadata,
+    }
+    config.setdefault("collections", []).append(item)
+    save_config(config)
+    return {"ok": True, "collection": item, "existing": False}
+
+
+def active_collection() -> dict:
+    config = load_config()
+    active_id = load_active_collection_id()
+    for item in config.get("collections", []):
+        if item.get("id") == active_id:
+            return item
+    return config.get("collections", [discover_collections()[0]])[0]
+
+
+def load_active_collection_id() -> str:
+    state = load_state()
+    active_id = state.get("active_collection_id")
+    if active_id:
+        return str(active_id)
+    return str(load_config().get("default_collection", "desasteron"))
+
+
+def activate_collection(collection_id: str) -> dict:
+    global COLLECTION, REPORTS, METADATA_FILE
+    config = load_config()
+    selected = None
+    for item in config.get("collections", []):
+        if item.get("id") == collection_id:
+            selected = item
+            break
+    if selected is None:
+        selected = config.get("collections", [discover_collections()[0]])[0]
+    root = Path(str(selected.get("root", DESASTERON_COLLECTION))).resolve()
+    COLLECTION = root
+    REPORTS = COLLECTION / "_reports"
+    METADATA_FILE = COLLECTION / "collection-metadata.json"
+    return selected
+
+
+def current_collection_writable() -> bool:
+    return bool(active_collection().get("writable", False))
+
+
+def current_collection_auto_metadata() -> bool:
+    active = active_collection()
+    return bool(active.get("writable", False) or active.get("auto_metadata", False))
+
+
+def start_index_job(title: str, work) -> str:
+    job_id = uuid.uuid4().hex[:12]
+    with JOBS_LOCK:
+        JOBS[job_id] = {
+            "id": job_id,
+            "status": "running",
+            "phase": "starting",
+            "current": 0,
+            "total": 0,
+            "title": title,
+            "message": "Starting...",
+            "error": "",
+        }
+
+    def progress(phase: str, current: int, total: int, message: str) -> None:
+        update_job(job_id, phase=phase, current=current, total=total, message=message)
+
+    def runner() -> None:
+        try:
+            work(progress)
+            update_job(job_id, status="done", phase="done", message="Done")
+        except Exception as exc:
+            update_job(job_id, status="error", phase="error", error=str(exc), message=str(exc))
+
+    threading.Thread(target=runner, daemon=True).start()
+    return job_id
+
+
+def update_job(job_id: str, **updates: object) -> None:
+    with JOBS_LOCK:
+        job = JOBS.get(job_id)
+        if not job:
+            return
+        job.update(updates)
+        job["updated_at"] = dt.datetime.now(dt.UTC).isoformat(timespec="seconds")
+
+
+def get_job(job_id: str) -> dict[str, object]:
+    with JOBS_LOCK:
+        return dict(JOBS.get(job_id, {"id": job_id, "status": "missing", "error": "Unknown job"}))
+
+
+def start_select_collection_job(collection_id: str) -> str:
+    config = load_config()
+    target = next((item for item in config.get("collections", []) if item.get("id") == collection_id), None)
+    title = f"Switching to {target.get('name')}" if target else "Switching Collection"
+
+    def work(progress) -> None:
+        selected = activate_collection(collection_id)
+        state = load_state()
+        state["active_collection_id"] = selected.get("id", "desasteron")
+        save_state(state)
+        LIBRARY.rebuild(progress)
+
+    return start_index_job(title, work)
+
+
+def start_rebuild_job() -> str:
+    active = active_collection()
+
+    def work(progress) -> None:
+        LIBRARY.rebuild(progress)
+
+    return start_index_job(f"Rebuilding {active.get('name', 'Collection')}", work)
+
+
+def load_favourites() -> set[str]:
+    return set(load_state().get("favourites", []))
+
+
+def load_poks() -> dict[tuple[str, str], list[dict[str, str]]]:
+    if METADATA_FILE.exists():
+        return load_metadata_poks()
+
+    report = REPORTS / "poks-selected.csv"
+    poks: dict[tuple[str, str], list[dict[str, str]]] = {}
+    if not report.exists():
+        return poks
+    with report.open("r", newline="", encoding="utf-8-sig") as f:
+        for row in csv.DictReader(f):
+            key = (row.get("title_key", ""), row.get("memory", ""))
+            if not key[0] or not key[1] or row.get("match_status") == "unmatched":
+                continue
+            output_path = row.get("output_path", "")
+            absolute = (COLLECTION.parent / output_path).resolve()
+            row = dict(row)
+            row["id"] = stable_id(output_path)
+            row["path"] = str(absolute)
+            row["file_name"] = absolute.name
+            row["cheats"] = parse_pok_file(absolute)
+            row["cheat_summary"] = ", ".join(cheat["name"] for cheat in row["cheats"][:4])
+            poks.setdefault(key, []).append(row)
+    return poks
+
+
+def load_metadata() -> dict:
+    try:
+        return json.loads(METADATA_FILE.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {"version": 1, "games": [], "poks": []}
+
+
+def save_metadata(metadata: dict) -> None:
+    metadata["updated_at"] = dt.datetime.now(dt.UTC).isoformat(timespec="seconds")
+    METADATA_FILE.write_text(json.dumps(metadata, indent=2, ensure_ascii=False), encoding="utf-8")
+
+
+def collection_relative(path: Path) -> str:
+    try:
+        return str(path.resolve().relative_to(COLLECTION.resolve())).replace("\\", "/")
+    except ValueError:
+        return path.name
+
+
+def normalize_rel_path(path: object) -> str:
+    return str(path or "").replace("\\", "/").strip().lower()
+
+
+def load_metadata_poks() -> dict[tuple[str, str], list[dict[str, str]]]:
+    poks: dict[tuple[str, str], list[dict[str, str]]] = {}
+    metadata = load_metadata()
+    link_counts: dict[str, int] = {}
+    for game in metadata.get("games", []):
+        for rel_path in game.get("poks", []):
+            key = normalize_rel_path(rel_path)
+            if key:
+                link_counts[key] = link_counts.get(key, 0) + 1
+    for item in metadata.get("poks", []):
+        rel_path = item.get("file", "")
+        if not rel_path:
+            continue
+        absolute = (COLLECTION / rel_path).resolve()
+        if not absolute.exists():
+            continue
+        title_key = item.get("title_key", "")
+        memory = item.get("memory") or item.get("system", "")
+        if not title_key or not memory:
+            continue
+        row = {
+            "id": item.get("id") or stable_id(rel_path),
+            "title": item.get("title", absolute.stem),
+            "title_key": title_key,
+            "memory": memory,
+            "system": item.get("system", memory),
+            "match_status": item.get("match_status", "matched"),
+            "output_path": rel_path,
+            "path": str(absolute),
+            "file_name": absolute.name,
+            "linked_game_count": link_counts.get(normalize_rel_path(rel_path), 0),
+            "cheats": parse_pok_file(absolute),
+        }
+        row["cheat_summary"] = ", ".join(cheat["name"] for cheat in row["cheats"][:4])
+        poks.setdefault((title_key, memory), []).append(row)
+    return poks
+
+
+def parse_pok_file(path: Path) -> list[dict[str, object]]:
+    try:
+        raw = path.read_bytes()
+    except OSError:
+        return []
+
+    for encoding in ("utf-8-sig", "cp1252", "latin-1"):
+        try:
+            text = raw.decode(encoding)
+            break
+        except UnicodeDecodeError:
+            continue
+    else:
+        return []
+
+    cheats: list[dict[str, object]] = []
+    current: dict[str, object] | None = None
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        marker = line[:1].upper()
+        if marker == "N":
+            if current:
+                cheats.append(current)
+            name = line[1:].strip() or "Unnamed cheat"
+            current = {"name": name, "patches": 0}
+        elif marker in {"M", "Z"} and current:
+            current["patches"] = int(current.get("patches", 0)) + 1
+        elif marker == "Y":
+            break
+    if current:
+        cheats.append(current)
+    return cheats
+
+
+def load_games(poks: dict[tuple[str, str], list[dict[str, str]]], favourites: set[str], progress=None) -> list[Game]:
+    if METADATA_FILE.exists():
+        if progress:
+            progress("indexing", 0, 0, "Loading metadata")
+        games = load_metadata_games(poks, favourites)
+        games.extend(load_incoming_games(poks, favourites))
+        games.extend(load_trash_games(poks, favourites))
+        mark_import_view_matches(games)
+        games.sort(key=lambda item: (item.view != "incoming", item.title_key, item.system, item.section, item.file_name.lower()))
+        return games
+
+    games: list[Game] = []
+    reported_paths: set[str] = set()
+    games.extend(load_official_games(poks, favourites, reported_paths))
+    games.extend(load_homebrew_games(poks, favourites, reported_paths))
+    games.extend(load_scanned_collection_games(poks, favourites, reported_paths, progress))
+    games.extend(load_language_review_games(poks, favourites))
+    games.sort(key=lambda item: (item.title_key, item.system, item.section, item.file_name.lower()))
+    if current_collection_auto_metadata():
+        save_metadata_from_games(games, poks)
+    games.extend(load_incoming_games(poks, favourites))
+    games.extend(load_trash_games(poks, favourites))
+    mark_import_view_matches(games)
+    return games
+
+
+def mark_import_view_matches(games: list[Game]) -> None:
+    collection_games = [game for game in games if game.view not in {"incoming", "trash"}]
+    title_counts: dict[str, int] = {}
+    title_system_counts: dict[tuple[str, str], int] = {}
+    title_matches: dict[str, list[Game]] = {}
+    for game in collection_games:
+        title_counts[game.title_key] = title_counts.get(game.title_key, 0) + 1
+        title_system_counts[(game.title_key, game.system)] = title_system_counts.get((game.title_key, game.system), 0) + 1
+        title_matches.setdefault(game.title_key, []).append(game)
+    for game in games:
+        if game.view not in {"incoming", "trash"}:
+            continue
+        title_count = title_counts.get(game.title_key, 0)
+        system_count = title_system_counts.get((game.title_key, game.system), 0)
+        game.import_match_count = title_count
+        game.import_system_match_count = system_count
+        game.import_matches = tuple(import_match_summary(match) for match in title_matches.get(game.title_key, [])[:8])
+        if system_count:
+            game.import_status = "system-match"
+        elif title_count:
+            game.import_status = "title-match"
+        else:
+            game.import_status = "new"
+
+
+def import_match_summary(game: Game) -> dict[str, object]:
+    return {
+        "title": game.title,
+        "system": game.system,
+        "publisher": game.publisher,
+        "countries": list(game.countries),
+        "languages": list(game.languages),
+    }
+
+
+def load_metadata_games(poks: dict[tuple[str, str], list[dict[str, str]]], favourites: set[str]) -> list[Game]:
+    games: list[Game] = []
+    for item in load_metadata().get("games", []):
+        status = item.get("status", "Main")
+        if status in {"Deleted", "Hidden"}:
+            continue
+        rel_path = item.get("file", "")
+        if not rel_path:
+            continue
+        absolute = (COLLECTION / rel_path).resolve()
+        if not absolute.exists():
+            continue
+        title = item.get("title") or parse_tosec_name(absolute.name)["title"]
+        title_key = item.get("title_key") or normalize_title(title)
+        sort_title = item.get("sort_title") or article_sort_title(title)
+        tosec_title = item.get("tosec_title") or tosec_title_from_display(title)
+        system = item.get("system") or item.get("memory", "")
+        memory = item.get("memory") or system
+        collection_type = item.get("type", "Official")
+        section = item.get("section") or ("Official" if collection_type == "Official" else "Homebrew & Scene")
+        category = "" if collection_type == "Official" else collection_type
+        languages = tuple(item.get("languages", ()))
+        countries = tuple(item.get("countries", ()))
+        linked_poks = [path for path in item.get("poks", []) if path]
+        related_poks = linked_poks or poks.get((title_key, memory), [])
+        game_id = item.get("id") or stable_id(rel_path)
+        games.append(
+            Game(
+                id=game_id,
+                title=title,
+                title_key=title_key,
+                sort_title=sort_title,
+                tosec_title=tosec_title,
+                memory=memory,
+                system=system,
+                section=section,
+                category=category,
+                type=collection_type,
+                language=format_languages(languages)
+                or item.get("language", "")
+                or "English",
+                extension=item.get("format") or absolute.suffix.lower(),
+                path=str(absolute),
+                file_name=absolute.name,
+                letter=item.get("letter") or folder_letter(title),
+                view="collection",
+                year=item.get("year") or item.get("date", ""),
+                publisher=item.get("publisher", ""),
+                version=item.get("version", ""),
+                demo=item.get("demo", ""),
+                video=item.get("video", ""),
+                copyright_status=item.get("copyright_status", ""),
+                development_status=item.get("development_status", ""),
+                media_type=item.get("media_type", ""),
+                media_label=item.get("media_label", ""),
+                genre=item.get("genre", ""),
+                developer=item.get("developer", ""),
+                platform=item.get("platform", ""),
+                region=item.get("region", ""),
+                players=item.get("players", ""),
+                coop=item.get("coop", ""),
+                rating=item.get("rating", ""),
+                youtube_id=item.get("youtube_id", ""),
+                description=item.get("description", ""),
+                screenshot=item.get("screenshot", ""),
+                loading_screen=item.get("loading_screen", ""),
+                scraper_source=item.get("scraper_source", ""),
+                scraper_id=item.get("scraper_id", ""),
+                languages=languages,
+                countries=countries,
+                tosec_tags=tuple(item.get("tosec_tags", ())),
+                flags=tuple(item.get("flags", ())),
+                dump_flags=tuple(item.get("dump_flags", ())),
+                more_info=tuple(item.get("more_info", ())),
+                tags=tuple(item.get("tags", ())),
+                hardware=tuple(item.get("hardware", ())),
+                default_emulator=item.get("default_emulator", ""),
+                emulator_profile=item.get("emulator_profile", ""),
+                has_poks=bool(related_poks),
+                pok_count=len(related_poks),
+                favourite=game_id in favourites,
+                is_ulaplus="ULAPlus" in item.get("hardware", []) or "(ulaplus)" in absolute.stem.lower(),
+            )
+        )
+    games.sort(key=lambda game: (game.title_key, game.system, game.section, game.file_name.lower()))
+    return games
+
+
+def save_metadata_from_games(games: list[Game], poks: dict[tuple[str, str], list[dict[str, str]]]) -> None:
+    if METADATA_FILE.exists():
+        return
+    pok_files_by_key = {
+        key: [collection_relative(Path(row["path"])) for row in rows if row.get("path")]
+        for key, rows in poks.items()
+    }
+    metadata = {
+        "version": 1,
+        "created_at": dt.datetime.now(dt.UTC).isoformat(timespec="seconds"),
+        "updated_at": dt.datetime.now(dt.UTC).isoformat(timespec="seconds"),
+        "games": [],
+        "poks": [],
+    }
+    for game in games:
+        metadata["games"].append(game_to_metadata_item(game, pok_files_by_key.get((game.title_key, game.memory), [])))
+    seen_poks: set[str] = set()
+    for rows in poks.values():
+        for row in rows:
+            rel_path = collection_relative(Path(row["path"]))
+            if rel_path in seen_poks:
+                continue
+            seen_poks.add(rel_path)
+            metadata["poks"].append(pok_to_metadata_item(row, rel_path))
+    save_metadata(metadata)
+
+
+def game_to_metadata_item(game: Game, pok_files: list[str] | None = None) -> dict:
+    collection_type = game.type or game.category or game.section or "Official"
+    if collection_type == "Homebrew & Scene":
+        collection_type = "Homebrew"
+    hardware = list(game.hardware) or (["ULAPlus"] if game.is_ulaplus else [])
+    return {
+        "id": game.id,
+        "title": game.title,
+        "title_key": game.title_key,
+        "sort_title": article_sort_title(game.title),
+        "tosec_title": tosec_title_from_display(game.title),
+        "file": collection_relative(Path(game.path)),
+        "system": game.system,
+        "memory": game.memory,
+        "format": game.extension,
+        "version": game.version,
+        "demo": game.demo,
+        "year": game.year,
+        "date": game.year,
+        "publisher": game.publisher,
+        "video": game.video,
+        "languages": list(game.languages),
+        "language": game.language,
+        "countries": list(game.countries),
+        "copyright_status": game.copyright_status,
+        "development_status": game.development_status,
+        "media_type": game.media_type,
+        "media_label": game.media_label,
+        "genre": game.genre,
+        "developer": game.developer,
+        "platform": game.platform,
+        "region": game.region,
+        "players": game.players,
+        "coop": game.coop,
+        "rating": game.rating,
+        "youtube_id": game.youtube_id,
+        "description": game.description,
+        "screenshot": game.screenshot,
+        "loading_screen": game.loading_screen,
+        "scraper_source": game.scraper_source,
+        "scraper_id": game.scraper_id,
+        "type": collection_type,
+        "section": game.section,
+        "tags": list(game.tags),
+        "hardware": hardware,
+        "status": "Main",
+        "tosec_tags": list(game.tosec_tags),
+        "flags": list(game.flags),
+        "dump_flags": list(game.dump_flags),
+        "more_info": list(game.more_info),
+        "default_emulator": game.default_emulator,
+        "emulator_profile": game.emulator_profile,
+        "poks": pok_files or [],
+    }
+
+
+def pok_to_metadata_item(row: dict[str, object], rel_path: str) -> dict:
+    return {
+        "id": row.get("id") or stable_id(rel_path),
+        "title": row.get("title", ""),
+        "title_key": row.get("title_key", ""),
+        "file": rel_path,
+        "system": row.get("system") or row.get("memory", ""),
+        "memory": row.get("memory", ""),
+        "match_status": row.get("match_status", "matched"),
+        "linked_game_count": 0,
+    }
+
+
+def load_official_games(
+    poks: dict[tuple[str, str], list[dict[str, str]]],
+    favourites: set[str],
+    reported_paths: set[str],
+) -> list[Game]:
+    report = REPORTS / "selected-games.csv"
+    games: list[Game] = []
+    if not report.exists():
+        return games
+    with report.open("r", newline="", encoding="utf-8-sig") as f:
+        for row in csv.DictReader(f):
+            game = make_game(
+                row=row,
+                section="Official",
+                category="",
+                output_path=row.get("output_path", ""),
+                poks=poks,
+                favourites=favourites,
+                view="collection",
+            )
+            if game:
+                games.append(game)
+                reported_paths.add(str(Path(game.path).resolve()).lower())
+    return games
+
+
+def load_homebrew_games(
+    poks: dict[tuple[str, str], list[dict[str, str]]],
+    favourites: set[str],
+    reported_paths: set[str],
+) -> list[Game]:
+    report = REPORTS / "homebrew-scene-selected.csv"
+    games: list[Game] = []
+    if not report.exists():
+        return games
+    with report.open("r", newline="", encoding="utf-8-sig") as f:
+        for row in csv.DictReader(f):
+            title = row.get("title", "")
+            row = dict(row)
+            row["title_key"] = normalize_title(title)
+            row["language_bucket"] = "English"
+            game = make_game(
+                row=row,
+                section="Homebrew & Scene",
+                category=row.get("category", ""),
+                output_path=row.get("output_path", ""),
+                poks=poks,
+                favourites=favourites,
+                view="collection",
+            )
+            if game:
+                games.append(game)
+                reported_paths.add(str(Path(game.path).resolve()).lower())
+    return games
+
+
+def load_scanned_collection_games(
+    poks: dict[tuple[str, str], list[dict[str, str]]],
+    favourites: set[str],
+    reported_paths: set[str],
+    progress=None,
+) -> list[Game]:
+    games: list[Game] = []
+    roots = [root for root in (COLLECTION / "Games", COLLECTION / "48K", COLLECTION / "128K", COLLECTION / "Homebrew & Scene") if root.exists()]
+    if not roots:
+        roots = [COLLECTION]
+    paths: list[Path] = []
+    discovered = 0
+    for root in roots:
+        if not root.exists():
+            continue
+        for path in root.rglob("*"):
+            if path.suffix.lower() not in {".tap", ".tzx"}:
+                continue
+            if should_skip_scan_path(path):
+                continue
+            if str(path.resolve()).lower() in reported_paths:
+                continue
+            paths.append(path)
+            discovered += 1
+            if progress and discovered % 250 == 0:
+                progress("counting", discovered, 0, f"Discovered {discovered:,} files")
+    if progress:
+        progress("indexing", 0, len(paths), f"Indexed 0 of {len(paths):,} files")
+    for index, path in enumerate(paths, start=1):
+        game = make_scanned_game(path, COLLECTION, "collection", poks, favourites)
+        if game:
+            games.append(game)
+        if progress and (index == len(paths) or index % 100 == 0):
+            progress("indexing", index, len(paths), f"Indexed {index:,} of {len(paths):,} files")
+    return games
+
+
+def should_skip_scan_path(path: Path) -> bool:
+    try:
+        rel = path.resolve().relative_to(COLLECTION.resolve())
+    except ValueError:
+        return False
+    skip_roots = {"_launcher", "_tools", "_reports", "_deleted", "incoming", "poks", "cheats & poks"}
+    return bool(rel.parts and rel.parts[0].lower() in skip_roots)
+
+
+def load_language_review_games(
+    poks: dict[tuple[str, str], list[dict[str, str]]],
+    favourites: set[str],
+) -> list[Game]:
+    games: list[Game] = []
+    root = COLLECTION / "_Non EN-DE Review"
+    if not root.exists():
+        return games
+    for path in root.rglob("*"):
+        if path.suffix.lower() not in {".tap", ".tzx"}:
+            continue
+        game = make_scanned_game(path, root, "languages", poks, favourites)
+        if game:
+            games.append(game)
+    return games
+
+
+def load_incoming_games(
+    poks: dict[tuple[str, str], list[dict[str, str]]],
+    favourites: set[str],
+) -> list[Game]:
+    if not current_collection_writable():
+        return []
+    root = COLLECTION / "incoming"
+    if not root.exists() or not root.is_dir():
+        return []
+    games: list[Game] = []
+    for path in root.rglob("*"):
+        if path.suffix.lower() not in {".tap", ".tzx"}:
+            continue
+        game = make_scanned_game(path, root, "incoming", poks, favourites)
+        if game:
+            games.append(game)
+    return games
+
+
+def load_trash_games(
+    poks: dict[tuple[str, str], list[dict[str, str]]],
+    favourites: set[str],
+) -> list[Game]:
+    if not current_collection_writable():
+        return []
+    root = COLLECTION / "_Deleted"
+    if not root.exists() or not root.is_dir():
+        return []
+    games: list[Game] = []
+    for path in root.rglob("*"):
+        if path.suffix.lower() not in {".tap", ".tzx"}:
+            continue
+        game = make_scanned_game(path, root, "trash", poks, favourites)
+        if game:
+            games.append(game)
+    return games
+
+
+def make_game(
+    row: dict[str, str],
+    section: str,
+    category: str,
+    output_path: str,
+    poks: dict[tuple[str, str], list[dict[str, str]]],
+    favourites: set[str],
+    view: str,
+) -> Game | None:
+    if not output_path:
+        return None
+    absolute = (COLLECTION.parent / output_path).resolve()
+    if not absolute.exists():
+        return None
+    parsed = parse_tosec_name(absolute.name)
+    title_key = row.get("title_key", "")
+    memory = row.get("memory", "")
+    system = parsed["system"] or memory
+    related_poks = poks.get((title_key, memory), [])
+    languages = tuple(parsed["languages"] or parse_report_language(row.get("language_bucket", "")))
+    countries = tuple(parsed["countries"])
+    game_id = stable_id(output_path)
+    return Game(
+        id=game_id,
+        title=row.get("title", ""),
+        title_key=title_key,
+        sort_title=article_sort_title(row.get("title", "")),
+        tosec_title=tosec_title_from_display(row.get("title", "")),
+        memory=memory,
+        system=system,
+        section=section,
+        category=category,
+        type=category or section,
+        language=format_languages(languages) or row.get("language_bucket", "English"),
+        extension=row.get("extension", absolute.suffix.lower()),
+        path=str(absolute),
+        file_name=absolute.name,
+        letter=row.get("letter", ""),
+        view=view,
+        year=parsed["year"],
+        publisher=parsed["publisher"],
+        languages=languages,
+        countries=countries,
+        tosec_tags=tuple(parsed["parentheses"]),
+        flags=tuple(parsed["brackets"]),
+        has_poks=bool(related_poks),
+        pok_count=len(related_poks),
+        favourite=game_id in favourites,
+        is_ulaplus="(ulaplus)" in absolute.stem.lower(),
+    )
+
+
+def make_scanned_game(
+    path: Path,
+    base: Path,
+    view: str,
+    poks: dict[tuple[str, str], list[dict[str, str]]],
+    favourites: set[str],
+) -> Game | None:
+    try:
+        relative = path.resolve().relative_to(base.resolve())
+    except ValueError:
+        return None
+    parts = relative.parts
+    memory = "128K" if "128K" in parts else "48K"
+    if view == "incoming":
+        section = "Incoming"
+        category = "Incoming"
+    elif view == "trash":
+        section = "Bin"
+        category = "Bin"
+    elif not current_collection_writable() and view == "collection":
+        section = "Source"
+        category = "Source"
+    else:
+        section = "Homebrew & Scene" if parts and parts[0] == "Homebrew & Scene" else "Official"
+        category = "Manual" if view == "collection" else "Other Languages"
+    collection_type = section if section == "Official" else category
+    parsed = parse_tosec_name(path.name)
+    title = parsed["title"]
+    title_key = normalize_title(title)
+    system = parsed["system"] or memory
+    related_poks = poks.get((title_key, memory), [])
+    game_id = stable_id(str(path.resolve()))
+    languages = tuple(parsed["languages"])
+    countries = tuple(parsed["countries"])
+    return Game(
+        id=game_id,
+        title=title,
+        title_key=title_key,
+        sort_title=article_sort_title(title),
+        tosec_title=tosec_title_from_display(title),
+        memory=memory,
+        system=system,
+        section=section,
+        category=category,
+        type=collection_type,
+        language=format_languages(languages) or "Unknown",
+        extension=path.suffix.lower(),
+        path=str(path.resolve()),
+        file_name=path.name,
+        letter=folder_letter(title),
+        view=view,
+        year=parsed["year"],
+        publisher=parsed["publisher"],
+        languages=languages,
+        countries=countries,
+        tosec_tags=tuple(parsed["parentheses"]),
+        flags=tuple(parsed["brackets"]),
+        has_poks=bool(related_poks),
+        pok_count=len(related_poks),
+        favourite=game_id in favourites,
+        is_ulaplus="(ulaplus)" in path.stem.lower(),
+    )
+
+
+LANGUAGE_NAMES = {
+    "AR": "Arabic",
+    "CS": "Czech",
+    "DA": "Danish",
+    "DE": "German",
+    "EL": "Greek",
+    "EN": "English",
+    "ES": "Spanish",
+    "FI": "Finnish",
+    "FR": "French",
+    "HR": "Croatian",
+    "HU": "Hungarian",
+    "IT": "Italian",
+    "JA": "Japanese",
+    "KO": "Korean",
+    "NL": "Dutch",
+    "NO": "Norwegian",
+    "PL": "Polish",
+    "PT": "Portuguese",
+    "RO": "Romanian",
+    "RU": "Russian",
+    "SK": "Slovak",
+    "SV": "Swedish",
+    "TR": "Turkish",
+    "UZ": "Uzbek",
+}
+
+
+COUNTRY_NAMES = {
+    "BR": "Brazil",
+    "CA": "Canada",
+    "CZ": "Czech Republic",
+    "DE": "Germany",
+    "ES": "Spain",
+    "FR": "France",
+    "GB": "United Kingdom",
+    "GR": "Greece",
+    "HR": "Croatia",
+    "HU": "Hungary",
+    "IT": "Italy",
+    "JP": "Japan",
+    "NL": "Netherlands",
+    "PL": "Poland",
+    "PT": "Portugal",
+    "RO": "Romania",
+    "RU": "Russia",
+    "SK": "Slovakia",
+    "TR": "Turkey",
+    "US": "United States",
+    "UZ": "Uzbekistan",
+}
+
+
+COUNTRY_TO_DEFAULT_LANGUAGE = {
+    "BR": "PT",
+    "CZ": "CS",
+    "DE": "DE",
+    "ES": "ES",
+    "FR": "FR",
+    "GR": "EL",
+    "HR": "HR",
+    "HU": "HU",
+    "IT": "IT",
+    "JP": "JA",
+    "NL": "NL",
+    "PL": "PL",
+    "PT": "PT",
+    "RO": "RO",
+    "RU": "RU",
+    "SK": "SK",
+    "TR": "TR",
+    "UZ": "UZ",
+}
+
+
+LANGUAGE_ALIASES = {
+    "gr": "EL",
+    "jp": "JA",
+}
+
+ARTICLE_SUFFIX_TO_PREFIX = {
+    "a": "A",
+    "an": "An",
+    "the": "The",
+    "de": "De",
+    "het": "Het",
+    "der": "Der",
+    "die": "Die",
+    "das": "Das",
+    "le": "Le",
+    "la": "La",
+    "les": "Les",
+    "l'": "L'",
+    "el": "El",
+    "los": "Los",
+    "las": "Las",
+    "il": "Il",
+    "lo": "Lo",
+    "gli": "Gli",
+    "i": "I",
+}
+
+ARTICLE_PREFIXES = tuple(sorted((value for value in ARTICLE_SUFFIX_TO_PREFIX.values() if value != "I"), key=len, reverse=True))
+
+
+def is_placeholder_metadata_value(value: object) -> bool:
+    return str(value or "").strip() in {"", "-", "?"}
+
+
+def parse_tosec_name(file_name: str) -> dict[str, object]:
+    stem = Path(file_name).stem
+    parentheses = re.findall(r"\(([^()]*)\)", stem)
+    brackets = re.findall(r"\[([^\[\]]*)\]", stem)
+    tosec_title = re.split(r"\s+\(", stem, maxsplit=1)[0].strip() or stem
+    title = display_title_from_tosec(tosec_title)
+    year = ""
+    publisher = ""
+    languages: list[str] = []
+    countries: list[str] = []
+    systems: list[str] = []
+
+    for i, tag in enumerate(parentheses):
+        clean = tag.strip()
+        upper = clean.upper()
+        system = parse_system_tag(clean)
+        if system:
+            systems.append(system)
+        if not year and re.fullmatch(r"\d{4}(?:-\d{2}(?:-\d{2})?)?|19XX|20XX", upper):
+            year = clean
+            if i + 1 < len(parentheses):
+                candidate = parentheses[i + 1].strip()
+                if not is_placeholder_metadata_value(candidate):
+                    publisher = candidate
+            continue
+        language = parse_language_tag(clean)
+        country = parse_country_tag(clean)
+        if language and is_metadata_tag(clean):
+            languages.extend(language)
+        if country and is_metadata_tag(clean):
+            countries.extend(country)
+
+    for tag in brackets:
+        language = parse_language_tag(tag)
+        country = parse_country_tag(tag)
+        if language and is_metadata_tag(tag):
+            languages.extend(language)
+        if country and is_metadata_tag(tag):
+            countries.extend(country)
+
+    return {
+        "title": title,
+        "tosec_title": tosec_title,
+        "sort_title": article_sort_title(title),
+        "year": year,
+        "publisher": publisher,
+        "system": " / ".join(dedupe(systems)),
+        "languages": tuple(dedupe(languages)),
+        "countries": tuple(dedupe(countries)),
+        "parentheses": tuple(parentheses),
+        "brackets": tuple(brackets),
+    }
+
+
+def display_title_from_tosec(title: str) -> str:
+    text = re.sub(r"\s+", " ", title).strip()
+    match = re.match(r"^(.+),\s*([A-Za-z]+'?)$", text)
+    if not match:
+        return text
+    base = match.group(1).strip()
+    suffix = match.group(2).strip().lower()
+    article = ARTICLE_SUFFIX_TO_PREFIX.get(suffix)
+    if not article:
+        return text
+    if article.endswith("'"):
+        return f"{article}{base}"
+    return f"{article} {base}"
+
+
+def tosec_title_from_display(title: str) -> str:
+    text = re.sub(r"\s+", " ", title).strip()
+    for article in ARTICLE_PREFIXES:
+        pattern = rf"(?i)^{re.escape(article)}(?:\s+|(?=[A-Z0-9]))(.+)$" if article.endswith("'") else rf"(?i)^{re.escape(article)}\s+(.+)$"
+        match = re.match(pattern, text)
+        if not match:
+            continue
+        base = match.group(1).strip()
+        if not base:
+            return text
+        suffix = article
+        return f"{base}, {suffix}"
+    return text
+
+
+def article_sort_title(title: str) -> str:
+    text = display_title_from_tosec(title)
+    for article in ARTICLE_PREFIXES:
+        pattern = rf"(?i)^{re.escape(article)}(?:\s+|(?=[A-Z0-9]))(.+)$" if article.endswith("'") else rf"(?i)^{re.escape(article)}\s+(.+)$"
+        match = re.match(pattern, text)
+        if match:
+            return match.group(1).strip() or text
+    return text
+
+
+def parse_system_tag(tag: str) -> str:
+    normalized = tag.strip().upper().replace(" ", "")
+    if re.fullmatch(r"(?:16|48|128)K", normalized):
+        return normalized
+    if re.fullmatch(r"(?:16|48|128)K-(?:16|48|128)K", normalized):
+        return normalized
+    return ""
+
+
+def parse_language_tag(tag: str) -> list[str]:
+    codes: list[str] = []
+    for token in re.split(r"[-_,+/ ]+", tag.strip()):
+        if not token:
+            continue
+        if not token.islower():
+            continue
+        lower = token.lower()
+        upper = LANGUAGE_ALIASES.get(lower, lower.upper())
+        if upper in LANGUAGE_NAMES:
+            codes.append(upper)
+    return codes
+
+
+def is_metadata_tag(tag: str) -> bool:
+    tokens = [token for token in re.split(r"[-_,+/ ]+", tag.strip()) if token]
+    if not tokens:
+        return False
+    return all(is_language_token(token) or is_country_token(token) for token in tokens)
+
+
+def is_language_token(token: str) -> bool:
+    if not token.islower():
+        return False
+    upper = LANGUAGE_ALIASES.get(token.lower(), token.upper())
+    return upper in LANGUAGE_NAMES
+
+
+def is_country_token(token: str) -> bool:
+    return len(token) == 2 and token.isupper() and token in COUNTRY_NAMES
+
+
+def parse_country_tag(tag: str) -> list[str]:
+    countries: list[str] = []
+    for token in re.split(r"[-_,+/ ]+", tag.strip()):
+        if len(token) != 2 or not token.isupper():
+            continue
+        if token in COUNTRY_NAMES:
+            countries.append(token)
+    return countries
+
+
+def parse_report_language(value: str) -> list[str]:
+    if not value:
+        return []
+    return parse_language_tag(value)
+
+
+def format_languages(codes: tuple[str, ...] | list[str]) -> str:
+    if not codes:
+        return ""
+    return " / ".join(LANGUAGE_NAMES.get(code, code) for code in codes)
+
+
+def dedupe(items: list[str]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for item in items:
+        if item not in seen:
+            seen.add(item)
+            result.append(item)
+    return result
+
+
+def folder_letter(title: str) -> str:
+    normalized = normalize_title(article_sort_title(title))
+    if not normalized:
+        return "0-9"
+    first = normalized[0].upper()
+    return first if "A" <= first <= "Z" else "0-9"
+
+
+def normalize_title(title: str) -> str:
+    import re
+
+    text = article_sort_title(title).lower().replace("&", " and ")
+    text = re.sub(r"['`]", "", text)
+    text = re.sub(r"[^a-z0-9]+", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def stable_id(text: str) -> str:
+    import hashlib
+
+    return hashlib.sha1(text.lower().encode("utf-8")).hexdigest()[:16]
+
+
+LIBRARY = Library()
+
+
+class Handler(BaseHTTPRequestHandler):
+    server_version = "DesasteronSpectrumLauncher/0.1"
+
+    def do_GET(self) -> None:
+        parsed = urlparse(self.path)
+        if parsed.path == "/api/games":
+            params = parse_qs(parsed.query)
+            view = params.get("view", ["collection"])[0]
+            self.send_json({"games": LIBRARY.list_games(view)})
+            return
+        if parsed.path == "/api/collections":
+            self.send_json(collections_payload())
+            return
+        if parsed.path == "/api/job":
+            params = parse_qs(parsed.query)
+            self.send_json({"job": get_job(params.get("id", [""])[0])})
+            return
+        if parsed.path == "/api/emulators":
+            self.send_json({"emulators": emulator_payload()})
+            return
+        if parsed.path == "/api/emulator-profiles":
+            self.send_json({"profiles": emulator_profiles_payload()})
+            return
+        if parsed.path == "/api/scrapers":
+            self.send_json(scrapers_payload())
+            return
+        if parsed.path == "/api/poks":
+            params = parse_qs(parsed.query)
+            game = LIBRARY.get_game(params.get("game_id", [""])[0])
+            self.send_json({"poks": LIBRARY.get_poks(game) if game else []})
+            return
+        if parsed.path == "/api/asset":
+            self.serve_collection_asset(parse_qs(parsed.query))
+            return
+        if parsed.path == "/api/recent":
+            self.send_json({"recent": load_recent()})
+            return
+        self.serve_static(parsed.path)
+
+    def do_POST(self) -> None:
+        parsed = urlparse(self.path)
+        data = self.read_json()
+        if parsed.path == "/api/favourite":
+            game_id = str(data.get("game_id", ""))
+            favourite = bool(data.get("favourite", False))
+            game = LIBRARY.set_favourite(game_id, favourite)
+            if not game:
+                self.send_json({"ok": False, "error": "Unknown game"}, HTTPStatus.BAD_REQUEST)
+                return
+            set_favourite(game_id, favourite)
+            self.send_json({"ok": True, "game": asdict(game) if game else None})
+            return
+        if parsed.path == "/api/select-collection":
+            job_id = start_select_collection_job(str(data.get("collection_id", "")))
+            self.send_json({"ok": True, "job_id": job_id})
+            return
+        if parsed.path == "/api/add-collection":
+            result = add_collection(
+                str(data.get("root", "")),
+                str(data.get("name", "")),
+                bool(data.get("writable", False)),
+                bool(data.get("auto_metadata", False)),
+            )
+            self.send_json(result, HTTPStatus.OK if result.get("ok") else HTTPStatus.BAD_REQUEST)
+            return
+        if parsed.path == "/api/emulators":
+            result = update_emulators(data.get("emulators", []))
+            self.send_json(result, HTTPStatus.OK if result.get("ok") else HTTPStatus.BAD_REQUEST)
+            return
+        if parsed.path == "/api/scrapers":
+            result = update_scraper_config(data.get("scrapers", {}))
+            self.send_json(result, HTTPStatus.OK if result.get("ok") else HTTPStatus.BAD_REQUEST)
+            return
+        if parsed.path == "/api/emulator-profiles/import":
+            result = import_emulator_profile(data)
+            self.send_json(result, HTTPStatus.OK if result.get("ok") else HTTPStatus.BAD_REQUEST)
+            return
+        if parsed.path == "/api/emulator-profiles/update":
+            result = update_emulator_profile(data)
+            self.send_json(result, HTTPStatus.OK if result.get("ok") else HTTPStatus.BAD_REQUEST)
+            return
+        if parsed.path == "/api/emulator-profiles/delete":
+            result = delete_emulator_profile(str(data.get("profile_id", "")))
+            self.send_json(result, HTTPStatus.OK if result.get("ok") else HTTPStatus.BAD_REQUEST)
+            return
+        if parsed.path == "/api/emulator-profiles/update-source":
+            result = update_emulator_profile_from_source(str(data.get("profile_id", "")))
+            self.send_json(result, HTTPStatus.OK if result.get("ok") else HTTPStatus.BAD_REQUEST)
+            return
+        if parsed.path == "/api/pick-path":
+            result = pick_path(str(data.get("kind", "file")), str(data.get("title", "")), str(data.get("initial", "")))
+            status = HTTPStatus.OK if result.get("ok") or result.get("cancelled") else HTTPStatus.BAD_REQUEST
+            self.send_json(result, status)
+            return
+        if parsed.path == "/api/launch":
+            result = launch_game(
+                str(data.get("game_id", "")),
+                str(data.get("emulator", "default")),
+                str(data.get("launch_action", "")),
+                bool(data.get("force_new", False)),
+            )
+            status = HTTPStatus.OK if result.get("ok") else HTTPStatus.BAD_REQUEST
+            if result.get("needs_confirmation") or result.get("needs_choice"):
+                status = HTTPStatus.CONFLICT
+            self.send_json(result, status)
+            return
+        if parsed.path == "/api/open-pok":
+            result = open_pok(str(data.get("pok_id", "")))
+            self.send_json(result, HTTPStatus.OK if result.get("ok") else HTTPStatus.BAD_REQUEST)
+            return
+        if parsed.path == "/api/open-explorer":
+            result = open_in_explorer(str(data.get("game_id", "")))
+            self.send_json(result, HTTPStatus.OK if result.get("ok") else HTTPStatus.BAD_REQUEST)
+            return
+        if parsed.path == "/api/rename":
+            if not current_collection_writable():
+                self.send_json({"ok": False, "error": "Selected collection is read-only"}, HTTPStatus.BAD_REQUEST)
+                return
+            result = rename_game(str(data.get("game_id", "")), str(data.get("name", "")))
+            self.send_json(result, HTTPStatus.OK if result.get("ok") else HTTPStatus.BAD_REQUEST)
+            return
+        if parsed.path == "/api/update-metadata":
+            if not current_collection_writable():
+                self.send_json({"ok": False, "error": "Selected collection is read-only"}, HTTPStatus.BAD_REQUEST)
+                return
+            result = update_game_metadata(
+                data.get("game_ids", []),
+                data.get("changes", {}),
+                bool(data.get("rename_files", False)),
+            )
+            self.send_json(result, HTTPStatus.OK if result.get("ok") else HTTPStatus.BAD_REQUEST)
+            return
+        if parsed.path == "/api/metadata-preview":
+            if not current_collection_writable():
+                self.send_json({"ok": False, "error": "Selected collection is read-only"}, HTTPStatus.BAD_REQUEST)
+                return
+            result = preview_game_metadata(
+                data.get("game_ids", []),
+                data.get("changes", {}),
+                bool(data.get("rename_files", False)),
+            )
+            self.send_json(result, HTTPStatus.OK if result.get("ok") else HTTPStatus.BAD_REQUEST)
+            return
+        if parsed.path == "/api/scrape-preview":
+            result = scrape_preview(str(data.get("game_id", "")), str(data.get("provider", "manual")))
+            self.send_json(result, HTTPStatus.OK if result.get("ok") else HTTPStatus.BAD_REQUEST)
+            return
+        if parsed.path == "/api/apply-scrape":
+            if not current_collection_writable():
+                self.send_json({"ok": False, "error": "Selected collection is read-only"}, HTTPStatus.BAD_REQUEST)
+                return
+            result = apply_scrape_metadata(str(data.get("game_id", "")), data.get("candidate", {}), data.get("assets", {}), data.get("remote_assets", {}))
+            self.send_json(result, HTTPStatus.OK if result.get("ok") else HTTPStatus.BAD_REQUEST)
+            return
+        if parsed.path == "/api/delete":
+            if not current_collection_writable():
+                self.send_json({"ok": False, "error": "Selected collection is read-only"}, HTTPStatus.BAD_REQUEST)
+                return
+            result = delete_game(str(data.get("game_id", "")))
+            self.send_json(result, HTTPStatus.OK if result.get("ok") else HTTPStatus.BAD_REQUEST)
+            return
+        if parsed.path == "/api/import-incoming":
+            if not current_collection_writable():
+                self.send_json({"ok": False, "error": "Selected collection is read-only"}, HTTPStatus.BAD_REQUEST)
+                return
+            result = import_incoming_game(str(data.get("game_id", "")))
+            self.send_json(result, HTTPStatus.OK if result.get("ok") else HTTPStatus.BAD_REQUEST)
+            return
+        if parsed.path == "/api/import-incoming-bulk":
+            if not current_collection_writable():
+                self.send_json({"ok": False, "error": "Selected collection is read-only"}, HTTPStatus.BAD_REQUEST)
+                return
+            result = import_incoming_games(data.get("game_ids", []))
+            self.send_json(result, HTTPStatus.OK if result.get("ok") else HTTPStatus.BAD_REQUEST)
+            return
+        if parsed.path == "/api/restore-trash":
+            if not current_collection_writable():
+                self.send_json({"ok": False, "error": "Selected collection is read-only"}, HTTPStatus.BAD_REQUEST)
+                return
+            result = restore_trash_games(data.get("game_ids", data.get("game_id", [])))
+            self.send_json(result, HTTPStatus.OK if result.get("ok") else HTTPStatus.BAD_REQUEST)
+            return
+        if parsed.path == "/api/purge-trash":
+            if not current_collection_writable():
+                self.send_json({"ok": False, "error": "Selected collection is read-only"}, HTTPStatus.BAD_REQUEST)
+                return
+            result = purge_trash_games(data.get("game_ids", data.get("game_id", [])))
+            self.send_json(result, HTTPStatus.OK if result.get("ok") else HTTPStatus.BAD_REQUEST)
+            return
+        if parsed.path == "/api/move-language":
+            if not current_collection_writable():
+                self.send_json({"ok": False, "error": "Selected collection is read-only"}, HTTPStatus.BAD_REQUEST)
+                return
+            result = move_between_collection_and_languages(str(data.get("game_id", "")))
+            self.send_json(result, HTTPStatus.OK if result.get("ok") else HTTPStatus.BAD_REQUEST)
+            return
+        if parsed.path == "/api/rebuild":
+            job_id = start_rebuild_job()
+            self.send_json({"ok": True, "job_id": job_id})
+            return
+        self.send_error(HTTPStatus.NOT_FOUND)
+
+    def read_json(self) -> dict:
+        length = int(self.headers.get("content-length", "0"))
+        if length <= 0:
+            return {}
+        raw = self.rfile.read(length)
+        return json.loads(raw.decode("utf-8"))
+
+    def send_json(self, payload: dict, status: HTTPStatus = HTTPStatus.OK) -> None:
+        data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        self.send_response(status)
+        self.send_header("content-type", "application/json; charset=utf-8")
+        self.send_header("content-length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def serve_static(self, path: str) -> None:
+        rel = "index.html" if path in {"", "/"} else unquote(path.lstrip("/"))
+        target = (WEB / rel).resolve()
+        if not str(target).startswith(str(WEB.resolve())) or not target.exists() or not target.is_file():
+            self.send_error(HTTPStatus.NOT_FOUND)
+            return
+        data = target.read_bytes()
+        content_type = mimetypes.guess_type(target.name)[0] or "application/octet-stream"
+        self.send_response(HTTPStatus.OK)
+        self.send_header("content-type", content_type)
+        self.send_header("content-length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def serve_collection_asset(self, params: dict[str, list[str]]) -> None:
+        rel = unquote(params.get("path", [""])[0]).replace("\\", "/")
+        target = (COLLECTION / rel).resolve()
+        collection_root = COLLECTION.resolve()
+        if not str(target).startswith(str(collection_root)) or not target.exists() or not target.is_file():
+            self.send_error(HTTPStatus.NOT_FOUND)
+            return
+        data = target.read_bytes()
+        content_type = mimetypes.guess_type(target.name)[0] or "application/octet-stream"
+        self.send_response(HTTPStatus.OK)
+        self.send_header("content-type", content_type)
+        self.send_header("content-length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def log_message(self, format: str, *args) -> None:
+        log("%s - %s" % (self.address_string(), format % args))
+
+
+def emulator_payload() -> list[dict]:
+    payload = []
+    for key, emulator in configured_emulators(include_hidden=True).items():
+        if emulator.get("hidden"):
+            continue
+        path = expand_config_path(emulator.get("path"))
+        payload.append(
+            {
+                "id": key,
+                "name": str(emulator.get("name") or key),
+                "type": str(emulator.get("type") or ""),
+                "path": str(path) if path else "",
+                "working_dir": str(expand_config_path(emulator.get("working_dir")) or ""),
+                "supported_extensions": emulator.get("supported_extensions") or [],
+                "pok_helper_path": str(expand_config_path(emulator.get("pok_helper_path")) or ""),
+                "eightyone_config_target": str(expand_config_path(emulator.get("eightyone_config_target")) or ""),
+                "available": True if not path else path.exists(),
+            }
+        )
+    return payload
+
+
+def set_favourite(game_id: str, favourite: bool) -> None:
+    if not game_id:
+        return
+    state = load_state()
+    favourites = set(state.get("favourites", []))
+    if favourite:
+        favourites.add(game_id)
+    else:
+        favourites.discard(game_id)
+    state["favourites"] = sorted(favourites)
+    save_state(state)
+
+
+def load_recent() -> list[dict[str, str]]:
+    recent = load_state().get("recent", [])
+    recent.sort(key=lambda item: item.get("played_at", ""), reverse=True)
+    return recent[:30]
+
+
+def mark_recent(game_id: str) -> None:
+    state = load_state()
+    recent = [item for item in state.get("recent", []) if item.get("game_id") != game_id]
+    recent.insert(0, {"game_id": game_id, "played_at": dt.datetime.now(dt.UTC).isoformat(timespec="seconds")})
+    state["recent"] = recent[:30]
+    save_state(state)
+
+
+def update_emulators(payload: object) -> dict:
+    if not isinstance(payload, list):
+        return {"ok": False, "error": "Expected emulator list"}
+    allowed_ids = {"eightyone", "spectaculator"}
+    updates: dict[str, dict[str, object]] = {}
+    for item in payload:
+        if not isinstance(item, dict):
+            continue
+        emulator_id = str(item.get("id", ""))
+        if emulator_id not in allowed_ids:
+            continue
+        updates[emulator_id] = {
+            "name": clean_metadata_text(item.get("name", "")) or DEFAULT_EMULATORS[emulator_id]["name"],
+            "path": str(item.get("path", "")).strip(),
+            "working_dir": str(item.get("working_dir", "")).strip(),
+            "supported_extensions": split_extensions(item.get("supported_extensions", [])),
+        }
+        if emulator_id == "eightyone":
+            updates[emulator_id].update(
+                {
+                    "eightyone_config_target": str(item.get("eightyone_config_target", "")).strip(),
+                }
+            )
+        if emulator_id == "spectaculator":
+            pok_helper = str(item.get("pok_helper_path", "")).strip()
+            updates[emulator_id]["pok_helper_path"] = pok_helper
+            updates["spectaculator_stub"] = {
+                **configured_emulators(include_hidden=True).get("spectaculator_stub", DEFAULT_EMULATORS["spectaculator_stub"]),
+                "path": pok_helper,
+                "working_dir": str(item.get("working_dir", "")).strip(),
+            }
+    save_emulator_config(updates)
+    return {"ok": True, "emulators": emulator_payload()}
+
+
+def split_extensions(value: object) -> list[str]:
+    if isinstance(value, list):
+        raw = value
+    else:
+        raw = re.split(r"[,\s;]+", str(value or ""))
+    extensions = []
+    for item in raw:
+        ext = str(item).strip().lower()
+        if not ext:
+            continue
+        if not ext.startswith("."):
+            ext = f".{ext}"
+        if ext not in extensions:
+            extensions.append(ext)
+    return extensions
+
+
+def prepare_emulator_profile(emulator: dict[str, object], game: Game) -> None:
+    if emulator.get("type") != "eightyone":
+        return
+    target = expand_config_path(emulator.get("eightyone_config_target"))
+    if not target:
+        return
+    managed_profile = select_managed_profile("eightyone", game)
+    if managed_profile:
+        source = expand_config_path(managed_profile.get("managed_path"))
+        if not source or not source.exists():
+            raise FileNotFoundError(f"Missing managed EightyOne profile: {managed_profile.get('name')}")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(source.read_bytes())
+
+
+def launch_game(game_id: str, emulator_id: str, launch_action: str = "", force_new: bool = False) -> dict:
+    game = LIBRARY.get_game(game_id)
+    if not game:
+        return {"ok": False, "error": "Unknown game"}
+    path = Path(game.path)
+    if not path.exists():
+        return {"ok": False, "error": f"Missing game file: {path}"}
+
+    emulators = configured_emulators(include_hidden=True)
+    emulator = emulators.get(emulator_id) or emulators["default"]
+    emulator_path = expand_config_path(emulator.get("path"))
+    if force_new:
+        launch_action = "new"
+    try:
+        running_hwnd = find_running_emulator_window(emulator_id)
+        if running_hwnd:
+            if launch_action == "current" and emulator_id in {"spectaculator", "spectaculator_stub", "default"}:
+                return send_to_running_spectaculator(path, game_id, running_hwnd)
+            if launch_action == "current":
+                return {"ok": False, "error": "This emulator cannot accept a game in the running instance."}
+            if launch_action != "new":
+                return running_emulator_choice_payload(emulator_id)
+
+        process = None
+        if emulator_path is None:
+            os.startfile(str(path))  # type: ignore[attr-defined]
+        else:
+            if not emulator_path.exists():
+                return {"ok": False, "error": f"Missing emulator: {emulator_path}"}
+            prepare_emulator_profile(emulator, game)
+            working_dir = expand_config_path(emulator.get("working_dir")) or emulator_path.parent
+            process = launch_visible([str(emulator_path), str(path)], working_dir)
+        mark_recent(game_id)
+        payload = {"ok": True}
+        if process is not None:
+            payload["pid"] = process.pid
+            time.sleep(0.4)
+            if should_check_immediate_exit(emulator_path) and process.poll() is not None:
+                return {"ok": False, "error": f"Emulator exited immediately with code {process.returncode}"}
+        focus_launched_emulator(emulator_id, process)
+        return payload
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
+
+
+def running_emulator_choice_payload(emulator_id: str) -> dict:
+    emulators = configured_emulators(include_hidden=True)
+    emulator = emulators.get(emulator_id) or emulators["default"]
+    name = str(emulator.get("name") or emulator_id)
+    supports_current = emulator_id in {"spectaculator", "spectaculator_stub", "default"}
+    supports_new = emulator_id in {"eightyone", "spectaculator"}
+    return {
+        "ok": False,
+        "needs_choice": True,
+        "emulator": emulator_id,
+        "emulator_name": name,
+        "supports_current": supports_current,
+        "supports_new": supports_new,
+        "error": f"{name} is already running.",
+    }
+
+
+def send_to_running_spectaculator(path: Path, game_id: str, running_hwnd: int) -> dict:
+    spec_stub = expand_config_path(configured_emulators(include_hidden=True)["spectaculator_stub"].get("path"))
+    if spec_stub is None or not spec_stub.exists():
+        bring_window_to_front(running_hwnd)
+        return {
+            "ok": False,
+            "needs_confirmation": True,
+            "error": "Spectaculator is already running, but SpecStub.exe is missing. Start a second copy?",
+        }
+
+    process = launch_visible([str(spec_stub), str(path)], spec_stub.parent)
+    mark_recent(game_id)
+    focus_launched_emulator("spectaculator_stub", process)
+    return {"ok": True, "pid": process.pid, "reused": True}
+
+
+def open_pok(pok_id: str) -> dict:
+    pok = LIBRARY.get_pok(pok_id)
+    if not pok:
+        return {"ok": False, "error": "Unknown POK"}
+    path = Path(pok.get("path", ""))
+    if not path.exists():
+        return {"ok": False, "error": f"Missing POK file: {path}"}
+
+    spec_stub = expand_config_path(configured_emulators(include_hidden=True)["spectaculator_stub"].get("path"))
+    if spec_stub is None or not spec_stub.exists():
+        return {"ok": False, "error": f"Missing Spectaculator helper: {spec_stub}"}
+
+    try:
+        process = launch_visible([str(spec_stub), str(path)], spec_stub.parent)
+        focus_launched_emulator("spectaculator_stub", process)
+        return {"ok": True, "pid": process.pid, "path": str(path)}
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
+
+
+def open_in_explorer(game_id: str) -> dict:
+    game = LIBRARY.get_game(game_id)
+    if not game:
+        return {"ok": False, "error": "Unknown game"}
+    path = Path(game.path)
+    if not path.exists():
+        return {"ok": False, "error": f"Missing game file: {path}"}
+    if os.name == "nt":
+        subprocess.Popen(["explorer.exe", f"/select,{path}"])
+    else:
+        webbrowser.open(str(path.parent))
+    return {"ok": True}
+
+
+def rename_game(game_id: str, name: str) -> dict:
+    game = LIBRARY.get_game(game_id)
+    if not game:
+        return {"ok": False, "error": "Unknown game"}
+    source = Path(game.path)
+    if not source.exists():
+        return {"ok": False, "error": f"Missing game file: {source}"}
+    cleaned = clean_file_name(name)
+    if not cleaned:
+        return {"ok": False, "error": "Please enter a filename"}
+    requested = Path(cleaned)
+    if requested.suffix and requested.suffix.lower() != source.suffix.lower():
+        return {"ok": False, "error": f"File extension must stay {source.suffix}"}
+    target_stem = requested.stem if requested.suffix else cleaned
+    target_name = f"{target_stem}{source.suffix}"
+    target = unique_path(source.with_name(target_name))
+    source.replace(target)
+    update_metadata_game(game_id, file=collection_relative(target), format=target.suffix.lower())
+    LIBRARY.rebuild()
+    return {"ok": True, "path": str(target), "name": target.name}
+
+
+def apply_scrape_metadata(game_id: str, candidate: object, assets: object | None = None, remote_assets: object | None = None) -> dict:
+    if not isinstance(candidate, dict):
+        return {"ok": False, "error": "Missing scrape candidate"}
+    game = LIBRARY.get_game(game_id)
+    if not game:
+        return {"ok": False, "error": "Unknown game"}
+    changes = scrape_candidate_changes(candidate, assets if isinstance(assets, dict) else {}, remote_assets if isinstance(remote_assets, dict) else {})
+    if not changes:
+        return {"ok": False, "error": "Scrape candidate has no usable metadata"}
+    result = update_game_metadata([game_id], changes, False)
+    if not result.get("ok"):
+        return result
+    updated = LIBRARY.get_game(game_id)
+    return {"ok": True, "updated_count": result.get("updated_count", 0), "changes": changes, "game": asdict(updated) if updated else None}
+
+
+def scrape_candidate_changes(candidate: dict, assets: dict, remote_assets: dict) -> dict:
+    changes: dict[str, object] = {}
+    for key in ("title", "year", "publisher", "genre", "developer", "platform", "region", "players", "coop", "rating", "youtube_id", "description", "scraper_source", "scraper_id"):
+        value = clean_metadata_text(candidate.get(key, ""), max_len=2000 if key == "description" else 160)
+        if value:
+            changes["date" if key == "year" else key] = value
+    screenshot = clean_asset_path(remote_assets.get("screenshot") or candidate.get("screenshot"))
+    loading_screen = clean_asset_path(remote_assets.get("loading_screen") or candidate.get("loading_screen"))
+    if screenshot:
+        changes["screenshot"] = screenshot
+    if loading_screen:
+        changes["loading_screen"] = loading_screen
+    return changes
+
+
+def update_game_metadata(game_ids: object, changes: object, rename_files: bool = False) -> dict:
+    if not isinstance(game_ids, list) or not game_ids:
+        return {"ok": False, "error": "No games selected"}
+    if not isinstance(changes, dict):
+        return {"ok": False, "error": "Missing metadata changes"}
+    ensure_metadata_file()
+    metadata = load_metadata()
+    items = metadata.setdefault("games", [])
+    by_id = {str(item.get("id", "")): item for item in items}
+    updated: list[dict[str, str]] = []
+    errors: list[str] = []
+    warnings: list[str] = []
+
+    for raw_game_id in game_ids:
+        game_id = str(raw_game_id)
+        game = LIBRARY.get_game(game_id)
+        if not game:
+            errors.append(f"Unknown game: {game_id}")
+            continue
+        item = by_id.get(game_id)
+        if item is None:
+            item = game_to_metadata_item(game, [])
+            items.append(item)
+            by_id[game_id] = item
+        result = apply_metadata_changes(game, item, changes, rename_files)
+        if result.get("ok"):
+            updated.append({"id": game_id, "file": str(item.get("file", ""))})
+            warnings.extend(str(warning) for warning in result.get("warnings", []))
+        else:
+            errors.append(str(result.get("error") or game.file_name))
+
+    if updated:
+        save_metadata(metadata)
+        LIBRARY.rebuild()
+    return {"ok": not errors, "updated": updated, "errors": errors, "warnings": warnings, "updated_count": len(updated)}
+
+
+def preview_game_metadata(game_ids: object, changes: object, rename_files: bool = False) -> dict:
+    if not isinstance(game_ids, list) or not game_ids:
+        return {"ok": False, "error": "No games selected"}
+    if not isinstance(changes, dict):
+        return {"ok": False, "error": "Missing metadata changes"}
+    metadata = load_metadata()
+    by_id = {str(item.get("id", "")): item for item in metadata.get("games", [])}
+    previews = []
+    warnings: list[str] = []
+    change_labels = metadata_change_labels(changes)
+
+    for raw_game_id in game_ids[:50]:
+        game_id = str(raw_game_id)
+        game = LIBRARY.get_game(game_id)
+        if not game:
+            continue
+        original = by_id.get(game_id) or game_to_metadata_item(game, [])
+        item = dict(original)
+        apply_metadata_values(game, item, changes)
+        source = Path(game.path)
+        target = build_metadata_target_path(source, item, str(original.get("title") or game.title)) if rename_files else source
+        collision = rename_files and target.exists() and target.resolve() != source.resolve()
+        new_target = unique_path(target) if collision else target
+        item_warnings = metadata_edit_warnings(
+            original.get("title_key") or game.title_key,
+            original.get("system") or game.system,
+            original.get("memory") or game.memory,
+            item,
+        )
+        if collision:
+            item_warnings.append("filename collision; a suffix will be added")
+        warnings.extend(item_warnings)
+        previews.append(
+            {
+                "id": game_id,
+                "title": item.get("title", game.title),
+                "current_filename": source.name,
+                "new_filename": new_target.name,
+                "current_folder": collection_relative(source.parent),
+                "new_folder": collection_relative(new_target.parent),
+                "rename_files": rename_files,
+                "filename_changed": source.name != new_target.name or source.parent.resolve() != new_target.parent.resolve(),
+                "warnings": item_warnings,
+            }
+        )
+
+    return {
+        "ok": True,
+        "count": len(game_ids),
+        "preview_count": len(previews),
+        "changes": change_labels,
+        "rename_files": rename_files,
+        "warnings": dedupe(warnings),
+        "previews": previews,
+    }
+
+
+def scrape_preview(game_id: str, provider_id: str = "manual") -> dict:
+    game = LIBRARY.get_game(game_id)
+    if not game:
+        return {"ok": False, "error": "Unknown game"}
+    provider = configured_scrapers().get(provider_id)
+    if not provider:
+        return {"ok": False, "error": f"Unknown scraper provider: {provider_id}"}
+    if provider.get("type") != "manual" and not provider.get("enabled", False):
+        return {"ok": False, "error": f"{provider.get('name', provider_id)} is disabled"}
+    if provider.get("type") != "manual" and not provider.get("configured"):
+        return {"ok": False, "error": f"{provider.get('name', provider_id)} is not configured yet"}
+    if provider.get("type") == "manual":
+        return manual_scrape_preview(game, provider)
+    if provider.get("type") == "screenscraper":
+        try:
+            return screenscraper_scrape_preview(game, provider)
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+    if provider.get("type") == "thegamesdb":
+        try:
+            return thegamesdb_scrape_preview(game, provider)
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+    return {
+        "ok": False,
+        "error": f"{provider.get('name', provider_id)} provider scaffold exists, but live scraping is not implemented yet",
+    }
+
+
+def screenscraper_scrape_preview(game: Game, provider: dict[str, object]) -> dict:
+    data = screenscraper_request(game, provider)
+    game_data = (data.get("response") or {}).get("jeu") if isinstance(data.get("response"), dict) else None
+    if not isinstance(game_data, dict):
+        return {
+            "ok": True,
+            "provider": scraper_public_identity(provider),
+            "game": import_match_summary(game),
+            "query": scrape_identity(game),
+            "matches": [],
+            "warnings": ["ScreenScraper returned no game match."],
+        }
+    candidate = screenscraper_candidate(game_data, provider)
+    candidate["scraper_source"] = "screenscraper"
+    candidate["scraper_id"] = str(game_data.get("id") or game_data.get("gameid") or "")
+    return {
+        "ok": True,
+        "provider": scraper_public_identity(provider),
+        "game": import_match_summary(game),
+        "query": scrape_identity(game),
+        "matches": [
+            {
+                "match_id": candidate["scraper_id"] or "screenscraper",
+                "confidence": screenscraper_confidence(game, candidate),
+                "reason": "ScreenScraper game lookup by filename and configured Spectrum system id.",
+                "candidate": candidate,
+                "assets": scrape_asset_targets(game),
+                "remote_assets": screenscraper_assets(game_data, provider),
+            }
+        ],
+    }
+
+
+def thegamesdb_scrape_preview(game: Game, provider: dict[str, object]) -> dict:
+    data = thegamesdb_request(game, provider, game.title)
+    games = (((data.get("data") or {}).get("games")) if isinstance(data.get("data"), dict) else []) or []
+    query_title = game.title
+    if not games:
+        fallback_title = simplified_scrape_title(game.title)
+        if fallback_title and fallback_title != game.title:
+            data = thegamesdb_request(game, provider, fallback_title)
+            games = (((data.get("data") or {}).get("games")) if isinstance(data.get("data"), dict) else []) or []
+            query_title = fallback_title
+    if isinstance(games, dict):
+        games = list(games.values())
+    includes = (data.get("include") or {}) if isinstance(data.get("include"), dict) else {}
+    image_base = thegamesdb_image_base(includes)
+    image_lookup: dict = {}
+    image_warning = ""
+    game_ids = [str(row.get("id") or "") for row in games[:8] if isinstance(row, dict) and row.get("id")]
+    if game_ids:
+        try:
+            image_lookup = thegamesdb_images_request(provider, game_ids)
+        except ValueError as exc:
+            image_warning = str(exc)
+    matches = []
+    for row in games[:8]:
+        if not isinstance(row, dict):
+            continue
+        candidate = thegamesdb_candidate(row, includes, provider)
+        candidate["scraper_source"] = "thegamesdb"
+        candidate["scraper_id"] = str(row.get("id") or "")
+        remote_assets = thegamesdb_assets(row, includes, image_base)
+        image_assets = thegamesdb_image_assets(candidate["scraper_id"], image_lookup)
+        remote_assets = {**remote_assets, **{key: value for key, value in image_assets.items() if value}}
+        matches.append(
+            {
+                "match_id": candidate["scraper_id"] or stable_id(candidate.get("title", "")),
+                "confidence": screenscraper_confidence(game, candidate),
+                "reason": "TheGamesDB title lookup filtered by configured Spectrum platform id.",
+                "candidate": candidate,
+                "assets": scrape_asset_targets(game),
+                "remote_assets": remote_assets,
+            }
+        )
+    matches.sort(key=lambda item: item.get("confidence", 0), reverse=True)
+    return {
+        "ok": True,
+        "provider": scraper_public_identity(provider),
+        "game": import_match_summary(game),
+        "query": {**scrape_identity(game), "lookup_title": query_title},
+        "matches": matches,
+        "warnings": ([image_warning] if image_warning else []) if matches else ["TheGamesDB returned no game match."],
+    }
+
+
+def thegamesdb_request(game: Game, provider: dict[str, object], title: str) -> dict:
+    base_url = str(provider.get("base_url") or "https://api.thegamesdb.net/v1").rstrip("/")
+    params = {
+        "apikey": str(provider.get("api_key", "")),
+        "name": title,
+        "fields": "players,publishers,genres,overview,rating,platform,release_date,developers,coop,youtube",
+        "include": "boxart,genres,publishers,platform",
+    }
+    platform_id = str(provider.get("platform_id", "")).strip()
+    if platform_id:
+        params["filter[platform]"] = platform_id
+    url = f"{base_url}/Games/ByGameName?{urlencode(params)}"
+    request = Request(url, headers={"User-Agent": "DesasteronSpectrumLauncher/0.1"})
+    try:
+        with urlopen(request, timeout=30) as response:
+            raw = response.read(1024 * 1024 * 4).decode("utf-8", errors="replace")
+    except HTTPError as exc:
+        detail = exc.read(4096).decode("utf-8", errors="replace")
+        raise ValueError(f"TheGamesDB HTTP {exc.code}: {detail[:240]}")
+    except URLError as exc:
+        raise ValueError(f"TheGamesDB request failed: {exc.reason}")
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"TheGamesDB returned invalid JSON: {exc}")
+
+
+def thegamesdb_images_request(provider: dict[str, object], game_ids: list[str]) -> dict:
+    base_url = str(provider.get("base_url") or "https://api.thegamesdb.net/v1").rstrip("/")
+    params = {
+        "apikey": str(provider.get("api_key", "")),
+        "games_id": ",".join(game_ids),
+    }
+    url = f"{base_url}/Games/Images?{urlencode(params)}"
+    request = Request(url, headers={"User-Agent": "DesasteronSpectrumLauncher/0.1"})
+    try:
+        with urlopen(request, timeout=30) as response:
+            raw = response.read(1024 * 1024 * 4).decode("utf-8", errors="replace")
+    except HTTPError as exc:
+        detail = exc.read(4096).decode("utf-8", errors="replace")
+        raise ValueError(f"TheGamesDB image lookup HTTP {exc.code}: {detail[:240]}")
+    except URLError as exc:
+        raise ValueError(f"TheGamesDB image lookup failed: {exc.reason}")
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"TheGamesDB image lookup returned invalid JSON: {exc}")
+
+
+def simplified_scrape_title(title: str) -> str:
+    text = re.sub(r"\bv\d+(?:\.\d+)*\b", "", title, flags=re.IGNORECASE)
+    text = re.sub(r"\b(?:demo|preview|beta|alpha|final|release|remake)\b$", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"\s+", " ", text).strip(" -_")
+    return text
+
+
+def thegamesdb_candidate(row: dict, includes: dict, provider: dict[str, object]) -> dict[str, str]:
+    publisher_names = lookup_tgdb_names(row.get("publishers"), includes.get("publishers"), provider, "publishers")
+    developer_names = lookup_tgdb_names(row.get("developers"), includes.get("developers"), provider, "developers")
+    genre_names = lookup_tgdb_names(row.get("genres"), includes.get("genres"), provider, "genres")
+    platform_names = lookup_tgdb_names(row.get("platform"), includes.get("platform"))
+    release_date = clean_metadata_text(row.get("release_date") or row.get("release_date_eu") or row.get("release_date_us") or "", max_len=24)
+    return {
+        "title": clean_metadata_text(row.get("game_title") or row.get("title") or row.get("name") or ""),
+        "year": release_date or extract_year(row.get("release_date") or row.get("release_date_eu") or row.get("release_date_us") or ""),
+        "publisher": publisher_names[0] if publisher_names else "",
+        "genre": ", ".join(genre_names),
+        "developer": ", ".join(developer_names),
+        "platform": platform_names[0] if platform_names else "",
+        "region": clean_metadata_text(row.get("region") or row.get("release_region") or ""),
+        "players": clean_metadata_text(row.get("players") or "", max_len=24),
+        "coop": clean_metadata_text(row.get("coop") or "", max_len=24),
+        "rating": clean_metadata_text(row.get("rating") or "", max_len=80),
+        "youtube_id": clean_youtube_id(row.get("youtube") or row.get("youtube_id") or ""),
+        "description": clean_metadata_text(row.get("overview") or "", max_len=2000),
+        "screenshot": "",
+        "loading_screen": "",
+    }
+
+
+def lookup_tgdb_names(ids: object, include_rows: object, provider: dict[str, object] | None = None, lookup_kind: str = "") -> list[str]:
+    include_map: dict[str, dict] = {}
+    rows = include_rows
+    if isinstance(rows, dict) and isinstance(rows.get("data"), dict):
+        rows = rows.get("data")
+    if isinstance(rows, dict):
+        include_map = {str(key): value for key, value in rows.items() if isinstance(value, dict)}
+    if provider and lookup_kind and not include_map:
+        include_map = {key: {"name": value} for key, value in thegamesdb_lookup_table(provider, lookup_kind).items()}
+    values = ids if isinstance(ids, list) else ([ids] if ids else [])
+    names = []
+    for value in values:
+        row = include_map.get(str(value))
+        if row:
+            name = clean_metadata_text(row.get("name") or row.get("genre") or row.get("publisher") or "")
+            if name:
+                names.append(name)
+    return dedupe(names)
+
+
+def thegamesdb_lookup_table(provider: dict[str, object], kind: str) -> dict[str, str]:
+    kind = kind.lower()
+    if kind in TGDB_LOOKUP_CACHE:
+        return TGDB_LOOKUP_CACHE[kind]
+    endpoint_map = {"publishers": "Publishers", "developers": "Developers", "genres": "Genres"}
+    endpoint = endpoint_map.get(kind)
+    if not endpoint:
+        return {}
+    base_url = str(provider.get("base_url") or "https://api.thegamesdb.net/v1").rstrip("/")
+    url = f"{base_url}/{endpoint}?{urlencode({'apikey': str(provider.get('api_key', ''))})}"
+    request = Request(url, headers={"User-Agent": "DesasteronSpectrumLauncher/0.1"})
+    try:
+        with urlopen(request, timeout=30) as response:
+            raw = response.read(1024 * 1024 * 8).decode("utf-8", errors="replace")
+        payload = json.loads(raw)
+    except (HTTPError, URLError, json.JSONDecodeError):
+        return {}
+    rows = (((payload.get("data") or {}).get(kind)) if isinstance(payload.get("data"), dict) else {}) or {}
+    lookup = {
+        str(key): clean_metadata_text(value.get("name") or value.get("genre") or value.get("publisher") or "")
+        for key, value in rows.items()
+        if isinstance(value, dict)
+    }
+    TGDB_LOOKUP_CACHE[kind] = {key: value for key, value in lookup.items() if value}
+    return TGDB_LOOKUP_CACHE[kind]
+
+
+def thegamesdb_image_base(includes: dict) -> str:
+    boxart = includes.get("boxart") if isinstance(includes, dict) else {}
+    if isinstance(boxart, dict):
+        base = boxart.get("base_url") or boxart.get("base_url_original") or boxart.get("base_url_thumb")
+        if isinstance(base, str):
+            return base.rstrip("/")
+        if isinstance(base, dict):
+            for key in ("original", "large", "medium", "small", "thumb", "cropped_center_thumb"):
+                value = base.get(key)
+                if isinstance(value, str) and value:
+                    return value.rstrip("/")
+    return ""
+
+
+def thegamesdb_assets(row: dict, includes: dict, image_base: str) -> dict[str, str]:
+    game_id = str(row.get("id") or "")
+    boxart = includes.get("boxart") if isinstance(includes, dict) else {}
+    data = boxart.get("data") if isinstance(boxart, dict) else {}
+    rows = []
+    if isinstance(data, dict):
+        rows = data.get(game_id) or []
+    if isinstance(rows, dict):
+        rows = [rows]
+    screenshot = ""
+    loading = ""
+    for item in rows if isinstance(rows, list) else []:
+        if not isinstance(item, dict):
+            continue
+        path = clean_metadata_text(item.get("filename") or item.get("image") or item.get("url"), max_len=500)
+        if not path:
+            continue
+        url = path if path.startswith(("http://", "https://")) else f"{image_base}/{path.lstrip('/')}" if image_base else path
+        side = str(item.get("side", "")).lower()
+        image_type = str(item.get("type", "")).lower()
+        if not screenshot and any(token in image_type for token in ("screenshot", "screen", "fanart")):
+            screenshot = url
+        if not loading and ("front" in side or "boxart" in image_type or "banner" in image_type):
+            loading = url
+    return {"screenshot": screenshot, "loading_screen": loading}
+
+
+def thegamesdb_image_assets(game_id: str, image_data: dict) -> dict[str, str]:
+    data = image_data.get("data") if isinstance(image_data, dict) else {}
+    if not isinstance(data, dict):
+        return {"screenshot": "", "loading_screen": ""}
+    base_url = thegamesdb_direct_image_base(data)
+    images = data.get("images") if isinstance(data.get("images"), dict) else {}
+    rows = images.get(str(game_id), []) if isinstance(images, dict) else []
+    if isinstance(rows, dict):
+        rows = [rows]
+    screenshot = ""
+    loading = ""
+    for item in rows if isinstance(rows, list) else []:
+        if not isinstance(item, dict):
+            continue
+        path = clean_metadata_text(item.get("filename") or item.get("image") or item.get("url"), max_len=500)
+        if not path:
+            continue
+        url = path if path.startswith(("http://", "https://")) else f"{base_url}/{path.lstrip('/')}" if base_url else path
+        side = str(item.get("side", "")).lower()
+        image_type = str(item.get("type", "")).lower()
+        if not screenshot and any(token in image_type for token in ("screenshot", "screen")):
+            screenshot = url
+        if not loading and ("front" in side or "boxart" in image_type or "banner" in image_type):
+            loading = url
+    return {"screenshot": screenshot, "loading_screen": loading}
+
+
+def thegamesdb_direct_image_base(data: dict) -> str:
+    base = data.get("base_url") if isinstance(data, dict) else {}
+    if isinstance(base, str):
+        return base.rstrip("/")
+    if isinstance(base, dict):
+        for key in ("original", "large", "medium", "small", "thumb", "cropped_center_thumb"):
+            value = base.get(key)
+            if isinstance(value, str) and value:
+                return value.rstrip("/")
+    return ""
+
+
+def screenscraper_request(game: Game, provider: dict[str, object]) -> dict:
+    base_url = str(provider.get("base_url") or "https://www.screenscraper.fr/api2").rstrip("/")
+    path = Path(game.path)
+    params = {
+        "softname": str(provider.get("softname") or "DesasteronSpectrumLauncher"),
+        "ssid": str(provider.get("username", "")),
+        "sspassword": str(provider.get("password", "")),
+        "output": "json",
+        "systemeid": str(provider.get("system_id", "")),
+        "romtype": "rom",
+        "romnom": game.file_name,
+    }
+    developer_id = str(provider.get("developer_id", "")).strip()
+    developer_password = str(provider.get("developer_password", "")).strip()
+    if developer_id:
+        params["devid"] = developer_id
+    if developer_password:
+        params["devpassword"] = developer_password
+    if path.exists():
+        params["romtaille"] = str(path.stat().st_size)
+    url = f"{base_url}/jeuInfos.php?{urlencode(params)}"
+    request = Request(url, headers={"User-Agent": "DesasteronSpectrumLauncher/0.1"})
+    try:
+        with urlopen(request, timeout=30) as response:
+            raw = response.read(1024 * 1024 * 4).decode("utf-8", errors="replace")
+    except HTTPError as exc:
+        detail = exc.read(4096).decode("utf-8", errors="replace")
+        raise ValueError(f"ScreenScraper HTTP {exc.code}: {detail[:240]}")
+    except URLError as exc:
+        raise ValueError(f"ScreenScraper request failed: {exc.reason}")
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"ScreenScraper returned invalid JSON: {exc}")
+
+
+def scraper_public_identity(provider: dict[str, object]) -> dict[str, object]:
+    return {
+        "id": provider.get("id", ""),
+        "name": provider.get("name", ""),
+        "type": provider.get("type", ""),
+    }
+
+
+def screenscraper_candidate(game_data: dict, provider: dict[str, object]) -> dict[str, str]:
+    language = str(provider.get("preferred_language") or "en").lower()
+    region = str(provider.get("preferred_region") or "wor").lower()
+    title = choose_localized_text(game_data.get("noms"), region, language) or clean_metadata_text(game_data.get("nom", ""))
+    date = choose_localized_text(game_data.get("dates"), region, language) or clean_metadata_text(game_data.get("date", ""))
+    publisher = nested_text(game_data.get("editeur")) or nested_text(game_data.get("publisher"))
+    genre = choose_genre(game_data.get("genres"), language)
+    description = choose_localized_text(game_data.get("synopsis"), region, language) or choose_localized_text(game_data.get("descriptif"), region, language)
+    return {
+        "title": title,
+        "year": extract_year(date),
+        "publisher": publisher,
+        "genre": genre,
+        "description": description,
+        "screenshot": "",
+        "loading_screen": "",
+    }
+
+
+def screenscraper_confidence(game: Game, candidate: dict[str, str]) -> int:
+    score = 20
+    if normalize_title(candidate.get("title", "")) == game.title_key:
+        score += 55
+    elif normalize_title(candidate.get("title", "")) in game.title_key or game.title_key in normalize_title(candidate.get("title", "")):
+        score += 35
+    if candidate.get("year") and candidate.get("year") == gameYear_py(game.year):
+        score += 15
+    if candidate.get("publisher") and normalize_title(candidate.get("publisher", "")) == normalize_title(game.publisher):
+        score += 10
+    return max(0, min(100, score))
+
+
+def gameYear_py(value: str) -> str:
+    match = re.search(r"\d{4}|19XX|20XX", str(value or ""), re.IGNORECASE)
+    return match.group(0).upper() if match else ""
+
+
+def extract_year(value: object) -> str:
+    return gameYear_py(str(value or ""))
+
+
+def nested_text(value: object) -> str:
+    if isinstance(value, str):
+        return clean_metadata_text(value)
+    if isinstance(value, dict):
+        for key in ("text", "nom", "name"):
+            if value.get(key):
+                return clean_metadata_text(value.get(key))
+    return ""
+
+
+def choose_localized_text(value: object, region: str = "wor", language: str = "en") -> str:
+    rows = value if isinstance(value, list) else []
+    if isinstance(value, dict):
+        rows = [value]
+    if not rows:
+        return nested_text(value)
+    preferred_regions = [region, "wor", "eu", "us", "gb", "ss", "jp", "fr", "de"]
+    preferred_languages = [language, "en", "de", "fr"]
+    for key, preferred in (("region", preferred_regions), ("langue", preferred_languages), ("language", preferred_languages)):
+        for wanted in preferred:
+            for row in rows:
+                if isinstance(row, dict) and str(row.get(key, "")).lower() == wanted:
+                    text = nested_text(row)
+                    if text:
+                        return text
+    for row in rows:
+        text = nested_text(row)
+        if text:
+            return text
+    return ""
+
+
+def choose_genre(value: object, language: str = "en") -> str:
+    rows = value if isinstance(value, list) else []
+    if isinstance(value, dict):
+        rows = [value]
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        text = choose_localized_text(row.get("noms") or row.get("genres"), language=language)
+        if text:
+            return text
+        for key in ("text", "nomcourt", "nom"):
+            if row.get(key):
+                return clean_metadata_text(row.get(key), max_len=80)
+    return ""
+
+
+def screenscraper_assets(game_data: dict, provider: dict[str, object]) -> dict[str, str]:
+    language = str(provider.get("preferred_language") or "en").lower()
+    region = str(provider.get("preferred_region") or "wor").lower()
+    medias = game_data.get("medias")
+    return {
+        "screenshot": find_media_url(medias, ("ss", "screenshot", "screen"), region, language),
+        "loading_screen": find_media_url(medias, ("sstitle", "titlescreen", "screenmarquee", "loading"), region, language),
+    }
+
+
+def find_media_url(value: object, type_tokens: tuple[str, ...], region: str, language: str) -> str:
+    rows = value if isinstance(value, list) else []
+    if isinstance(value, dict):
+        rows = [value]
+    preferred_regions = [region, "wor", "eu", "us", "gb", "ss", "fr", "de"]
+    preferred_languages = [language, "en", "de", "fr"]
+    matches: list[tuple[int, str]] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        media_type = " ".join(str(row.get(key, "")) for key in ("type", "typemedia", "nom", "parent")).lower()
+        if not any(token in media_type for token in type_tokens):
+            continue
+        url = clean_metadata_text(row.get("url") or row.get("media") or row.get("download"), max_len=500)
+        if not url:
+            continue
+        rank = 50
+        row_region = str(row.get("region", "")).lower()
+        row_language = str(row.get("langue", row.get("language", ""))).lower()
+        if row_region in preferred_regions:
+            rank -= preferred_regions.index(row_region) * 4
+        if row_language in preferred_languages:
+            rank -= preferred_languages.index(row_language) * 2
+        matches.append((rank, url))
+    matches.sort(key=lambda item: item[0])
+    return matches[0][1] if matches else ""
+
+
+def manual_scrape_preview(game: Game, provider: dict[str, object]) -> dict:
+    candidate = {
+        "title": game.title,
+        "year": game.year,
+        "publisher": game.publisher,
+        "genre": game.genre,
+        "description": game.description,
+        "screenshot": game.screenshot,
+        "loading_screen": game.loading_screen,
+        "scraper_source": provider.get("id", "manual"),
+        "scraper_id": "",
+    }
+    return {
+        "ok": True,
+        "provider": {
+            "id": provider.get("id", "manual"),
+            "name": provider.get("name", "Manual Metadata"),
+            "type": provider.get("type", "manual"),
+        },
+        "game": import_match_summary(game),
+        "query": scrape_identity(game),
+        "matches": [
+            {
+                "match_id": "manual",
+                "confidence": 0,
+                "reason": "Local metadata scaffold; no online lookup performed yet.",
+                "candidate": candidate,
+                "assets": scrape_asset_targets(game),
+            }
+        ],
+    }
+
+
+def scrape_identity(game: Game) -> dict[str, object]:
+    return {
+        "title": game.title,
+        "normalized_title": game.title_key,
+        "system": game.system,
+        "year": game.year,
+        "publisher": game.publisher,
+        "languages": list(game.languages),
+        "countries": list(game.countries),
+        "file_name": game.file_name,
+    }
+
+
+def scrape_asset_targets(game: Game) -> dict[str, str]:
+    base = clean_asset_path(f"{folder_letter(game.title)}/{stable_id(game.id)}")
+    return {
+        "screenshot": collection_relative(collection_asset_root() / "screenshots" / f"{base}.png"),
+        "loading_screen": collection_relative(collection_asset_root() / "loading-screens" / f"{base}.png"),
+    }
+
+
+def metadata_change_labels(changes: dict) -> list[str]:
+    labels = []
+    for key, value in changes.items():
+        if isinstance(value, list):
+            text = ", ".join(str(item) for item in value) or "None"
+        else:
+            text = str(value) if str(value) else "None"
+        labels.append(f"{key}: {text}")
+    return labels
+
+
+def ensure_metadata_file() -> None:
+    if METADATA_FILE.exists():
+        return
+    save_metadata_from_games(LIBRARY.games, LIBRARY.poks_by_title_memory)
+
+
+def apply_metadata_values(game: Game, item: dict, changes: dict) -> None:
+    old_title = str(item.get("title") or game.title)
+    title = clean_metadata_text(changes.get("title", old_title), allow_empty=False)
+    year = clean_metadata_text(changes.get("date", changes.get("year", item.get("year", game.year))), max_len=16)
+    publisher = clean_metadata_text(changes.get("publisher", item.get("publisher", game.publisher)))
+    system = clean_system_value(changes.get("system", item.get("system") or game.system))
+    collection_type = item.get("type", game.type or "Official") or "Official"
+    version = clean_metadata_text(changes.get("version", item.get("version", "")), max_len=40)
+    demo = clean_metadata_text(changes.get("demo", item.get("demo", "")), max_len=40)
+    video = clean_metadata_text(changes.get("video", item.get("video", "")), max_len=24).upper()
+    copyright_status = clean_metadata_text(changes.get("copyright_status", item.get("copyright_status", "")), max_len=40)
+    development_status = clean_metadata_text(changes.get("development_status", item.get("development_status", "")), max_len=40)
+    media_type = clean_metadata_text(changes.get("media_type", item.get("media_type", "")), max_len=40)
+    media_label = clean_metadata_text(changes.get("media_label", item.get("media_label", "")), max_len=40)
+    genre = clean_metadata_text(changes.get("genre", item.get("genre", getattr(game, "genre", ""))), max_len=80)
+    developer = clean_metadata_text(changes.get("developer", item.get("developer", getattr(game, "developer", ""))), max_len=160)
+    platform = clean_metadata_text(changes.get("platform", item.get("platform", getattr(game, "platform", ""))), max_len=80)
+    region = clean_metadata_text(changes.get("region", item.get("region", getattr(game, "region", ""))), max_len=80)
+    players = clean_metadata_text(changes.get("players", item.get("players", getattr(game, "players", ""))), max_len=24)
+    coop = clean_metadata_text(changes.get("coop", item.get("coop", getattr(game, "coop", ""))), max_len=24)
+    rating = clean_metadata_text(changes.get("rating", item.get("rating", getattr(game, "rating", ""))), max_len=80)
+    youtube_id = clean_youtube_id(changes.get("youtube_id", item.get("youtube_id", getattr(game, "youtube_id", ""))))
+    description = clean_metadata_text(changes.get("description", item.get("description", getattr(game, "description", ""))), max_len=2000)
+    screenshot = clean_asset_path(changes.get("screenshot", item.get("screenshot", getattr(game, "screenshot", ""))))
+    loading_screen = clean_asset_path(changes.get("loading_screen", item.get("loading_screen", getattr(game, "loading_screen", ""))))
+    scraper_source = clean_metadata_text(changes.get("scraper_source", item.get("scraper_source", getattr(game, "scraper_source", ""))), max_len=80)
+    scraper_id = clean_metadata_text(changes.get("scraper_id", item.get("scraper_id", getattr(game, "scraper_id", ""))), max_len=120)
+
+    languages = normalize_code_values(changes.get("languages", item.get("languages", list(game.languages))), LANGUAGE_NAMES)
+    countries = normalize_code_values(changes.get("countries", item.get("countries", list(game.countries))), COUNTRY_NAMES)
+    tags = normalize_text_list(changes.get("tags", item.get("tags", [])))
+    hardware = normalize_text_list(item.get("hardware", []))
+    dump_flags = normalize_text_list(changes.get("dump_flags", item.get("dump_flags", [])))
+    more_info = normalize_text_list(changes.get("more_info", item.get("more_info", [])))
+    default_emulator = clean_metadata_text(changes.get("default_emulator", item.get("default_emulator", "")))
+    emulator_profile = clean_id(str(changes.get("emulator_profile", item.get("emulator_profile", "")))) if changes.get("emulator_profile", item.get("emulator_profile", "")) else ""
+
+    item.update(
+        {
+            "title": title,
+            "title_key": normalize_title(title),
+            "sort_title": article_sort_title(title),
+            "tosec_title": tosec_title_from_display(title),
+            "system": system,
+            "memory": system,
+            "version": version,
+            "demo": demo,
+            "year": year,
+            "date": year,
+            "publisher": publisher,
+            "video": video,
+            "languages": languages,
+            "language": format_languages(languages),
+            "countries": countries,
+            "copyright_status": copyright_status,
+            "development_status": development_status,
+            "media_type": media_type,
+            "media_label": media_label,
+            "genre": genre,
+            "developer": developer,
+            "platform": platform,
+            "region": region,
+            "players": players,
+            "coop": coop,
+            "rating": rating,
+            "youtube_id": youtube_id,
+            "description": description,
+            "screenshot": screenshot,
+            "loading_screen": loading_screen,
+            "scraper_source": scraper_source,
+            "scraper_id": scraper_id,
+            "dump_flags": dump_flags,
+            "more_info": more_info,
+            "type": collection_type,
+            "section": "Official" if collection_type == "Official" else "Homebrew & Scene",
+            "tags": tags,
+            "hardware": hardware,
+            "status": "Main",
+            "letter": folder_letter(title),
+        }
+    )
+    if default_emulator:
+        item["default_emulator"] = default_emulator
+    elif "default_emulator" in changes:
+        item.pop("default_emulator", None)
+    if emulator_profile:
+        item["emulator_profile"] = emulator_profile
+    elif "emulator_profile" in changes:
+        item.pop("emulator_profile", None)
+
+
+def apply_metadata_changes(game: Game, item: dict, changes: dict, rename_files: bool) -> dict:
+    source = Path(game.path)
+    if not source.exists():
+        return {"ok": False, "error": f"Missing game file: {source}"}
+
+    old_title = str(item.get("title") or game.title)
+    old_title_key = item.get("title_key") or game.title_key
+    old_system = item.get("system") or game.system
+    old_memory = item.get("memory") or game.memory
+    apply_metadata_values(game, item, changes)
+
+    if rename_files:
+        target = build_metadata_target_path(source, item, old_title)
+        if target.resolve() != source.resolve():
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target = unique_path(target)
+            source.replace(target)
+            item["file"] = collection_relative(target)
+            item["format"] = target.suffix.lower()
+        else:
+            item["file"] = collection_relative(source)
+            item["format"] = source.suffix.lower()
+    else:
+        item["file"] = collection_relative(source)
+        item["format"] = source.suffix.lower()
+
+    warnings = metadata_edit_warnings(old_title_key, old_system, old_memory, item)
+    item["pok_link_status"] = "explicit" if item.get("poks") else "dynamic"
+
+    file_name = Path(str(item.get("file", source.name))).name
+    parsed = parse_tosec_name(file_name)
+    item["tosec_tags"] = list(parsed["parentheses"])
+    item["flags"] = list(parsed["brackets"])
+    return {"ok": True, "warnings": warnings}
+
+
+def metadata_edit_warnings(
+    old_title_key: object,
+    old_system: object,
+    old_memory: object,
+    item: dict,
+) -> list[str]:
+    warnings = []
+    title_changed = item.get("title_key") != old_title_key
+    system_changed = item.get("system") != old_system or item.get("memory") != old_memory
+    if title_changed:
+        warnings.append("sort key changes")
+    if system_changed:
+        warnings.append("system changes")
+    return warnings
+
+
+def build_metadata_target_path(source: Path, item: dict, old_title: str) -> Path:
+    rel = relative_collection_path(source)
+    if rel.parts and rel.parts[0].lower() == "games":
+        directory = COLLECTION / "Games" / folder_letter(str(item.get("title", old_title)))
+    else:
+        directory = source.parent
+    return directory / build_tosec_file_name(source, item, old_title)
+
+
+def build_collection_import_target_path(source: Path, item: dict, old_title: str, metadata: dict | None = None) -> Path:
+    directory = collection_import_directory(item, old_title, metadata)
+    return directory / build_tosec_file_name(source, item, old_title)
+
+
+def collection_import_directory(item: dict, old_title: str, metadata: dict | None = None) -> Path:
+    title = str(item.get("title") or old_title)
+    letter = folder_letter(title)
+    games_root = COLLECTION / "Games"
+    if has_letter_folder_structure(games_root):
+        return games_root / letter
+    if has_letter_folder_structure(COLLECTION):
+        return COLLECTION / letter
+    observed = observed_import_directory(letter, metadata)
+    if observed:
+        return observed
+    if games_root.exists():
+        return games_root / letter
+    return COLLECTION
+
+
+def has_letter_folder_structure(root: Path) -> bool:
+    if not root.exists() or not root.is_dir():
+        return False
+    expected = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ") | {"0-9"}
+    found = {path.name.upper() for path in root.iterdir() if path.is_dir()}
+    return len(found.intersection(expected)) >= 8
+
+
+def observed_import_directory(letter: str, metadata: dict | None = None) -> Path | None:
+    counts: dict[Path, int] = {}
+    metadata = metadata or (load_metadata() if METADATA_FILE.exists() else {})
+    for item in metadata.get("games", []):
+        rel_file = str(item.get("file", ""))
+        if not rel_file:
+            continue
+        rel_parent = Path(rel_file).parent
+        if rel_parent == Path("."):
+            rel_parent = Path("")
+        parent_name = rel_parent.name.upper() if rel_parent.name else ""
+        if parent_name in (set("ABCDEFGHIJKLMNOPQRSTUVWXYZ") | {"0-9"}):
+            candidate = (rel_parent.parent / letter) if str(rel_parent.parent) != "." else Path(letter)
+        else:
+            candidate = rel_parent
+        counts[candidate] = counts.get(candidate, 0) + 1
+    if not counts:
+        return None
+    rel = max(counts.items(), key=lambda item: item[1])[0]
+    return (COLLECTION / rel).resolve()
+
+
+def build_tosec_file_name(source: Path, item: dict, old_title: str) -> str:
+    title = clean_file_name(tosec_title_from_display(str(item.get("title") or old_title))) or source.stem
+    tags = build_tosec_tags(source, item)
+    flags = build_tosec_flags(item)
+    suffix = source.suffix
+    version = clean_file_name(str(item.get("version", "")))
+    demo = clean_file_name(str(item.get("demo", "")))
+    title_version = f"{title} {version}".strip() if version else title
+    raw_tag_text = "".join(f"({clean_file_name(tag)})" for tag in tags if clean_file_name(tag))
+    tag_text = f" {raw_tag_text}" if raw_tag_text else ""
+    if demo:
+        tag_text = f" ({demo}){tag_text}"
+    flag_text = "".join(f"[{clean_file_name(flag)}]" for flag in flags if clean_file_name(flag))
+    return f"{title_version}{tag_text}{flag_text}{suffix}"
+
+
+def build_tosec_tags(source: Path, item: dict) -> list[str]:
+    parsed = parse_tosec_name(source.name)
+    existing = list(item.get("tosec_tags") or parsed["parentheses"])
+    old_year = str(parsed.get("year") or "").strip()
+    old_publisher = str(parsed.get("publisher") or "").strip()
+    managed: list[str] = []
+    for tag in existing:
+        clean = str(tag).strip()
+        if is_placeholder_metadata_value(clean):
+            continue
+        if old_year and clean == old_year:
+            continue
+        if old_publisher and clean == old_publisher:
+            continue
+        if parse_system_tag(clean) or is_metadata_tag(clean) or clean.lower() == "ulaplus":
+            continue
+        if clean in {
+            str(item.get("video", "")),
+            str(item.get("copyright_status", "")),
+            str(item.get("development_status", "")),
+            str(item.get("media_type", "")),
+            str(item.get("media_label", "")),
+            str(item.get("demo", "")),
+        }:
+            continue
+        managed.append(clean)
+
+    tags: list[str] = []
+    if item.get("year"):
+        tags.append(str(item["year"]))
+    if item.get("publisher"):
+        tags.append(str(item["publisher"]))
+    if item.get("system"):
+        tags.append(str(item["system"]).upper())
+    if item.get("video"):
+        tags.append(str(item["video"]).upper())
+    countries = normalize_code_values(item.get("countries", []), COUNTRY_NAMES)
+    languages = normalize_code_values(item.get("languages", []), LANGUAGE_NAMES)
+    if countries:
+        tags.append("-".join(countries))
+    if languages:
+        tags.append("-".join(code.lower() for code in languages))
+    for key in ("copyright_status", "development_status", "media_type", "media_label"):
+        if item.get(key):
+            tags.append(str(item[key]))
+    if any(str(value).lower() == "ulaplus" for value in item.get("hardware", [])):
+        tags.append("ULAPlus")
+    tags.extend(managed)
+    return dedupe(tags)
+
+
+def build_tosec_flags(item: dict) -> list[str]:
+    existing = [str(flag).strip() for flag in item.get("flags", []) if str(flag).strip()]
+    explicit = normalize_text_list(item.get("dump_flags", [])) + normalize_text_list(item.get("more_info", []))
+    return dedupe(explicit or existing)
+
+
+def clean_metadata_text(value: object, default: str = "", max_len: int = 120, allow_empty: bool = True) -> str:
+    text = str(value if value is not None else default).strip()
+    text = re.sub(r"\s+", " ", text)
+    if not text and not allow_empty:
+        text = default
+    return text[:max_len]
+
+
+def clean_youtube_id(value: object) -> str:
+    text = clean_metadata_text(value, max_len=240)
+    if not text:
+        return ""
+    match = re.search(r"(?:youtu\.be/|youtube\.com/(?:watch\?v=|embed/|shorts/))([A-Za-z0-9_-]{6,})", text)
+    if match:
+        return match.group(1)[:64]
+    return re.sub(r"[^A-Za-z0-9_-]", "", text)[:64]
+
+
+def clean_asset_path(value: object) -> str:
+    text = str(value or "").replace("\\", "/").strip()
+    if not text:
+        return ""
+    if re.match(r"^https?://", text, flags=re.IGNORECASE):
+        return text[:500]
+    parts = [part for part in text.split("/") if part and part not in {".", ".."}]
+    return "/".join(parts)[:240]
+
+
+def clean_system_value(value: object) -> str:
+    text = str(value or "").strip().upper().replace(" ", "")
+    if parse_system_tag(text):
+        return parse_system_tag(text)
+    return text[:32] or "48K"
+
+
+def normalize_code_values(value: object, allowed: dict[str, str]) -> list[str]:
+    if isinstance(value, str):
+        raw_values = re.split(r"[,;/\s]+", value)
+    elif isinstance(value, list | tuple):
+        raw_values = [str(item) for item in value]
+    else:
+        raw_values = []
+    codes: list[str] = []
+    for raw in raw_values:
+        code = raw.strip().upper()
+        if not code:
+            continue
+        if code in allowed:
+            codes.append(code)
+    return dedupe(codes)
+
+
+def normalize_text_list(value: object) -> list[str]:
+    if isinstance(value, str):
+        raw_values = re.split(r"[,;]+", value)
+    elif isinstance(value, list | tuple):
+        raw_values = [str(item) for item in value]
+    else:
+        raw_values = []
+    return dedupe([clean_metadata_text(item, max_len=60) for item in raw_values if clean_metadata_text(item)])
+
+
+def delete_game(game_id: str) -> dict:
+    game = LIBRARY.get_game(game_id)
+    if not game:
+        return {"ok": False, "error": "Unknown game"}
+    source = Path(game.path)
+    if not source.exists():
+        return {"ok": False, "error": f"Missing game file: {source}"}
+    trash_root = COLLECTION / "_Deleted"
+    target = unique_path(trash_root / relative_collection_path(source))
+    target.parent.mkdir(parents=True, exist_ok=True)
+    source.replace(target)
+    if game.view == "incoming":
+        cleanup_empty_parents(source.parent, (COLLECTION / "incoming").resolve())
+    else:
+        update_metadata_game(game_id, file=collection_relative(target), status="Deleted")
+    trash_game = make_scanned_game(target, trash_root, "trash", LIBRARY.poks_by_title_memory, load_favourites())
+    LIBRARY.replace_game(game_id, trash_game)
+    return {"ok": True, "path": str(target)}
+
+
+def import_incoming_game(game_id: str) -> dict:
+    result = import_incoming_games([game_id])
+    if not result.get("ok"):
+        return result
+    imported = result.get("imported", [])
+    if imported:
+        first = imported[0]
+        return {"ok": True, "name": first.get("name", ""), "path": first.get("path", ""), "imported": imported}
+    return {"ok": True, "name": "", "path": "", "imported": []}
+
+
+def import_incoming_games(game_ids: object) -> dict:
+    ids = selected_game_ids(game_ids)
+    if not ids:
+        return {"ok": False, "error": "No incoming games selected"}
+    ensure_metadata_file()
+    metadata = load_metadata()
+    imported = []
+    errors = []
+    for game_id in ids:
+        try:
+            imported.append(import_incoming_game_item(game_id, metadata))
+        except Exception as exc:
+            errors.append({"game_id": game_id, "error": str(exc)})
+    if imported:
+        save_metadata(metadata)
+        LIBRARY.rebuild()
+    if errors:
+        return {"ok": False, "error": f"Imported {len(imported)}, failed {len(errors)}", "imported": imported, "errors": errors}
+    return {"ok": True, "imported": imported, "count": len(imported)}
+
+
+def selected_game_ids(game_ids: object) -> list[str]:
+    if isinstance(game_ids, str):
+        return [game_ids] if game_ids else []
+    if isinstance(game_ids, list | tuple):
+        return [str(item) for item in game_ids if str(item)]
+    return []
+
+
+def import_incoming_game_item(game_id: str, metadata: dict) -> dict:
+    game = LIBRARY.get_game(game_id)
+    if not game:
+        raise ValueError("Unknown game")
+    if game.view != "incoming":
+        raise ValueError("Only incoming files can be imported")
+    source = Path(game.path)
+    incoming = (COLLECTION / "incoming").resolve()
+    try:
+        source.resolve().relative_to(incoming)
+    except ValueError:
+        raise ValueError("Incoming file is outside the collection incoming folder")
+    if not source.exists():
+        raise FileNotFoundError(f"Missing incoming file: {source}")
+    item = game_to_metadata_item(game, [])
+    item["type"] = "Official"
+    item["section"] = "Official"
+    item["status"] = "Main"
+    item["memory"] = item.get("system", game.system)
+    target = build_collection_import_target_path(source, item, game.title, metadata)
+    if target.exists():
+        raise FileExistsError(f"Import target already exists: {target.name}")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.move(str(source), str(target))
+    item["file"] = collection_relative(target)
+    item["format"] = target.suffix.lower()
+    item["id"] = stable_id(item["file"])
+    metadata.setdefault("games", []).append(item)
+    cleanup_empty_parents(source.parent, incoming)
+    LIBRARY.remove_game(game_id)
+    return {"id": item["id"], "name": target.name, "path": str(target), "folder": collection_relative(target.parent)}
+
+
+def restore_trash_games(game_ids: object) -> dict:
+    ids = selected_game_ids(game_ids)
+    if not ids:
+        return {"ok": False, "error": "No bin games selected"}
+    ensure_metadata_file()
+    metadata = load_metadata()
+    restored = []
+    errors = []
+    for game_id in ids:
+        try:
+            restored.append(restore_trash_game_item(game_id, metadata))
+        except Exception as exc:
+            errors.append({"game_id": game_id, "error": str(exc)})
+    if restored:
+        save_metadata(metadata)
+        LIBRARY.rebuild()
+    if errors:
+        return {"ok": False, "error": f"Restored {len(restored)}, failed {len(errors)}", "restored": restored, "errors": errors}
+    return {"ok": True, "restored": restored, "count": len(restored)}
+
+
+def restore_trash_game_item(game_id: str, metadata: dict) -> dict:
+    game = LIBRARY.get_game(game_id)
+    if not game:
+        raise ValueError("Unknown game")
+    if game.view != "trash":
+        raise ValueError("Only bin files can be restored")
+    source = Path(game.path)
+    trash = (COLLECTION / "_Deleted").resolve()
+    try:
+        source.resolve().relative_to(trash)
+    except ValueError:
+        raise ValueError("Bin file is outside the collection bin folder")
+    if not source.exists():
+        raise FileNotFoundError(f"Missing bin file: {source}")
+    rel_source = collection_relative(source)
+    item = next((entry for entry in metadata.setdefault("games", []) if normalize_rel_path(entry.get("file", "")) == normalize_rel_path(rel_source)), None)
+    if item is None:
+        item = game_to_metadata_item(game, [])
+        metadata.setdefault("games", []).append(item)
+    item["status"] = "Main"
+    item["type"] = "Official" if item.get("type") == "Bin" else item.get("type", "Official")
+    item["section"] = "Official" if item.get("section") == "Bin" else item.get("section", "Official")
+    target = build_collection_import_target_path(source, item, game.title, metadata)
+    if target.exists():
+        raise FileExistsError(f"Restore target already exists: {target.name}")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.move(str(source), str(target))
+    item["file"] = collection_relative(target)
+    item["format"] = target.suffix.lower()
+    item["id"] = stable_id(item["file"])
+    cleanup_empty_parents(source.parent, trash)
+    LIBRARY.remove_game(game_id)
+    return {"id": item["id"], "name": target.name, "path": str(target), "folder": collection_relative(target.parent)}
+
+
+def purge_trash_games(game_ids: object) -> dict:
+    ids = selected_game_ids(game_ids)
+    if not ids:
+        return {"ok": False, "error": "No bin games selected"}
+    metadata = load_metadata()
+    purged = []
+    errors = []
+    for game_id in ids:
+        try:
+            purged.append(purge_trash_game_item(game_id, metadata))
+        except Exception as exc:
+            errors.append({"game_id": game_id, "error": str(exc)})
+    if purged:
+        save_metadata(metadata)
+        LIBRARY.rebuild()
+    if errors:
+        return {"ok": False, "error": f"Removed {len(purged)}, failed {len(errors)}", "purged": purged, "errors": errors}
+    return {"ok": True, "purged": purged, "count": len(purged)}
+
+
+def purge_trash_game_item(game_id: str, metadata: dict) -> dict:
+    game = LIBRARY.get_game(game_id)
+    if not game:
+        raise ValueError("Unknown game")
+    if game.view != "trash":
+        raise ValueError("Only bin files can be permanently removed")
+    source = Path(game.path)
+    trash = (COLLECTION / "_Deleted").resolve()
+    try:
+        source.resolve().relative_to(trash)
+    except ValueError:
+        raise ValueError("Bin file is outside the collection bin folder")
+    if source.exists():
+        source.unlink()
+    rel_source = normalize_rel_path(collection_relative(source))
+    metadata["games"] = [entry for entry in metadata.get("games", []) if normalize_rel_path(entry.get("file", "")) != rel_source]
+    cleanup_empty_parents(source.parent, trash)
+    LIBRARY.remove_game(game_id)
+    return {"id": game_id, "name": game.file_name}
+
+
+def cleanup_empty_parents(start: Path, stop: Path) -> None:
+    current = start
+    stop = stop.resolve()
+    while True:
+        try:
+            resolved = current.resolve()
+            if resolved == stop or not resolved.is_relative_to(stop):
+                return
+            current.rmdir()
+        except OSError:
+            return
+        current = current.parent
+
+
+def move_between_collection_and_languages(game_id: str) -> dict:
+    game = LIBRARY.get_game(game_id)
+    if not game:
+        return {"ok": False, "error": "Unknown game"}
+    source = Path(game.path)
+    if not source.exists():
+        return {"ok": False, "error": f"Missing game file: {source}"}
+    review_root = COLLECTION / "_Non EN-DE Review"
+    if game.view == "languages":
+        if METADATA_FILE.exists():
+            update_metadata_game(game_id, status="Main")
+            LIBRARY.rebuild()
+            return {"ok": True, "path": str(source), "message": "Moved to collection"}
+        target = unique_path(COLLECTION / source.resolve().relative_to(review_root.resolve()))
+        message = "Moved to collection"
+    else:
+        if METADATA_FILE.exists():
+            update_metadata_game(game_id, status="Language Review")
+            LIBRARY.rebuild()
+            return {"ok": True, "path": str(source), "message": "Moved to Other Languages"}
+        target = unique_path(review_root / relative_collection_path(source))
+        message = "Moved to Other Languages"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    source.replace(target)
+    LIBRARY.rebuild()
+    return {"ok": True, "path": str(target), "message": message}
+
+
+def update_metadata_game(game_id: str, **updates: object) -> None:
+    if not METADATA_FILE.exists():
+        return
+    metadata = load_metadata()
+    changed = False
+    for item in metadata.get("games", []):
+        if item.get("id") == game_id:
+            item.update(updates)
+            changed = True
+            break
+    if changed:
+        save_metadata(metadata)
+
+
+def relative_collection_path(path: Path) -> Path:
+    resolved = path.resolve()
+    try:
+        return resolved.relative_to(COLLECTION.resolve())
+    except ValueError:
+        return Path(path.name)
+
+
+def clean_file_name(name: str) -> str:
+    cleaned = name.strip().replace("/", "-").replace("\\", "-")
+    cleaned = cleaned.strip(" .")
+    for char in '<>:"|?*':
+        cleaned = cleaned.replace(char, "-")
+    return cleaned
+
+
+def unique_path(path: Path) -> Path:
+    if not path.exists():
+        return path
+    stem = path.stem
+    suffix = path.suffix
+    for i in range(2, 1000):
+        candidate = path.with_name(f"{stem} ({i}){suffix}")
+        if not candidate.exists():
+            return candidate
+    raise FileExistsError(f"Could not create unique target for {path}")
+
+
+def launch_visible(command: list[str], cwd: Path) -> subprocess.Popen:
+    startupinfo = None
+    if os.name == "nt":
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        startupinfo.wShowWindow = 1
+    return subprocess.Popen(command, cwd=str(cwd), startupinfo=startupinfo, close_fds=True)
+
+
+def should_check_immediate_exit(emulator_path: Path) -> bool:
+    return emulator_path.name.lower() not in {"specstub.exe"}
+
+
+def focus_launched_emulator(emulator_id: str, process: subprocess.Popen | None) -> None:
+    if os.name != "nt":
+        return
+
+    names: set[str] = set()
+    pids: set[int] = set()
+    if process is not None:
+        pids.add(process.pid)
+
+    if emulator_id == "eightyone":
+        names.update({"eightyone-desasteron.exe", "eightyone.exe"})
+    elif emulator_id in {"spectaculator", "spectaculator_stub", "default"}:
+        names.update({"spectaculator.exe", "specstub.exe"})
+
+    for _ in range(12):
+        time.sleep(0.25)
+        hwnd = find_window_for_process(pids, names)
+        if hwnd:
+            bring_window_to_front(hwnd)
+            return
+
+
+def find_running_emulator_window(emulator_id: str) -> int:
+    if os.name != "nt":
+        return 0
+    names: set[str] = set()
+    if emulator_id == "eightyone":
+        names.update({"eightyone-desasteron.exe", "eightyone.exe"})
+    elif emulator_id in {"spectaculator", "spectaculator_stub", "default"}:
+        names.update({"spectaculator.exe"})
+    return find_window_for_process(set(), names)
+
+
+def find_window_for_process(process_ids: set[int], process_names: set[str]) -> int:
+    user32 = ctypes.windll.user32
+    user32.EnumWindows.argtypes = [ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM), wintypes.LPARAM]
+    user32.EnumWindows.restype = wintypes.BOOL
+    user32.IsWindowVisible.argtypes = [wintypes.HWND]
+    user32.IsWindowVisible.restype = wintypes.BOOL
+    user32.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
+    user32.GetWindowThreadProcessId.restype = wintypes.DWORD
+
+    matches: list[int] = []
+
+    def callback(hwnd: int, _lparam: int) -> bool:
+        if not user32.IsWindowVisible(hwnd):
+            return True
+        pid = get_window_process_id(hwnd)
+        process_name = get_process_image_name(pid.value).lower()
+        if pid.value in process_ids or process_name in process_names:
+            matches.append(hwnd)
+        return True
+
+    enum_proc = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)(callback)
+    user32.EnumWindows(enum_proc, 0)
+    return matches[-1] if matches else 0
+
+
+def get_window_process_id(hwnd: int) -> wintypes.DWORD:
+    user32 = ctypes.windll.user32
+    user32.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
+    user32.GetWindowThreadProcessId.restype = wintypes.DWORD
+    pid = wintypes.DWORD()
+    user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+    return pid
+
+
+def get_process_image_name(pid: int) -> str:
+    kernel32 = ctypes.windll.kernel32
+    kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    kernel32.OpenProcess.restype = wintypes.HANDLE
+    kernel32.QueryFullProcessImageNameW.argtypes = [wintypes.HANDLE, wintypes.DWORD, wintypes.LPWSTR, ctypes.POINTER(wintypes.DWORD)]
+    kernel32.QueryFullProcessImageNameW.restype = wintypes.BOOL
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel32.CloseHandle.restype = wintypes.BOOL
+
+    process_query_limited_information = 0x1000
+    handle = kernel32.OpenProcess(process_query_limited_information, False, pid)
+    if not handle:
+        return ""
+    try:
+        size = wintypes.DWORD(32768)
+        buffer = ctypes.create_unicode_buffer(size.value)
+        if kernel32.QueryFullProcessImageNameW(handle, 0, buffer, ctypes.byref(size)):
+            return Path(buffer.value).name
+        return ""
+    finally:
+        kernel32.CloseHandle(handle)
+
+
+def bring_window_to_front(hwnd: int) -> None:
+    user32 = ctypes.windll.user32
+    user32.ShowWindow.argtypes = [wintypes.HWND, ctypes.c_int]
+    user32.ShowWindow.restype = wintypes.BOOL
+    user32.BringWindowToTop.argtypes = [wintypes.HWND]
+    user32.BringWindowToTop.restype = wintypes.BOOL
+    user32.SetForegroundWindow.argtypes = [wintypes.HWND]
+    user32.SetForegroundWindow.restype = wintypes.BOOL
+    user32.SetActiveWindow.argtypes = [wintypes.HWND]
+    user32.SetActiveWindow.restype = wintypes.HWND
+    user32.SetFocus.argtypes = [wintypes.HWND]
+    user32.SetFocus.restype = wintypes.HWND
+    user32.GetForegroundWindow.argtypes = []
+    user32.GetForegroundWindow.restype = wintypes.HWND
+    user32.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
+    user32.GetWindowThreadProcessId.restype = wintypes.DWORD
+    user32.AttachThreadInput.argtypes = [wintypes.DWORD, wintypes.DWORD, wintypes.BOOL]
+    user32.AttachThreadInput.restype = wintypes.BOOL
+    user32.ShowWindowAsync.argtypes = [wintypes.HWND, ctypes.c_int]
+    user32.ShowWindowAsync.restype = wintypes.BOOL
+    user32.SwitchToThisWindow.argtypes = [wintypes.HWND, wintypes.BOOL]
+    user32.SwitchToThisWindow.restype = None
+    user32.SetWindowPos.argtypes = [
+        wintypes.HWND,
+        wintypes.HWND,
+        ctypes.c_int,
+        ctypes.c_int,
+        ctypes.c_int,
+        ctypes.c_int,
+        wintypes.UINT,
+    ]
+    user32.SetWindowPos.restype = wintypes.BOOL
+    user32.keybd_event.argtypes = [wintypes.BYTE, wintypes.BYTE, wintypes.DWORD, wintypes.ULONG]
+    user32.keybd_event.restype = None
+    kernel32 = ctypes.windll.kernel32
+    kernel32.GetCurrentThreadId.argtypes = []
+    kernel32.GetCurrentThreadId.restype = wintypes.DWORD
+
+    sw_restore = 9
+    hwnd_topmost = wintypes.HWND(-1)
+    hwnd_notopmost = wintypes.HWND(-2)
+    swp_nomove = 0x0002
+    swp_nosize = 0x0001
+    swp_showwindow = 0x0040
+    vk_menu = 0x12
+    keyeventf_keyup = 0x0002
+
+    try:
+        user32.AllowSetForegroundWindow(-1)
+    except Exception:
+        pass
+
+    foreground = user32.GetForegroundWindow()
+    current_thread = kernel32.GetCurrentThreadId()
+    target_thread = user32.GetWindowThreadProcessId(hwnd, None)
+    foreground_thread = user32.GetWindowThreadProcessId(foreground, None) if foreground else 0
+
+    attached_target = bool(target_thread and user32.AttachThreadInput(current_thread, target_thread, True))
+    attached_foreground = bool(
+        foreground_thread and user32.AttachThreadInput(current_thread, foreground_thread, True)
+    )
+
+    try:
+        user32.keybd_event(vk_menu, 0, 0, 0)
+        user32.keybd_event(vk_menu, 0, keyeventf_keyup, 0)
+        user32.ShowWindowAsync(hwnd, sw_restore)
+        user32.ShowWindow(hwnd, sw_restore)
+        user32.SetWindowPos(hwnd, hwnd_topmost, 0, 0, 0, 0, swp_nomove | swp_nosize | swp_showwindow)
+        user32.SetWindowPos(hwnd, hwnd_notopmost, 0, 0, 0, 0, swp_nomove | swp_nosize | swp_showwindow)
+        user32.BringWindowToTop(hwnd)
+        user32.SetActiveWindow(hwnd)
+        user32.SetFocus(hwnd)
+        user32.SetForegroundWindow(hwnd)
+        user32.SwitchToThisWindow(hwnd, True)
+    finally:
+        if attached_foreground:
+            user32.AttachThreadInput(current_thread, foreground_thread, False)
+        if attached_target:
+            user32.AttachThreadInput(current_thread, target_thread, False)
+
+
+def log(message: str) -> None:
+    timestamp = dt.datetime.now().isoformat(timespec="seconds")
+    line = f"[{timestamp}] {message}\n"
+    try:
+        DATA.mkdir(parents=True, exist_ok=True)
+        with LOG_FILE.open("a", encoding="utf-8") as f:
+            f.write(line)
+    except OSError:
+        pass
+    stream = getattr(sys, "stdout", None)
+    if stream is not None:
+        try:
+            stream.write(line)
+            stream.flush()
+        except Exception:
+            pass
+
+
+def stop_existing_launcher_servers() -> None:
+    if os.name != "nt":
+        return
+    current_pid = os.getpid()
+    try:
+        result = subprocess.run(
+            ["netstat", "-ano"],
+            cwd=str(LAUNCHER),
+            capture_output=True,
+            text=True,
+            timeout=4,
+            check=False,
+        )
+    except Exception:
+        return
+
+    pids: set[int] = set()
+    for line in result.stdout.splitlines():
+        if f"{HOST}:{PORT}" not in line or "LISTENING" not in line:
+            continue
+        parts = line.split()
+        if not parts:
+            continue
+        try:
+            pid = int(parts[-1])
+        except ValueError:
+            continue
+        if pid != current_pid:
+            pids.add(pid)
+
+    for pid in pids:
+        try:
+            subprocess.run(
+                ["taskkill", "/PID", str(pid), "/F"],
+                cwd=str(LAUNCHER),
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=4,
+                check=False,
+            )
+            log(f"Stopped old process on launcher port PID {pid}")
+        except Exception:
+            pass
+
+
+def main() -> None:
+    stop_existing_launcher_servers()
+    init_state()
+    server = ThreadingHTTPServer((HOST, PORT), Handler)
+    url = f"http://{HOST}:{PORT}"
+    log(f"Morpheus EmuGUI running at {url}")
+    if "--no-browser" not in sys.argv:
+        webbrowser.open(url)
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        log("Stopping launcher")
+
+
+if __name__ == "__main__":
+    main()
