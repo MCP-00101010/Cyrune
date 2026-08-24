@@ -52,7 +52,7 @@ function waitForExtensionRelay() {
   extensionRelayPromise = new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       window.removeEventListener("message", onMessage);
-      reject(new Error("Morpheus WebHub extension 1.0.48 or newer is required to open EmuGUI without its server."));
+      reject(new Error("Morpheus WebHub extension 1.0.49 or newer is required to open EmuGUI without its server."));
     }, 15000);
     const onMessage = (event) => {
       if (event.source !== window || event.data?._emugui !== true || event.data?._relayReady !== true) return;
@@ -71,7 +71,7 @@ async function requestWebHub(type, payload = {}) {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       pendingWebHubRequests.delete(requestId);
-      reject(new Error("Morpheus WebHub extension 1.0.48 or newer is required."));
+      reject(new Error("Morpheus WebHub extension 1.0.49 or newer is required."));
     }, 125000);
     pendingWebHubRequests.set(requestId, { resolve, reject, timer });
     window.postMessage({ _emuguiReq: true, requestId, type, ...payload }, "*");
