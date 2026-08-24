@@ -126,3 +126,20 @@ def test_file_transport_preserves_launch_choices_and_profile_routes():
         ("delete", "48k"),
         ("source", "48k"),
     ]
+
+
+def test_server_launch_function_remains_a_compatibility_facade():
+    server = load_server()
+    calls = []
+
+    class FakeLaunchService:
+        def launch_game(self, game_id, emulator_id, launch_action, force_new, profile_id):
+            calls.append((game_id, emulator_id, launch_action, force_new, profile_id))
+            return {"ok": True, "pid": 42}
+
+    server.get_launch_service = lambda: FakeLaunchService()
+
+    result = server.launch_game("jetpac", "eightyone", "new", True, "spectrum-48k")
+
+    assert result == {"ok": True, "pid": 42}
+    assert calls == [("jetpac", "eightyone", "new", True, "spectrum-48k")]

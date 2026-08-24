@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import csv
 import base64
-import ctypes
-from ctypes import wintypes
 import datetime as dt
 import json
 import mimetypes
@@ -28,6 +26,18 @@ from urllib.request import Request, urlopen
 
 from emugui_core.service import ReadOnlyEmuGuiService, ServiceContractError
 from emugui_core.profiles import EmulatorProfileService
+from emugui_core.launching import (
+    GameLaunchService,
+    bring_window_to_front,
+    find_running_emulator_window,
+    find_window_for_process,
+    focus_launched_emulator,
+    get_process_image_name,
+    get_window_process_id,
+    launch_visible,
+    prepare_eightyone_profile,
+    should_check_immediate_exit,
+)
 
 
 LAUNCHER = Path(__file__).resolve().parent
@@ -2263,118 +2273,48 @@ def split_extensions(value: object) -> list[str]:
 
 
 def prepare_emulator_profile(emulator: dict[str, object], game: Game, profile_id: str = "") -> None:
-    if emulator.get("type") != "eightyone":
-        return
-    target = expand_config_path(emulator.get("eightyone_config_target"))
-    if not target:
-        return
-    managed_profile = select_managed_profile("eightyone", game, profile_id)
-    if profile_id and not managed_profile:
-        raise FileNotFoundError(f"The selected managed EightyOne profile is unavailable: {profile_id}")
-    if managed_profile:
-        source = expand_config_path(managed_profile.get("managed_path"))
-        if not source or not source.exists():
-            raise FileNotFoundError(f"Missing managed EightyOne profile: {managed_profile.get('name')}")
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(source.read_bytes())
+    prepare_eightyone_profile(
+        emulator,
+        game,
+        profile_id,
+        expand_path=expand_config_path,
+        select_profile=select_managed_profile,
+    )
+
+
+def get_launch_service() -> GameLaunchService:
+    """Build a launch service around the current configuration and library."""
+
+    return GameLaunchService(
+        get_game=lambda game_id: get_library().get_game(game_id),
+        get_pok=lambda pok_id: get_library().get_pok(pok_id),
+        emulator_provider=lambda: configured_emulators(include_hidden=True),
+        expand_path=expand_config_path,
+        prepare_profile=prepare_emulator_profile,
+        mark_recent=mark_recent,
+        launch_process=launch_visible,
+        open_default=lambda path: os.startfile(path),  # type: ignore[attr-defined]
+        find_running_window=find_running_emulator_window,
+        focus_emulator=focus_launched_emulator,
+        bring_to_front=bring_window_to_front,
+        check_immediate_exit=should_check_immediate_exit,
+    )
 
 
 def launch_game(game_id: str, emulator_id: str, launch_action: str = "", force_new: bool = False, profile_id: str = "") -> dict:
-    game = get_library().get_game(game_id)
-    if not game:
-        return {"ok": False, "error": "Unknown game"}
-    path = Path(game.path)
-    if not path.exists():
-        return {"ok": False, "error": f"Missing game file: {path}"}
-
-    emulators = configured_emulators(include_hidden=True)
-    emulator = emulators.get(emulator_id) or emulators["default"]
-    emulator_path = expand_config_path(emulator.get("path"))
-    if force_new:
-        launch_action = "new"
-    try:
-        running_hwnd = find_running_emulator_window(emulator_id)
-        if running_hwnd:
-            if launch_action == "current" and emulator_id in {"spectaculator", "spectaculator_stub", "default"}:
-                return send_to_running_spectaculator(path, game_id, running_hwnd)
-            if launch_action == "current":
-                return {"ok": False, "error": "This emulator cannot accept a game in the running instance."}
-            if launch_action != "new":
-                return running_emulator_choice_payload(emulator_id)
-
-        process = None
-        if emulator_path is None:
-            os.startfile(str(path))  # type: ignore[attr-defined]
-        else:
-            if not emulator_path.exists():
-                return {"ok": False, "error": f"Missing emulator: {emulator_path}"}
-            prepare_emulator_profile(emulator, game, profile_id)
-            working_dir = expand_config_path(emulator.get("working_dir")) or emulator_path.parent
-            process = launch_visible([str(emulator_path), str(path)], working_dir)
-        mark_recent(game_id)
-        payload = {"ok": True}
-        if process is not None:
-            payload["pid"] = process.pid
-            time.sleep(0.4)
-            if should_check_immediate_exit(emulator_path) and process.poll() is not None:
-                return {"ok": False, "error": f"Emulator exited immediately with code {process.returncode}"}
-        focus_launched_emulator(emulator_id, process)
-        return payload
-    except Exception as exc:
-        return {"ok": False, "error": str(exc)}
+    return get_launch_service().launch_game(game_id, emulator_id, launch_action, force_new, profile_id)
 
 
 def running_emulator_choice_payload(emulator_id: str) -> dict:
-    emulators = configured_emulators(include_hidden=True)
-    emulator = emulators.get(emulator_id) or emulators["default"]
-    name = str(emulator.get("name") or emulator_id)
-    supports_current = emulator_id in {"spectaculator", "spectaculator_stub", "default"}
-    supports_new = emulator_id in {"eightyone", "spectaculator"}
-    return {
-        "ok": False,
-        "needs_choice": True,
-        "emulator": emulator_id,
-        "emulator_name": name,
-        "supports_current": supports_current,
-        "supports_new": supports_new,
-        "error": f"{name} is already running.",
-    }
+    return get_launch_service().running_choice(emulator_id)
 
 
 def send_to_running_spectaculator(path: Path, game_id: str, running_hwnd: int) -> dict:
-    spec_stub = expand_config_path(configured_emulators(include_hidden=True)["spectaculator_stub"].get("path"))
-    if spec_stub is None or not spec_stub.exists():
-        bring_window_to_front(running_hwnd)
-        return {
-            "ok": False,
-            "needs_confirmation": True,
-            "error": "Spectaculator is already running, but SpecStub.exe is missing. Start a second copy?",
-        }
-
-    process = launch_visible([str(spec_stub), str(path)], spec_stub.parent)
-    mark_recent(game_id)
-    focus_launched_emulator("spectaculator_stub", process)
-    return {"ok": True, "pid": process.pid, "reused": True}
+    return get_launch_service().send_to_running_spectaculator(path, game_id, running_hwnd)
 
 
 def open_pok(pok_id: str) -> dict:
-    pok = get_library().get_pok(pok_id)
-    if not pok:
-        return {"ok": False, "error": "Unknown POK"}
-    path = Path(pok.get("path", ""))
-    if not path.exists():
-        return {"ok": False, "error": f"Missing POK file: {path}"}
-
-    spec_stub = expand_config_path(configured_emulators(include_hidden=True)["spectaculator_stub"].get("path"))
-    if spec_stub is None or not spec_stub.exists():
-        return {"ok": False, "error": f"Missing Spectaculator helper: {spec_stub}"}
-
-    try:
-        process = launch_visible([str(spec_stub), str(path)], spec_stub.parent)
-        focus_launched_emulator("spectaculator_stub", process)
-        return {"ok": True, "pid": process.pid, "path": str(path)}
-    except Exception as exc:
-        return {"ok": False, "error": str(exc)}
+    return get_launch_service().open_pok(pok_id)
 
 
 def open_in_explorer(game_id: str) -> dict:
@@ -3712,190 +3652,6 @@ def unique_path(path: Path) -> Path:
         if not candidate.exists():
             return candidate
     raise FileExistsError(f"Could not create unique target for {path}")
-
-
-def launch_visible(command: list[str], cwd: Path) -> subprocess.Popen:
-    startupinfo = None
-    if os.name == "nt":
-        startupinfo = subprocess.STARTUPINFO()
-        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-        startupinfo.wShowWindow = 1
-    return subprocess.Popen(command, cwd=str(cwd), startupinfo=startupinfo, close_fds=True)
-
-
-def should_check_immediate_exit(emulator_path: Path) -> bool:
-    return emulator_path.name.lower() not in {"specstub.exe"}
-
-
-def focus_launched_emulator(emulator_id: str, process: subprocess.Popen | None) -> None:
-    if os.name != "nt":
-        return
-
-    names: set[str] = set()
-    pids: set[int] = set()
-    if process is not None:
-        pids.add(process.pid)
-
-    if emulator_id == "eightyone":
-        names.update({"eightyone-desasteron.exe", "eightyone.exe"})
-    elif emulator_id in {"spectaculator", "spectaculator_stub", "default"}:
-        names.update({"spectaculator.exe", "specstub.exe"})
-
-    for _ in range(12):
-        time.sleep(0.25)
-        hwnd = find_window_for_process(pids, names)
-        if hwnd:
-            bring_window_to_front(hwnd)
-            return
-
-
-def find_running_emulator_window(emulator_id: str) -> int:
-    if os.name != "nt":
-        return 0
-    names: set[str] = set()
-    if emulator_id == "eightyone":
-        names.update({"eightyone-desasteron.exe", "eightyone.exe"})
-    elif emulator_id in {"spectaculator", "spectaculator_stub", "default"}:
-        names.update({"spectaculator.exe"})
-    return find_window_for_process(set(), names)
-
-
-def find_window_for_process(process_ids: set[int], process_names: set[str]) -> int:
-    user32 = ctypes.windll.user32
-    user32.EnumWindows.argtypes = [ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM), wintypes.LPARAM]
-    user32.EnumWindows.restype = wintypes.BOOL
-    user32.IsWindowVisible.argtypes = [wintypes.HWND]
-    user32.IsWindowVisible.restype = wintypes.BOOL
-    user32.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
-    user32.GetWindowThreadProcessId.restype = wintypes.DWORD
-
-    matches: list[int] = []
-
-    def callback(hwnd: int, _lparam: int) -> bool:
-        if not user32.IsWindowVisible(hwnd):
-            return True
-        pid = get_window_process_id(hwnd)
-        process_name = get_process_image_name(pid.value).lower()
-        if pid.value in process_ids or process_name in process_names:
-            matches.append(hwnd)
-        return True
-
-    enum_proc = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)(callback)
-    user32.EnumWindows(enum_proc, 0)
-    return matches[-1] if matches else 0
-
-
-def get_window_process_id(hwnd: int) -> wintypes.DWORD:
-    user32 = ctypes.windll.user32
-    user32.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
-    user32.GetWindowThreadProcessId.restype = wintypes.DWORD
-    pid = wintypes.DWORD()
-    user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
-    return pid
-
-
-def get_process_image_name(pid: int) -> str:
-    kernel32 = ctypes.windll.kernel32
-    kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
-    kernel32.OpenProcess.restype = wintypes.HANDLE
-    kernel32.QueryFullProcessImageNameW.argtypes = [wintypes.HANDLE, wintypes.DWORD, wintypes.LPWSTR, ctypes.POINTER(wintypes.DWORD)]
-    kernel32.QueryFullProcessImageNameW.restype = wintypes.BOOL
-    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
-    kernel32.CloseHandle.restype = wintypes.BOOL
-
-    process_query_limited_information = 0x1000
-    handle = kernel32.OpenProcess(process_query_limited_information, False, pid)
-    if not handle:
-        return ""
-    try:
-        size = wintypes.DWORD(32768)
-        buffer = ctypes.create_unicode_buffer(size.value)
-        if kernel32.QueryFullProcessImageNameW(handle, 0, buffer, ctypes.byref(size)):
-            return Path(buffer.value).name
-        return ""
-    finally:
-        kernel32.CloseHandle(handle)
-
-
-def bring_window_to_front(hwnd: int) -> None:
-    user32 = ctypes.windll.user32
-    user32.ShowWindow.argtypes = [wintypes.HWND, ctypes.c_int]
-    user32.ShowWindow.restype = wintypes.BOOL
-    user32.BringWindowToTop.argtypes = [wintypes.HWND]
-    user32.BringWindowToTop.restype = wintypes.BOOL
-    user32.SetForegroundWindow.argtypes = [wintypes.HWND]
-    user32.SetForegroundWindow.restype = wintypes.BOOL
-    user32.SetActiveWindow.argtypes = [wintypes.HWND]
-    user32.SetActiveWindow.restype = wintypes.HWND
-    user32.SetFocus.argtypes = [wintypes.HWND]
-    user32.SetFocus.restype = wintypes.HWND
-    user32.GetForegroundWindow.argtypes = []
-    user32.GetForegroundWindow.restype = wintypes.HWND
-    user32.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
-    user32.GetWindowThreadProcessId.restype = wintypes.DWORD
-    user32.AttachThreadInput.argtypes = [wintypes.DWORD, wintypes.DWORD, wintypes.BOOL]
-    user32.AttachThreadInput.restype = wintypes.BOOL
-    user32.ShowWindowAsync.argtypes = [wintypes.HWND, ctypes.c_int]
-    user32.ShowWindowAsync.restype = wintypes.BOOL
-    user32.SwitchToThisWindow.argtypes = [wintypes.HWND, wintypes.BOOL]
-    user32.SwitchToThisWindow.restype = None
-    user32.SetWindowPos.argtypes = [
-        wintypes.HWND,
-        wintypes.HWND,
-        ctypes.c_int,
-        ctypes.c_int,
-        ctypes.c_int,
-        ctypes.c_int,
-        wintypes.UINT,
-    ]
-    user32.SetWindowPos.restype = wintypes.BOOL
-    user32.keybd_event.argtypes = [wintypes.BYTE, wintypes.BYTE, wintypes.DWORD, wintypes.ULONG]
-    user32.keybd_event.restype = None
-    kernel32 = ctypes.windll.kernel32
-    kernel32.GetCurrentThreadId.argtypes = []
-    kernel32.GetCurrentThreadId.restype = wintypes.DWORD
-
-    sw_restore = 9
-    hwnd_topmost = wintypes.HWND(-1)
-    hwnd_notopmost = wintypes.HWND(-2)
-    swp_nomove = 0x0002
-    swp_nosize = 0x0001
-    swp_showwindow = 0x0040
-    vk_menu = 0x12
-    keyeventf_keyup = 0x0002
-
-    try:
-        user32.AllowSetForegroundWindow(-1)
-    except Exception:
-        pass
-
-    foreground = user32.GetForegroundWindow()
-    current_thread = kernel32.GetCurrentThreadId()
-    target_thread = user32.GetWindowThreadProcessId(hwnd, None)
-    foreground_thread = user32.GetWindowThreadProcessId(foreground, None) if foreground else 0
-
-    attached_target = bool(target_thread and user32.AttachThreadInput(current_thread, target_thread, True))
-    attached_foreground = bool(
-        foreground_thread and user32.AttachThreadInput(current_thread, foreground_thread, True)
-    )
-
-    try:
-        user32.keybd_event(vk_menu, 0, 0, 0)
-        user32.keybd_event(vk_menu, 0, keyeventf_keyup, 0)
-        user32.ShowWindowAsync(hwnd, sw_restore)
-        user32.ShowWindow(hwnd, sw_restore)
-        user32.SetWindowPos(hwnd, hwnd_topmost, 0, 0, 0, 0, swp_nomove | swp_nosize | swp_showwindow)
-        user32.SetWindowPos(hwnd, hwnd_notopmost, 0, 0, 0, 0, swp_nomove | swp_nosize | swp_showwindow)
-        user32.BringWindowToTop(hwnd)
-        user32.SetActiveWindow(hwnd)
-        user32.SetFocus(hwnd)
-        user32.SetForegroundWindow(hwnd)
-        user32.SwitchToThisWindow(hwnd, True)
-    finally:
-        if attached_foreground:
-            user32.AttachThreadInput(current_thread, foreground_thread, False)
-        if attached_target:
-            user32.AttachThreadInput(current_thread, target_thread, False)
 
 
 def log(message: str) -> None:

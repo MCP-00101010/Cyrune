@@ -35,8 +35,9 @@ python server.py --no-browser
 
 ## Shape
 
-- `server.py` contains the transport-neutral service operations and the optional development HTTP adapter.
+- `server.py` provides compatibility functions, collection/metadata operations, and the optional development HTTP adapter.
 - `emugui_core/profiles.py` owns emulator-profile import, refresh, editing, deletion, and launch-profile selection independently of either browser transport.
+- `emugui_core/launching.py` owns game/POK launch orchestration, managed-profile preparation, safe argument-array process startup, running-instance choices, and the Windows adapters for EightyOne and Spectaculator/SpecStub.
 - `web/` contains the canonical browser frontend used by both file/RPC and HTTP modes.
 - `data/state.json` stores favourites and recent plays.
 - The default collection is `E:\Emulation\Software Library\Sinclair\ZX Spectrum\Desasteron Spectrum Collection`.
