@@ -46,6 +46,22 @@ python server.py --no-browser
 
 The runtime intentionally uses only Python's standard library.
 
+## ZX Launch Validation
+
+Run the non-launching preflight to verify the active collection, emulator executables, managed profiles, and representative 48K/128K games:
+
+```powershell
+python -B tools\validate_zx_launch.py
+```
+
+Run the live matrix when EightyOne and Spectaculator are closed:
+
+```powershell
+python -B tools\validate_zx_launch.py --live
+```
+
+The live validator refuses to interfere with an existing emulator session. It backs up and restores the live EightyOne configuration, verifies profile copying and focusable windows, exercises Spectaculator direct/current/new behaviour through SpecStub, confirms launched processes survive the response, and closes only the processes it started.
+
 ## Antivirus Note
 
 When using the optional HTTP adapter, use the `.bat` starter rather than a hidden VBS/pythonw launcher. Hidden script chains such as

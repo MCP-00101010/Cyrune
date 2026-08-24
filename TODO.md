@@ -41,7 +41,6 @@
 
 ## Emulator Profiles
 
-- Validate the extracted `emugui_core/launching.py` adapters against real EightyOne and Spectaculator/SpecStub instances, including managed 48K/128K profiles, current/new choices, focus restoration, missing files, and immediate exits.
 - Stop hardcoding emulator definitions in `server.py`.
 - Add a profile comparison view for managed emulator profiles when the original source file is newer or its hash changed.
 - Remove legacy direct EightyOne profile path keys from existing `config.json` once managed profiles have been imported and tested.
