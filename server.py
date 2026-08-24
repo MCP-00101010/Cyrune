@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import base64
 import ctypes
 from ctypes import wintypes
 import datetime as dt
@@ -1905,6 +1906,135 @@ EMUGUI_READ_SERVICE = ReadOnlyEmuGuiService(
 def dispatch_emugui_read(method: object, params: object = None) -> dict[str, object]:
     """Expose bounded reads independently of HTTP for the extension bridge."""
     return EMUGUI_READ_SERVICE.dispatch(method, params)
+
+
+def _api_query_value(query: dict[str, object], key: str, fallback: str = "") -> str:
+    value = query.get(key, fallback)
+    if isinstance(value, (list, tuple)):
+        value = value[0] if value else fallback
+    return str(value or fallback)
+
+
+def _read_only_error() -> dict[str, object]:
+    return {"ok": False, "error": "Selected collection is read-only"}
+
+
+def dispatch_emugui_api(method: object, path: object, query: object = None, data: object = None) -> dict[str, object]:
+    """Route the existing UI API without coupling it to HTTP transport."""
+    verb = str(method or "").strip().upper()
+    route = str(path or "").strip()
+    query = query if isinstance(query, dict) else {}
+    data = data if isinstance(data, dict) else {}
+
+    if verb == "GET":
+        if route == "/api/games":
+            return {"games": get_library().list_games(_api_query_value(query, "view", "collection"))}
+        if route == "/api/collections":
+            return collections_payload()
+        if route == "/api/job":
+            return {"job": get_job(_api_query_value(query, "id"))}
+        if route == "/api/emulators":
+            return {"emulators": emulator_payload()}
+        if route == "/api/emulator-profiles":
+            return {"profiles": emulator_profiles_payload()}
+        if route == "/api/scrapers":
+            return scrapers_payload()
+        if route == "/api/poks":
+            game = get_library().get_game(_api_query_value(query, "game_id"))
+            return {"poks": get_library().get_poks(game) if game else []}
+        if route == "/api/recent":
+            return {"recent": load_recent()}
+
+    if verb == "POST":
+        if route == "/api/favourite":
+            game_id = str(data.get("game_id", ""))
+            favourite = bool(data.get("favourite", False))
+            game = get_library().set_favourite(game_id, favourite)
+            if not game:
+                return {"ok": False, "error": "Unknown game"}
+            set_favourite(game_id, favourite)
+            return {"ok": True, "game": asdict(game)}
+        if route == "/api/select-collection":
+            return {"ok": True, "job_id": start_select_collection_job(str(data.get("collection_id", "")))}
+        if route == "/api/add-collection":
+            return add_collection(str(data.get("root", "")), str(data.get("name", "")),
+                                  bool(data.get("writable", False)), bool(data.get("auto_metadata", False)))
+        if route == "/api/emulators":
+            return update_emulators(data.get("emulators", []))
+        if route == "/api/scrapers":
+            return update_scraper_config(data.get("scrapers", {}))
+        if route == "/api/emulator-profiles/import":
+            return import_emulator_profile(data)
+        if route == "/api/emulator-profiles/update":
+            return update_emulator_profile(data)
+        if route == "/api/emulator-profiles/delete":
+            return delete_emulator_profile(str(data.get("profile_id", "")))
+        if route == "/api/emulator-profiles/update-source":
+            return update_emulator_profile_from_source(str(data.get("profile_id", "")))
+        if route == "/api/pick-path":
+            return pick_path(str(data.get("kind", "file")), str(data.get("title", "")), str(data.get("initial", "")))
+        if route == "/api/launch":
+            return launch_game(str(data.get("game_id", "")), str(data.get("emulator", "default")),
+                               str(data.get("launch_action", "")), bool(data.get("force_new", False)))
+        if route == "/api/open-pok":
+            return open_pok(str(data.get("pok_id", "")))
+        if route == "/api/open-explorer":
+            return open_in_explorer(str(data.get("game_id", "")))
+        if route == "/api/scrape-preview":
+            return scrape_preview(str(data.get("game_id", "")), str(data.get("provider", "manual")))
+        if route == "/api/rebuild":
+            return {"ok": True, "job_id": start_rebuild_job()}
+
+        writable_routes = {
+            "/api/rename", "/api/update-metadata", "/api/metadata-preview", "/api/apply-scrape",
+            "/api/delete", "/api/import-incoming", "/api/import-incoming-bulk", "/api/restore-trash",
+            "/api/purge-trash", "/api/move-language",
+        }
+        if route in writable_routes and not current_collection_writable():
+            return _read_only_error()
+        if route == "/api/rename":
+            return rename_game(str(data.get("game_id", "")), str(data.get("name", "")))
+        if route == "/api/update-metadata":
+            return update_game_metadata(data.get("game_ids", []), data.get("changes", {}), bool(data.get("rename_files", False)))
+        if route == "/api/metadata-preview":
+            return preview_game_metadata(data.get("game_ids", []), data.get("changes", {}), bool(data.get("rename_files", False)))
+        if route == "/api/apply-scrape":
+            return apply_scrape_metadata(str(data.get("game_id", "")), data.get("candidate", {}),
+                                         data.get("assets", {}), data.get("remote_assets", {}))
+        if route == "/api/delete":
+            return delete_game(str(data.get("game_id", "")))
+        if route == "/api/import-incoming":
+            return import_incoming_game(str(data.get("game_id", "")))
+        if route == "/api/import-incoming-bulk":
+            return import_incoming_games(data.get("game_ids", []))
+        if route == "/api/restore-trash":
+            return restore_trash_games(data.get("game_ids", data.get("game_id", [])))
+        if route == "/api/purge-trash":
+            return purge_trash_games(data.get("game_ids", data.get("game_id", [])))
+        if route == "/api/move-language":
+            return move_between_collection_and_languages(str(data.get("game_id", "")))
+
+    raise ServiceContractError("Unsupported EmuGUI API operation")
+
+
+def read_emugui_asset(relative_path: object, max_bytes: object = 4 * 1024 * 1024) -> dict[str, object]:
+    relative = unquote(str(relative_path or "")).replace("\\", "/").lstrip("/")
+    if not relative or "\x00" in relative:
+        raise ServiceContractError("Asset path is invalid")
+    root = COLLECTION.resolve()
+    target = (root / relative).resolve()
+    try:
+        target.relative_to(root)
+    except ValueError as exc:
+        raise ServiceContractError("Asset path escapes the active collection") from exc
+    limit = max(1, min(4 * 1024 * 1024, int(max_bytes or 0)))
+    if not target.is_file() or target.stat().st_size > limit:
+        raise ServiceContractError("Asset is missing or too large")
+    content_type = mimetypes.guess_type(target.name)[0] or ""
+    if content_type not in {"image/png", "image/jpeg", "image/gif", "image/webp", "image/avif"}:
+        raise ServiceContractError("Asset type is not supported")
+    encoded = base64.b64encode(target.read_bytes()).decode("ascii")
+    return {"dataUrl": f"data:{content_type};base64,{encoded}", "contentType": content_type}
 
 
 class Handler(BaseHTTPRequestHandler):

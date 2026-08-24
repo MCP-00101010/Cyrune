@@ -21,6 +21,9 @@ let virtualFrame = 0;
 let virtualRange = { start: -1, end: -1, columns: -1 };
 let webHubRequestSequence = 0;
 const pendingWebHubRequests = new Map();
+const usesExtensionTransport = window.location.protocol === "file:";
+const extensionAssetCache = new Map();
+let extensionRelayPromise = null;
 const webHubHandoff = (() => {
   const params = new URLSearchParams(window.location.search);
   const gameId = String(params.get("game") || "");
@@ -41,13 +44,35 @@ window.addEventListener("message", (event) => {
   else pending.reject(new Error(event.data.error || "The WebHub extension rejected the game shortcut."));
 });
 
-function requestWebHub(type, payload = {}) {
+function waitForExtensionRelay() {
+  if (!usesExtensionTransport || document.documentElement.dataset.morpheusExtensionRelay === "background-ready") {
+    return Promise.resolve();
+  }
+  if (extensionRelayPromise) return extensionRelayPromise;
+  extensionRelayPromise = new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      window.removeEventListener("message", onMessage);
+      reject(new Error("Morpheus WebHub extension 1.0.48 or newer is required to open EmuGUI without its server."));
+    }, 15000);
+    const onMessage = (event) => {
+      if (event.source !== window || event.data?._emugui !== true || event.data?._relayReady !== true) return;
+      clearTimeout(timer);
+      window.removeEventListener("message", onMessage);
+      resolve();
+    };
+    window.addEventListener("message", onMessage);
+  });
+  return extensionRelayPromise;
+}
+
+async function requestWebHub(type, payload = {}) {
+  if (usesExtensionTransport) await waitForExtensionRelay();
   const requestId = `emugui-${Date.now()}-${++webHubRequestSequence}`;
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       pendingWebHubRequests.delete(requestId);
-      reject(new Error("Morpheus WebHub extension 1.0.42 or newer is required."));
-    }, 15000);
+      reject(new Error("Morpheus WebHub extension 1.0.48 or newer is required."));
+    }, 125000);
     pendingWebHubRequests.set(requestId, { resolve, reject, timer });
     window.postMessage({ _emuguiReq: true, requestId, type, ...payload }, "*");
   });
@@ -401,6 +426,30 @@ function moveColumn(sourceKey, targetKey, side = "before") {
 }
 
 async function api(path, options = {}) {
+  if (usesExtensionTransport) {
+    const target = new URL(path, "http://emugui.local");
+    let body = {};
+    if (options.body) {
+      try {
+        body = typeof options.body === "string" ? JSON.parse(options.body) : options.body;
+      } catch (_error) {
+        throw new Error("The EmuGUI request body is invalid.");
+      }
+    }
+    const response = await requestWebHub("MW_EMUGUI_RPC", {
+      method: String(options.method || "GET").toUpperCase(),
+      path: target.pathname,
+      query: Object.fromEntries(target.searchParams.entries()),
+      body: body && typeof body === "object" ? body : {},
+    });
+    const payload = response.result || {};
+    if (payload.ok === false && payload.cancelled !== true) {
+      const error = new Error(payload.error || "Request failed");
+      error.payload = payload;
+      throw error;
+    }
+    return payload;
+  }
   const response = await fetch(path, {
     headers: { "content-type": "application/json" },
     ...options,
@@ -2010,6 +2059,7 @@ async function renderDetails(message = "", isError = false) {
     return;
   }
   const renderId = game.id;
+  await prepareArtworkAssets([game.screenshot, game.loading_screen]);
   const poks = game.has_poks ? (await api(`/api/poks?game_id=${encodeURIComponent(game.id)}`)).poks : [];
   if (state.selected?.id !== renderId) return;
   const detailTags = [
@@ -2110,7 +2160,22 @@ function assetDisplayUrl(value) {
   const text = String(value || "").trim();
   if (!text) return "";
   if (text.startsWith("http://") || text.startsWith("https://")) return text;
+  if (usesExtensionTransport) return extensionAssetCache.get(text) || "";
   return `/api/asset?path=${encodeURIComponent(text)}`;
+}
+
+async function prepareArtworkAssets(values) {
+  if (!usesExtensionTransport) return;
+  const missing = [...new Set((values || []).map((value) => String(value || "").trim())
+    .filter((value) => value && !/^https?:\/\//i.test(value) && !extensionAssetCache.has(value)))];
+  await Promise.all(missing.map(async value => {
+    try {
+      const response = await requestWebHub("MW_EMUGUI_ASSET", { path: value });
+      extensionAssetCache.set(value, String(response.asset?.dataUrl || ""));
+    } catch (_error) {
+      extensionAssetCache.set(value, "");
+    }
+  }));
 }
 
 function resolveLaunchMeta(game) {

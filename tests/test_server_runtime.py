@@ -49,3 +49,50 @@ def test_explicit_profile_binding_overrides_automatic_profile_selection():
 
     assert server.select_managed_profile("eightyone", game, "hub-choice")["id"] == "hub-choice"
     assert server.select_managed_profile("eightyone", game, "missing") is None
+
+
+def test_transport_neutral_api_routes_existing_read_operations():
+    server = load_server()
+
+    class FakeLibrary:
+        def list_games(self, view):
+            return [{"id": "jetpac", "view": view}]
+
+    server.get_library = lambda: FakeLibrary()
+    server.collections_payload = lambda: {"active": {"id": "spectrum"}, "collections": []}
+
+    games = server.dispatch_emugui_api("GET", "/api/games", {"view": "all"}, {})
+    collections = server.dispatch_emugui_api("GET", "/api/collections", {}, {})
+
+    assert games == {"games": [{"id": "jetpac", "view": "all"}]}
+    assert collections["active"]["id"] == "spectrum"
+
+
+def test_transport_neutral_api_rejects_unknown_operations():
+    server = load_server()
+    try:
+        server.dispatch_emugui_api("POST", "/api/arbitrary-command", {}, {})
+    except server.ServiceContractError as error:
+        assert "Unsupported" in str(error)
+    else:
+        raise AssertionError("Unknown API operation was accepted")
+
+
+def test_native_asset_reader_is_bounded_to_supported_collection_images(tmp_path):
+    server = load_server()
+    server.COLLECTION = tmp_path
+    image = tmp_path / "_assets" / "cover.png"
+    image.parent.mkdir()
+    image.write_bytes(b"\x89PNG\r\n\x1a\nsmall")
+    outside = tmp_path.parent / "outside.png"
+    outside.write_bytes(b"\x89PNG\r\n\x1a\nprivate")
+
+    result = server.read_emugui_asset("_assets/cover.png", 1024)
+
+    assert result["dataUrl"].startswith("data:image/png;base64,")
+    try:
+        server.read_emugui_asset("../outside.png", 1024)
+    except server.ServiceContractError as error:
+        assert "escapes" in str(error)
+    else:
+        raise AssertionError("Out-of-collection asset was accepted")
