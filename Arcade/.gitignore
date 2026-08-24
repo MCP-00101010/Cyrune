@@ -1,0 +1,17 @@
+__pycache__/
+*.py[cod]
+*.log
+*.err
+
+# Local machine state and credentials.
+data/config.json
+data/state.json
+data/*.log
+data/*.err
+data/emulator-profiles/
+
+# Editor and OS noise.
+.vscode/
+.idea/
+Thumbs.db
+Desktop.ini

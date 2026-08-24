@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="morpheus-emugui" content="1">
+    <title>Morpheus EmuGUI</title>
+    <link rel="stylesheet" href="style.css">
+  </head>
+  <body>
+    <main class="shell" id="shell">
+      <aside class="sidebar" id="sidebar">
+        <div class="brand">
+          <div class="brand-mark">DS</div>
+          <div>
+            <h1>Desasteron Spectrum</h1>
+            <p id="library-count">Loading library...</p>
+          </div>
+        </div>
+
+        <label class="search">
+          <span>Search</span>
+          <input id="search" type="search" autocomplete="off" placeholder="Jetpac, Dizzy, ULAPlus">
+        </label>
+
+        <section class="filter-group">
+          <h2>Collection</h2>
+          <label class="select-filter">
+            <span>Select Collection</span>
+            <select id="collection-select"></select>
+          </label>
+        </section>
+
+        <section class="filter-group">
+          <h2 class="section-title-row">View <span class="view-beacons"><span id="incoming-indicator" class="view-indicator incoming-indicator" hidden></span><span id="trash-indicator" class="view-indicator trash-indicator" hidden></span></span></h2>
+          <label class="select-filter">
+            <span>Show</span>
+            <select id="filter-view">
+              <option value="all">All Games</option>
+              <option value="favourites">Favourites</option>
+              <option value="recent">Recent</option>
+            </select>
+          </label>
+          <label><input type="checkbox" id="filter-poks"> POKs available</label>
+        </section>
+
+        <section class="filter-group">
+          <h2>Metadata</h2>
+          <label class="select-filter">
+            <span>System</span>
+            <div id="filter-system" class="filter-combo"></div>
+          </label>
+          <label class="select-filter">
+            <span>Language</span>
+            <div id="filter-language" class="filter-combo"></div>
+          </label>
+          <label class="select-filter">
+            <span>Country</span>
+            <div id="filter-country" class="filter-combo"></div>
+          </label>
+          <label class="select-filter">
+            <span>Year</span>
+            <div id="filter-year" class="filter-combo"></div>
+          </label>
+          <label class="select-filter">
+            <span>Publisher</span>
+            <div id="filter-publisher" class="filter-combo"></div>
+          </label>
+          <label class="select-filter">
+            <span>Tag</span>
+            <div id="filter-tag" class="filter-combo"></div>
+          </label>
+        </section>
+
+        <section class="filter-group">
+          <h2>Launch With</h2>
+          <select id="emulator"></select>
+          <button id="edit-emulators" class="secondary compact-button" type="button">Edit Emulators</button>
+          <button id="edit-scrapers" class="secondary compact-button" type="button">Metadata Providers</button>
+        </section>
+
+        <div class="sidebar-actions">
+          <button id="rebuild" class="secondary">Rebuild Index</button>
+        </div>
+      </aside>
+
+      <section class="content">
+        <div class="toolbar">
+          <div>
+            <strong id="result-count">0 games</strong>
+            <span id="active-summary"></span>
+          </div>
+          <div class="toolbar-actions">
+            <span id="selection-count"></span>
+            <div id="import-select-tools" class="import-select-tools" hidden>
+              <span>Select</span>
+              <button class="secondary compact" type="button" data-import-select="new">New</button>
+              <button class="secondary compact" type="button" data-import-select="system-match">Duplicates</button>
+              <button class="secondary compact" type="button" data-import-select="title-match">Variants</button>
+            </div>
+            <button id="column-options" class="secondary" type="button">Columns</button>
+            <button id="bulk-edit" class="secondary" disabled>Edit Selected</button>
+            <button id="clear-filters" class="secondary">Clear Filters</button>
+          </div>
+        </div>
+
+        <div class="library">
+          <table id="game-table">
+            <colgroup id="game-colgroup"></colgroup>
+            <thead>
+              <tr id="game-head-row"></tr>
+            </thead>
+            <tbody id="game-list"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <aside class="details" id="details">
+        <div class="empty-state">Select a game</div>
+      </aside>
+
+      <button id="toggle-sidebar" class="edge-toggle edge-toggle-left" type="button" aria-label="Toggle filters panel" title="Toggle filters panel">&lt;</button>
+      <button id="toggle-details" class="edge-toggle edge-toggle-right" type="button" aria-label="Toggle details panel" title="Toggle details panel">&gt;</button>
+    </main>
+
+    <div id="busy-overlay" class="busy-overlay hidden" aria-live="polite" aria-busy="true">
+      <div class="busy-panel">
+        <h2 id="busy-title">Working</h2>
+        <p id="busy-message">Indexing collection...</p>
+        <div class="busy-bar"><span id="busy-progress"></span></div>
+      </div>
+    </div>
+
+    <script src="app.js"></script>
+  </body>
+</html>
