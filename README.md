@@ -4,7 +4,7 @@ Small local browser launcher and collection manager for emulator libraries.
 
 ## Run
 
-With Morpheus WebHub extension 1.0.50 or newer installed and its native host configured for this EmuGUI checkout, open:
+With Morpheus WebHub extension 1.0.51 or newer installed and its native host configured for this EmuGUI checkout, open:
 
 ```text
 web/index.html

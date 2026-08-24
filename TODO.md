@@ -26,7 +26,6 @@
 
 ## Future Collection Sources
 
-- Add a browsing mode for `incoming`.
 - Add a browsing mode for arbitrary source roots such as raw TOSEC or TheSpectrum collections.
 - Reuse the TOSEC parser for title, year, publisher, memory, country, language, flags, and media/version tags.
 
@@ -42,8 +41,7 @@
 ## Emulator Profiles
 
 - Add a profile comparison view for managed emulator profiles when the original source file is newer or its hash changed.
-- Remove legacy direct EightyOne profile path keys from existing `config.json` once managed profiles have been imported and tested.
-- Add emulator command templates / CLI argument profiles for hardware-specific launches.
+- Add reusable hardware-specific presets on top of the existing validated emulator argument templates.
 - Use parsed metadata such as system, ULAPlus, 128K, AY, or other hardware tags to suggest launch profiles.
 - Keep the first version Windows-friendly, but avoid baking in Windows-only assumptions where possible.
 
