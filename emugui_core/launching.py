@@ -3,15 +3,16 @@
 from __future__ import annotations
 
 import ctypes
-from ctypes import wintypes
-from dataclasses import dataclass
 import os
-from pathlib import Path
 import subprocess
 import time
+from ctypes import wintypes
+from dataclasses import dataclass
+from pathlib import Path
 from typing import Callable
 
 from emugui_core.emulators import normalize_template
+from emugui_core.persistence import atomic_copy_file
 
 
 @dataclass(frozen=True)
@@ -122,7 +123,7 @@ def prepare_eightyone_profile(
     if not source or not source.exists():
         raise FileNotFoundError(f"Missing managed EightyOne profile: {managed_profile.get('name')}")
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_bytes(source.read_bytes())
+    atomic_copy_file(source, target)
 
 
 class GameLaunchService:

@@ -7,7 +7,6 @@ import threading
 import uuid
 from typing import Callable
 
-
 ProgressCallback = Callable[[str, int, int, str], None]
 JobWork = Callable[[ProgressCallback], None]
 
@@ -15,13 +14,30 @@ JobWork = Callable[[ProgressCallback], None]
 class BackgroundJobService:
     """Run bounded application jobs and expose immutable status snapshots."""
 
-    def __init__(self, thread_factory: Callable[..., threading.Thread] = threading.Thread) -> None:
+    def __init__(
+        self,
+        thread_factory: Callable[..., threading.Thread] = threading.Thread,
+        max_jobs: int = 100,
+    ) -> None:
         self._lock = threading.Lock()
         self._jobs: dict[str, dict[str, object]] = {}
         self._thread_factory = thread_factory
+        self._max_jobs = max(1, max_jobs)
+
+    def _prune_finished_locked(self) -> None:
+        overflow = len(self._jobs) - self._max_jobs
+        if overflow <= 0:
+            return
+        finished = [
+            job_id for job_id, job in self._jobs.items()
+            if job.get("status") in {"done", "error"}
+        ]
+        for job_id in finished[:overflow]:
+            self._jobs.pop(job_id, None)
 
     def start(self, title: str, work: JobWork) -> str:
         job_id = uuid.uuid4().hex[:12]
+        created_at = dt.datetime.now(dt.UTC).isoformat(timespec="seconds")
         with self._lock:
             self._jobs[job_id] = {
                 "id": job_id,
@@ -32,7 +48,10 @@ class BackgroundJobService:
                 "title": title,
                 "message": "Starting...",
                 "error": "",
+                "created_at": created_at,
+                "updated_at": created_at,
             }
+            self._prune_finished_locked()
 
         def progress(phase: str, current: int, total: int, message: str) -> None:
             self.update(job_id, phase=phase, current=current, total=total, message=message)
@@ -44,7 +63,10 @@ class BackgroundJobService:
             except Exception as exc:
                 self.update(job_id, status="error", phase="error", error=str(exc), message=str(exc))
 
-        self._thread_factory(target=runner, daemon=True).start()
+        try:
+            self._thread_factory(target=runner, daemon=True).start()
+        except Exception as exc:
+            self.update(job_id, status="error", phase="error", error=str(exc), message=str(exc))
         return job_id
 
     def update(self, job_id: str, **updates: object) -> None:
@@ -54,6 +76,7 @@ class BackgroundJobService:
                 return
             job.update(updates)
             job["updated_at"] = dt.datetime.now(dt.UTC).isoformat(timespec="seconds")
+            self._prune_finished_locked()
 
     def get(self, job_id: str) -> dict[str, object]:
         with self._lock:

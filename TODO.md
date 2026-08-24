@@ -31,12 +31,17 @@
 
 ## Performance / Large Collections
 
-- Add virtual scrolling for the game list.
-  - Keep `state.filtered` as the full logical result set.
-  - Render only the visible rows plus a small buffer instead of all 10k+ games.
-  - Preserve selection, double-click launch, checkbox selection, context menus, and sortable headers.
-  - Consider replacing the HTML table body with a CSS grid/list if table virtualization becomes awkward.
-  - Goal: make selection, scrolling, and sorting feel closer to a native launcher with very large collections.
+- Virtual scrolling for the game list is implemented while preserving selection, launch, checkbox, context-menu, and sortable-header behaviour.
+- Reduce the initial all-games API transfer before or during the monorepo migration.
+  - The 2026-08-25 baseline for 12,933 games is a 16.545 MiB JSON payload, about 5.05 seconds to construct the library, 0.53 seconds to materialise API dictionaries, and 0.85 seconds to serialise them with tracing enabled.
+  - Prefer a versioned summary-record contract plus on-selection detail loading, paging, or incremental loading.
+  - Preserve fast client-side filtering and sorting, or replace them with equivalently responsive bounded service operations.
+
+## Reliability Follow-ups
+
+- The 2026-08-25 health pass added atomic persistence, persisted-shape validation, concurrent state protection, failed collection-switch rollback, HTTPS scraper endpoint validation, bounded job history, and regression tests. See `HEALTH-AUDIT.md`.
+- During the monorepo migration, add recoverable filesystem-plus-metadata transactions for rename/import/delete/restore workflows.
+- Establish shared Ruff and type-checking policy after the final Python package layout exists; the current mypy/Python 3.14 combination crashes internally.
 
 ## Emulator Profiles
 

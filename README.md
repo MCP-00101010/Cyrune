@@ -32,6 +32,8 @@ Firefox/Zen must allow the Morpheus WebHub extension to access local files. The 
 
 The runtime intentionally uses only Python's standard library.
 
+State, configuration, collection metadata, and emulator-profile files are replaced atomically so an interrupted write does not destroy the previous working copy. Scraper credentials are sent only to validated HTTPS base URLs. See [HEALTH-AUDIT.md](HEALTH-AUDIT.md) for the latest reliability and real-library performance baseline.
+
 Launch templates are JSON arrays of arguments, not command strings. They may use `{file}`, `{file_dir}`, `{file_name}`, `{collection_root}`, `{pok_file}`, `{system}`, and `{title}`. EmuGUI validates executable/helper paths and templates before saving changes.
 
 ## ZX Launch Validation

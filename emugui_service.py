@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import csv
 import base64
+import csv
 import datetime as dt
 import json
 import mimetypes
@@ -11,43 +11,49 @@ import shutil
 import subprocess
 import sys
 import threading
-import time
 import tkinter as tk
-from tkinter import filedialog
 import webbrowser
+from copy import deepcopy
 from dataclasses import asdict
 from pathlib import Path
+from tkinter import filedialog
 from urllib.error import HTTPError, URLError
-from urllib.parse import unquote, urlencode
+from urllib.parse import unquote, urlencode, urlsplit
 from urllib.request import Request, urlopen
 
-from emugui_core.service import ReadOnlyEmuGuiService, ServiceContractError
-from emugui_core.profiles import EmulatorProfileService
+from emugui_core.collection_loading import (
+    CollectionLoader,
+)
+from emugui_core.collection_loading import (
+    import_match_summary as core_import_match_summary,
+)
+from emugui_core.collection_loading import (
+    mark_import_view_matches as core_mark_import_view_matches,
+)
+from emugui_core.collections import CollectionService
+from emugui_core.collections import file_count_in_tree as core_file_count_in_tree
+from emugui_core.emulators import (
+    EmulatorConfigError,
+    EmulatorConfigService,
+    load_emulator_defaults,
+)
+from emugui_core.jobs import BackgroundJobService
 from emugui_core.launching import (
     GameLaunchService,
     bring_window_to_front,
     find_running_emulator_window,
-    find_window_for_process,
     focus_launched_emulator,
-    get_process_image_name,
-    get_window_process_id,
     launch_visible,
     prepare_eightyone_profile,
     should_check_immediate_exit,
 )
-from emugui_core.jobs import BackgroundJobService
 from emugui_core.library import Game, GameLibrary
-from emugui_core.collections import CollectionService, file_count_in_tree as core_file_count_in_tree
 from emugui_core.metadata import MetadataService
+from emugui_core.persistence import atomic_write_json, read_json_object
+from emugui_core.profiles import EmulatorProfileService
 from emugui_core.scraping import ScraperAdapter, ScraperService
-from emugui_core.emulators import EmulatorConfigError, EmulatorConfigService, load_emulator_defaults
 from emugui_core.secrets import SCRAPER_SECRET_FIELDS, ScraperSecretService
-from emugui_core.collection_loading import (
-    CollectionLoader,
-    import_match_summary as core_import_match_summary,
-    mark_import_view_matches as core_mark_import_view_matches,
-)
-
+from emugui_core.service import ReadOnlyEmuGuiService, ServiceContractError
 
 LAUNCHER = Path(__file__).resolve().parent
 DEFAULT_COLLECTION_ROOT = Path(
@@ -72,7 +78,8 @@ METADATA_FILE = COLLECTION / "collection-metadata.json"
 DEFAULT_EMULATORS = load_emulator_defaults(LAUNCHER / "defaults" / "emulators.json")
 
 JOB_SERVICE = BackgroundJobService()
-TGDB_LOOKUP_CACHE: dict[str, dict[str, str]] = {}
+TGDB_LOOKUP_CACHE: dict[tuple[str, str], dict[str, str]] = {}
+STATE_LOCK = threading.RLock()
 DEFAULT_SCRAPERS = {
     "manual": {
         "id": "manual",
@@ -134,22 +141,39 @@ def init_state() -> None:
 
 
 def load_state() -> dict:
-    init_state_file_only()
-    try:
-        return json.loads(STATE_FILE.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return {"favourites": [], "recent": []}
+    with STATE_LOCK:
+        init_state_file_only()
+        state = read_json_object(STATE_FILE, {"favourites": [], "recent": []})
+        if not isinstance(state.get("favourites"), list):
+            state["favourites"] = []
+        else:
+            state["favourites"] = [item for item in state["favourites"] if isinstance(item, str) and item]
+        if not isinstance(state.get("recent"), list):
+            state["recent"] = []
+        else:
+            state["recent"] = [item for item in state["recent"] if isinstance(item, dict)]
+        return state
 
 
 def save_state(state: dict) -> None:
-    DATA.mkdir(parents=True, exist_ok=True)
-    STATE_FILE.write_text(json.dumps(state, indent=2), encoding="utf-8")
+    with STATE_LOCK:
+        atomic_write_json(STATE_FILE, state)
 
 
 def init_state_file_only() -> None:
-    DATA.mkdir(parents=True, exist_ok=True)
-    if not STATE_FILE.exists():
-        STATE_FILE.write_text('{"favourites": [], "recent": []}', encoding="utf-8")
+    with STATE_LOCK:
+        if not STATE_FILE.exists():
+            atomic_write_json(STATE_FILE, {"favourites": [], "recent": []})
+
+
+def update_state(mutator) -> dict:
+    """Apply one state mutation without losing a concurrent update."""
+
+    with STATE_LOCK:
+        state = load_state()
+        mutator(state)
+        save_state(state)
+        return state
 
 
 def init_config() -> None:
@@ -205,21 +229,39 @@ def init_config() -> None:
 
 
 def load_config() -> dict:
-    try:
-        return json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return {
-            "collections": discover_collections(),
-            "default_collection": "desasteron",
-            "emulators": DEFAULT_EMULATORS,
-            "emulator_profiles": [],
-            "scrapers": DEFAULT_SCRAPERS,
-        }
+    fallback = {
+        "collections": discover_collections(),
+        "default_collection": "desasteron",
+        "emulators": deepcopy(DEFAULT_EMULATORS),
+        "emulator_profiles": [],
+        "scrapers": deepcopy(DEFAULT_SCRAPERS),
+    }
+    config = read_json_object(CONFIG_FILE, fallback)
+    expected_types = {
+        "collections": list,
+        "default_collection": str,
+        "emulators": dict,
+        "emulator_profiles": list,
+        "scrapers": dict,
+    }
+    for key, expected_type in expected_types.items():
+        if not isinstance(config.get(key), expected_type):
+            config[key] = fallback[key]
+    config["collections"] = [item for item in config["collections"] if isinstance(item, dict)]
+    config["emulator_profiles"] = [item for item in config["emulator_profiles"] if isinstance(item, dict)]
+    config["emulators"] = {
+        key: value for key, value in config["emulators"].items()
+        if isinstance(key, str) and isinstance(value, dict)
+    }
+    config["scrapers"] = {
+        key: value for key, value in config["scrapers"].items()
+        if isinstance(key, str) and isinstance(value, dict)
+    }
+    return config
 
 
 def save_config(config: dict) -> None:
-    DATA.mkdir(parents=True, exist_ok=True)
-    CONFIG_FILE.write_text(json.dumps(config, indent=2, ensure_ascii=False), encoding="utf-8")
+    atomic_write_json(CONFIG_FILE, config)
 
 
 def expand_config_path(value: object) -> Path | None:
@@ -311,9 +353,50 @@ def collection_asset_root() -> Path:
     return COLLECTION / "_assets" / "scraped"
 
 
+def normalize_scraper_base_url(value: object, fallback: str) -> str:
+    """Accept credential-bearing scraper requests only over a clean HTTPS origin."""
+
+    text = clean_metadata_text(value or fallback, max_len=500).rstrip("/")
+    if "\\" in text or any(character.isspace() for character in text):
+        raise ValueError("Scraper base URL cannot contain whitespace or backslashes")
+    try:
+        parsed = urlsplit(text)
+        port = parsed.port
+    except ValueError as exc:
+        raise ValueError(f"Invalid scraper base URL: {exc}") from exc
+    if parsed.scheme.lower() != "https" or not parsed.hostname:
+        raise ValueError("Scraper base URL must use HTTPS")
+    if parsed.username or parsed.password or parsed.query or parsed.fragment:
+        raise ValueError("Scraper base URL cannot contain credentials, a query, or a fragment")
+    try:
+        host = parsed.hostname.encode("idna").decode("ascii")
+    except UnicodeError as exc:
+        raise ValueError("Scraper base URL contains an invalid host name") from exc
+    if ":" in host and not host.startswith("["):
+        host = f"[{host}]"
+    authority = host if port is None else f"{host}:{port}"
+    path = parsed.path.rstrip("/")
+    return f"https://{authority}{path}"
+
+
 def update_scraper_config(scrapers: object) -> dict:
     if not isinstance(scrapers, dict):
         return {"ok": False, "error": "Expected scraper settings"}
+    try:
+        validated_base_urls = {
+            scraper_id: normalize_scraper_base_url(
+                updates["base_url"], str(DEFAULT_SCRAPERS[scraper_id]["base_url"])
+            )
+            for scraper_id, updates in scrapers.items()
+            if (
+                scraper_id in DEFAULT_SCRAPERS
+                and "base_url" in DEFAULT_SCRAPERS[scraper_id]
+                and isinstance(updates, dict)
+                and "base_url" in updates
+            )
+        }
+    except ValueError as exc:
+        return {"ok": False, "error": str(exc)}
     config = load_config()
     current = configured_scrapers()
     for scraper_id, updates in scrapers.items():
@@ -335,7 +418,9 @@ def update_scraper_config(scrapers: object) -> dict:
             ):
                 if key in updates:
                     value = updates[key]
-                    cleaned = bool(value) if key == "enabled" else clean_metadata_text(value, max_len=180)
+                    cleaned = validated_base_urls[scraper_id] if key == "base_url" else (
+                        bool(value) if key == "enabled" else clean_metadata_text(value, max_len=180)
+                    )
                     if key in SCRAPER_SECRET_FIELDS.get(scraper_id, ()):
                         SCRAPER_SECRET_SERVICE.set_verified(scraper_id, key, str(cleaned))
                     else:
@@ -344,7 +429,9 @@ def update_scraper_config(scrapers: object) -> dict:
             for key in ("enabled", "api_key", "platform_id", "base_url"):
                 if key in updates:
                     value = updates[key]
-                    cleaned = bool(value) if key == "enabled" else clean_metadata_text(value, max_len=180)
+                    cleaned = validated_base_urls[scraper_id] if key == "base_url" else (
+                        bool(value) if key == "enabled" else clean_metadata_text(value, max_len=180)
+                    )
                     if key in SCRAPER_SECRET_FIELDS.get(scraper_id, ()):
                         SCRAPER_SECRET_SERVICE.set_verified(scraper_id, key, str(cleaned))
                     else:
@@ -356,6 +443,7 @@ def update_scraper_config(scrapers: object) -> dict:
         else current
     )
     save_config(config)
+    TGDB_LOOKUP_CACHE.clear()
     return {"ok": True, "providers": scrapers_payload()["providers"]}
 
 
@@ -451,12 +539,16 @@ def discover_collections() -> list[dict[str, object]]:
 
 
 def looks_like_collection(path: Path) -> bool:
-    from emugui_core.collections import looks_like_collection as core_looks_like_collection
+    from emugui_core.collections import (
+        looks_like_collection as core_looks_like_collection,
+    )
     return core_looks_like_collection(path)
 
 
 def unique_collection_id(name: str, used: set[str]) -> str:
-    from emugui_core.collections import unique_collection_id as core_unique_collection_id
+    from emugui_core.collections import (
+        unique_collection_id as core_unique_collection_id,
+    )
     return core_unique_collection_id(name, used)
 
 
@@ -535,13 +627,23 @@ def start_select_collection_job(collection_id: str) -> str:
     config = load_config()
     target = next((item for item in config.get("collections", []) if item.get("id") == collection_id), None)
     title = f"Switching to {target.get('name')}" if target else "Switching Collection"
+    previous_id = load_active_collection_id()
 
     def work(progress) -> None:
+        if target is None:
+            raise ValueError(f"Unknown collection: {collection_id}")
         selected = activate_collection(collection_id)
-        state = load_state()
-        state["active_collection_id"] = selected.get("id", "desasteron")
-        save_state(state)
-        get_library().rebuild(progress)
+        update_state(lambda state: state.update({"active_collection_id": selected.get("id", "desasteron")}))
+        try:
+            get_library().rebuild(progress)
+        except Exception:
+            activate_collection(previous_id)
+            update_state(lambda state: state.update({"active_collection_id": previous_id}))
+            try:
+                get_library().rebuild()
+            except Exception as rollback_error:
+                log(f"Collection rollback rebuild failed: {rollback_error}")
+            raise
 
     return start_index_job(title, work)
 
@@ -585,15 +687,17 @@ def load_poks() -> dict[tuple[str, str], list[dict[str, str]]]:
 
 
 def load_metadata() -> dict:
-    try:
-        return json.loads(METADATA_FILE.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return {"version": 1, "games": [], "poks": []}
+    metadata = read_json_object(METADATA_FILE, {"version": 1, "games": [], "poks": []})
+    if not isinstance(metadata.get("games"), list):
+        metadata["games"] = []
+    if not isinstance(metadata.get("poks"), list):
+        metadata["poks"] = []
+    return metadata
 
 
 def save_metadata(metadata: dict) -> None:
     metadata["updated_at"] = dt.datetime.now(dt.UTC).isoformat(timespec="seconds")
-    METADATA_FILE.write_text(json.dumps(metadata, indent=2, ensure_ascii=False), encoding="utf-8")
+    atomic_write_json(METADATA_FILE, metadata)
 
 
 def collection_relative(path: Path) -> str:
@@ -1559,7 +1663,8 @@ def dispatch_emugui_api(method: object, path: object, query: object = None, data
             return pick_path(str(data.get("kind", "file")), str(data.get("title", "")), str(data.get("initial", "")))
         if route == "/api/launch":
             return launch_game(str(data.get("game_id", "")), str(data.get("emulator", "default")),
-                               str(data.get("launch_action", "")), bool(data.get("force_new", False)))
+                               str(data.get("launch_action", "")), bool(data.get("force_new", False)),
+                               str(data.get("profile_id", "")))
         if route == "/api/open-pok":
             return open_pok(str(data.get("pok_id", "")))
         if route == "/api/open-explorer":
@@ -1653,28 +1758,34 @@ def emulator_payload() -> list[dict]:
 def set_favourite(game_id: str, favourite: bool) -> None:
     if not game_id:
         return
-    state = load_state()
-    favourites = set(state.get("favourites", []))
-    if favourite:
-        favourites.add(game_id)
-    else:
-        favourites.discard(game_id)
-    state["favourites"] = sorted(favourites)
-    save_state(state)
+
+    def mutate(state: dict) -> None:
+        favourites = set(state.get("favourites", []))
+        if favourite:
+            favourites.add(game_id)
+        else:
+            favourites.discard(game_id)
+        state["favourites"] = sorted(favourites)
+
+    update_state(mutate)
 
 
 def load_recent() -> list[dict[str, str]]:
-    recent = load_state().get("recent", [])
+    recent = [item for item in load_state().get("recent", []) if isinstance(item, dict)]
     recent.sort(key=lambda item: item.get("played_at", ""), reverse=True)
     return recent[:30]
 
 
 def mark_recent(game_id: str) -> None:
-    state = load_state()
-    recent = [item for item in state.get("recent", []) if item.get("game_id") != game_id]
-    recent.insert(0, {"game_id": game_id, "played_at": dt.datetime.now(dt.UTC).isoformat(timespec="seconds")})
-    state["recent"] = recent[:30]
-    save_state(state)
+    def mutate(state: dict) -> None:
+        recent = [
+            item for item in state.get("recent", [])
+            if isinstance(item, dict) and item.get("game_id") != game_id
+        ]
+        recent.insert(0, {"game_id": game_id, "played_at": dt.datetime.now(dt.UTC).isoformat(timespec="seconds")})
+        state["recent"] = recent[:30]
+
+    update_state(mutate)
 
 
 def update_emulators(payload: object, collection_id: object = "", default_emulator: object = "") -> dict:
@@ -1918,7 +2029,7 @@ def thegamesdb_scrape_preview(game: Game, provider: dict[str, object]) -> dict:
 
 
 def thegamesdb_request(game: Game, provider: dict[str, object], title: str) -> dict:
-    base_url = str(provider.get("base_url") or "https://api.thegamesdb.net/v1").rstrip("/")
+    base_url = normalize_scraper_base_url(provider.get("base_url"), "https://api.thegamesdb.net/v1")
     params = {
         "apikey": str(provider.get("api_key", "")),
         "name": title,
@@ -1945,7 +2056,7 @@ def thegamesdb_request(game: Game, provider: dict[str, object], title: str) -> d
 
 
 def thegamesdb_images_request(provider: dict[str, object], game_ids: list[str]) -> dict:
-    base_url = str(provider.get("base_url") or "https://api.thegamesdb.net/v1").rstrip("/")
+    base_url = normalize_scraper_base_url(provider.get("base_url"), "https://api.thegamesdb.net/v1")
     params = {
         "apikey": str(provider.get("api_key", "")),
         "games_id": ",".join(game_ids),
@@ -2019,13 +2130,14 @@ def lookup_tgdb_names(ids: object, include_rows: object, provider: dict[str, obj
 
 def thegamesdb_lookup_table(provider: dict[str, object], kind: str) -> dict[str, str]:
     kind = kind.lower()
-    if kind in TGDB_LOOKUP_CACHE:
-        return TGDB_LOOKUP_CACHE[kind]
     endpoint_map = {"publishers": "Publishers", "developers": "Developers", "genres": "Genres"}
     endpoint = endpoint_map.get(kind)
     if not endpoint:
         return {}
-    base_url = str(provider.get("base_url") or "https://api.thegamesdb.net/v1").rstrip("/")
+    base_url = normalize_scraper_base_url(provider.get("base_url"), "https://api.thegamesdb.net/v1")
+    cache_key = (base_url, kind)
+    if cache_key in TGDB_LOOKUP_CACHE:
+        return TGDB_LOOKUP_CACHE[cache_key]
     url = f"{base_url}/{endpoint}?{urlencode({'apikey': str(provider.get('api_key', ''))})}"
     request = Request(url, headers={"User-Agent": "DesasteronSpectrumLauncher/0.1"})
     try:
@@ -2040,8 +2152,8 @@ def thegamesdb_lookup_table(provider: dict[str, object], kind: str) -> dict[str,
         for key, value in rows.items()
         if isinstance(value, dict)
     }
-    TGDB_LOOKUP_CACHE[kind] = {key: value for key, value in lookup.items() if value}
-    return TGDB_LOOKUP_CACHE[kind]
+    TGDB_LOOKUP_CACHE[cache_key] = {key: value for key, value in lookup.items() if value}
+    return TGDB_LOOKUP_CACHE[cache_key]
 
 
 def thegamesdb_image_base(includes: dict) -> str:
@@ -2125,7 +2237,7 @@ def thegamesdb_direct_image_base(data: dict) -> str:
 
 
 def screenscraper_request(game: Game, provider: dict[str, object]) -> dict:
-    base_url = str(provider.get("base_url") or "https://www.screenscraper.fr/api2").rstrip("/")
+    base_url = normalize_scraper_base_url(provider.get("base_url"), "https://www.screenscraper.fr/api2")
     path = Path(game.path)
     params = {
         "softname": str(provider.get("softname") or "DesasteronSpectrumLauncher"),

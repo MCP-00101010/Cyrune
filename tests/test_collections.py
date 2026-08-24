@@ -1,5 +1,3 @@
-from pathlib import Path
-
 from emugui_core.collections import CollectionService, file_count_in_tree, looks_like_collection
 
 

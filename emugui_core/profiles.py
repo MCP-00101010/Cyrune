@@ -7,6 +7,8 @@ import hashlib
 from pathlib import Path
 from typing import Callable
 
+from emugui_core.persistence import atomic_copy_file
+
 
 class EmulatorProfileService:
     """Manage copied emulator profiles without depending on an HTTP transport."""
@@ -96,7 +98,7 @@ class EmulatorProfileService:
         destination_dir = self._profile_dir / emulator_id
         destination_dir.mkdir(parents=True, exist_ok=True)
         destination = destination_dir / f"{profile_id}{source.suffix.lower() or '.profile'}"
-        destination.write_bytes(source.read_bytes())
+        atomic_copy_file(source, destination)
         stat = source.stat()
         profile = {
             "id": profile_id,
@@ -171,7 +173,7 @@ class EmulatorProfileService:
             if not source or not source.exists() or not managed:
                 return {"ok": False, "error": "Profile source is missing"}
             managed.parent.mkdir(parents=True, exist_ok=True)
-            managed.write_bytes(source.read_bytes())
+            atomic_copy_file(source, managed)
             stat = source.stat()
             profile["source_mtime"] = stat.st_mtime
             profile["source_hash"] = self._file_sha256(source)

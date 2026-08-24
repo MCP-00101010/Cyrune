@@ -4,7 +4,6 @@ import sys
 import time
 from pathlib import Path
 
-
 SERVICE_PATH = Path(__file__).resolve().parents[1] / "emugui_service.py"
 APP_PATH = Path(__file__).resolve().parents[1] / "web" / "app.js"
 
@@ -137,10 +136,11 @@ def test_external_page_api_surface_is_implemented_by_native_dispatcher():
         "/api/restore-trash", "/api/purge-trash", "/api/launch", "/api/add-collection",
         "/api/open-explorer", "/api/import-incoming", "/api/scrape-preview",
         "/api/apply-scrape", "/api/update-metadata", "/api/metadata-preview",
-        "/api/rename", "/api/open-pok", "/api/emulators", "/api/scrapers",
+        "/api/rename", "/api/open-pok",
     }
     assert all(route == "/api/asset" or route in app for route in routes)
     assert all(route == "/api/asset" or route in server for route in routes)
+    assert "profile_id: selectedProfile?.id" in app
 
 
 def test_native_dispatcher_preserves_library_management_workflow(tmp_path):

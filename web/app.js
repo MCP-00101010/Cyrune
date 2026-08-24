@@ -2488,12 +2488,18 @@ async function runLaunchChoice(choice) {
 }
 
 async function launchGame(launchAction, emulator = els.emulator.value) {
+  const pinnedProfileId = String(state.selected?.emulator_profile || "");
+  const pinnedProfile = state.profiles.find((profile) => (
+    profile.id === pinnedProfileId && profile.emulator_id === emulator
+  ));
+  const selectedProfile = pinnedProfile || automaticProfileForGame(emulator, state.selected);
   return api("/api/launch", {
     method: "POST",
     body: JSON.stringify({
       game_id: state.selected.id,
       emulator,
       launch_action: launchAction,
+      profile_id: selectedProfile?.id || "",
     }),
   });
 }
