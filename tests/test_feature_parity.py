@@ -5,13 +5,13 @@ import time
 from pathlib import Path
 
 
-SERVER_PATH = Path(__file__).resolve().parents[1] / "server.py"
+SERVICE_PATH = Path(__file__).resolve().parents[1] / "emugui_service.py"
 APP_PATH = Path(__file__).resolve().parents[1] / "web" / "app.js"
 
 
 def load_server():
-    module_name = "emugui_feature_parity_server"
-    spec = importlib.util.spec_from_file_location(module_name, SERVER_PATH)
+    module_name = "emugui_feature_parity_service"
+    spec = importlib.util.spec_from_file_location(module_name, SERVICE_PATH)
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
     sys.modules[module_name] = module
@@ -126,7 +126,7 @@ def wait_for_job(server, job_id):
 
 def test_external_page_api_surface_is_implemented_by_native_dispatcher():
     app = APP_PATH.read_text(encoding="utf-8")
-    server = SERVER_PATH.read_text(encoding="utf-8")
+    server = SERVICE_PATH.read_text(encoding="utf-8")
     routes = {
         "/api/collections", "/api/games", "/api/emulators", "/api/emulator-profiles",
         "/api/recent", "/api/job", "/api/poks", "/api/scrapers", "/api/asset",
@@ -139,7 +139,7 @@ def test_external_page_api_surface_is_implemented_by_native_dispatcher():
         "/api/apply-scrape", "/api/update-metadata", "/api/metadata-preview",
         "/api/rename", "/api/open-pok", "/api/emulators", "/api/scrapers",
     }
-    assert all(route in app for route in routes)
+    assert all(route == "/api/asset" or route in app for route in routes)
     assert all(route == "/api/asset" or route in server for route in routes)
 
 

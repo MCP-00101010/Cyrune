@@ -31,12 +31,11 @@ def test_webhub_deep_link_selects_a_game_and_supports_in_place_rebinding():
     assert "Update WebHub Shortcut" in source
 
 
-def test_file_page_uses_one_extension_rpc_transport_with_http_fallback():
+def test_file_page_uses_only_the_extension_rpc_transport():
     source = (ROOT / "web" / "app.js").read_text(encoding="utf-8")
-    assert 'window.location.protocol === "file:"' in source
     assert 'requestWebHub("MW_EMUGUI_RPC"' in source
     assert 'requestWebHub("MW_EMUGUI_ASSET"' in source
-    assert "if (usesExtensionTransport)" in source
     assert "payload.ok === false && payload.cancelled !== true" in source
     assert 'payload.path === "/api/pick-path" ? 305000 : 125000' in source
-    assert "const response = await fetch(path" in source
+    assert "usesExtensionTransport" not in source
+    assert "fetch(path" not in source

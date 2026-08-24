@@ -3,12 +3,12 @@ import sys
 from pathlib import Path
 
 
-SERVER_PATH = Path(__file__).resolve().parents[1] / "server.py"
+SERVICE_PATH = Path(__file__).resolve().parents[1] / "emugui_service.py"
 
 
 def load_server():
-    module_name = "emugui_server_under_test"
-    spec = importlib.util.spec_from_file_location(module_name, SERVER_PATH)
+    module_name = "emugui_service_under_test"
+    spec = importlib.util.spec_from_file_location(module_name, SERVICE_PATH)
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
     sys.modules[module_name] = module
@@ -20,6 +20,16 @@ def test_import_does_not_index_the_game_library():
     server = load_server()
 
     assert server.LIBRARY is None
+
+
+def test_native_service_has_no_http_server_lifecycle():
+    source = SERVICE_PATH.read_text(encoding="utf-8")
+    for retired in ("BaseHTTPRequestHandler", "ThreadingHTTPServer", "serve_forever", "--no-browser", "PORT = 8765"):
+        assert retired not in source
+
+    service = load_server()
+    assert not hasattr(service, "Handler")
+    assert not hasattr(service, "main")
 
 
 def test_library_is_constructed_once_on_first_use():
@@ -128,7 +138,7 @@ def test_file_transport_preserves_launch_choices_and_profile_routes():
     ]
 
 
-def test_server_launch_function_remains_a_compatibility_facade():
+def test_service_launch_function_remains_a_compatibility_facade():
     server = load_server()
     calls = []
 
