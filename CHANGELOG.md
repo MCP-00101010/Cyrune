@@ -5,6 +5,21 @@ Format: `[version] — date` followed by Added / Changed / Fixed sections.
 
 ---
 
+## [0.11.220] — 2026-08-25
+
+### Changed
+
+- **EmuGUI native service boundary** — the retained transport-independent dispatcher and platform adapters now live in `emugui_service.py`, and the WebHub native host loads that explicitly named service module.
+- **Single EmuGUI transport** — EmuGUI's external `file://` interface now uses authenticated extension RPC for every API and artwork request. Extension registration and **Open in EmuGUI** accept only the configured local file page.
+
+### Removed
+
+- **Retired EmuGUI HTTP server** — removed the localhost handler, port-8765 process lifecycle, browser-start entry point, start/stop batch files, frontend fetch fallback, and special localhost authorization path. The server is not carried into the monorepo plan.
+
+### Validation
+
+- All 345 WebHub JavaScript tests, all 42 native-host tests (plus 11 parameterised subtests), and all 53 EmuGUI tests pass. JavaScript and Python syntax/import coverage pass through those suites, and Firefox extension `1.0.52` passes `web-ext lint` with zero errors plus the existing native-host Python notice and installer-shell warning.
+
 ## [0.11.219] — 2026-08-24
 
 ### Added

@@ -8,7 +8,7 @@ Keep Morpheus EmuGUI as the complete game-library manager while making Morpheus 
 
 EmuGUI remains responsible for collections, metadata, artwork, scraping, emulator configuration, and launch testing. WebHub receives compact game shortcuts from EmuGUI and organises them like bookmarks and applications in columns, folders, tabs, Inboxes, Hub Search, and the command palette.
 
-EmuGUI's former manually started localhost-server requirement has been replaced by the existing Morpheus WebHub extension and persistent native-host architecture. EmuGUI's own `web/index.html`, CSS, and JavaScript remain the interface; the Firefox extension is only the authenticated broker, while filesystem access, collection maintenance, and emulator launches remain in Python native services. The localhost HTTP adapter remains available solely for optional standalone development.
+EmuGUI's former manually started localhost-server requirement has been replaced by the existing Morpheus WebHub extension and persistent native-host architecture. EmuGUI's own `web/index.html`, CSS, and JavaScript remain the interface; the Firefox extension is only the authenticated broker, while filesystem access, collection maintenance, and emulator launches remain in Python native services. The obsolete HTTP adapter, port lifecycle, and frontend fetch fallback were removed in WebHub 0.11.220 / extension 1.0.52; the native service now lives in `emugui_service.py`.
 
 ## Product Boundaries
 
@@ -139,9 +139,9 @@ Repeated sends of the same library/game/emulator/profile combination should norm
 
 ## Extension and Native-Service Integration
 
-### Separate EmuGUI Logic from HTTP
+### Separate EmuGUI Logic from Browser Transport
 
-Refactor the business logic in `server.py` into transport-independent modules, for example:
+Refactor the business logic formerly concentrated in `server.py` into transport-independent modules, for example:
 
 ```text
 emugui_core/
@@ -156,13 +156,13 @@ emugui_core/
     zx_spectrum.py
 ```
 
-Keep the existing HTTP handler as an optional development adapter during migration. The same external frontend must remain usable through both HTTP and extension RPC while file-mode parity is validated.
+The HTTP handler was kept temporarily while file-mode parity was validated, then removed after the extension/native path passed the full feature sweep.
 
 ### Keep the EmuGUI Frontend External
 
 - Keep `web/index.html`, `web/app.js`, `web/styles.css`, and future frontend assets in the EmuGUI repository as the single canonical UI.
 - Open the exact configured `<emuguiRoot>/web/index.html` file from WebHub actions and permit the user to open it directly.
-- Let the same page use authenticated extension RPC when loaded from `file://`, while retaining the localhost HTTP adapter as an optional development fallback.
+- Use authenticated extension RPC exclusively when the page is loaded from `file://`.
 - Do not vendor, copy, build, or embed the EmuGUI frontend in the extension. HTML, CSS, and JavaScript changes must take effect after an ordinary page reload without reinstalling or re-registering the extension.
 - Keep only stable routing, authentication, bounded message validation, and the persistent native connection in extension code.
 - Keep the route allowlist and all EmuGUI business operations in EmuGUI's Python service contract so new interface workflows normally require no extension change.
@@ -288,27 +288,27 @@ Implementation status as of 2026-08-24:
 - [x] Added **Send to WebHub** to EmuGUI's game details and context menu, delivering the selected game through the extension to the active Hub Inbox with an opaque binding, name, tags, and optional bounded thumbnail.
 - [x] Added first-class Hub `game` items across state migration, Inbox counts, cards, folders, drag-and-drop, context actions, search, duplication, status, and launch handling.
 - [x] Added the game-shortcut lifecycle in WebHub 0.11.214 / extension 1.0.47: **Open in EmuGUI**, **Reveal game file**, in-place **Rebind in EmuGUI**, and precise library/game/emulator/profile failure states. Rebinding keeps EmuGUI authoritative and updates the existing Hub card instead of creating a duplicate.
-- [x] Added the server-free external-page transport in WebHub 0.11.215 and completed large-library chunking in 0.11.216 / extension 1.0.49: the configured EmuGUI `web/index.html` uses authenticated generic API and bounded artwork relays through the persistent native host, while the original HTTP server remains an optional fallback.
+- [x] Added the server-free external-page transport in WebHub 0.11.215 and completed large-library chunking in 0.11.216 / extension 1.0.49: the configured EmuGUI `web/index.html` uses authenticated generic API and bounded artwork relays through the persistent native host.
 - [x] Extracted emulator-profile import, refresh, editing, deletion, and automatic/explicit launch-profile selection into `emugui_core/profiles.py` in WebHub 0.11.217 / extension 1.0.50. File-mode path pickers now retain an interactive five-minute timeout.
-- [x] Extracted Windows launch orchestration, managed EightyOne profile preparation, process startup, running-instance decisions, window focus handling, and the EightyOne/Spectaculator/SpecStub adapter capabilities into `emugui_core/launching.py`. `server.py` retains thin compatibility functions for both transports.
+- [x] Extracted Windows launch orchestration, managed EightyOne profile preparation, process startup, running-instance decisions, window focus handling, and the EightyOne/Spectaculator/SpecStub adapter capabilities into `emugui_core/launching.py`. `emugui_service.py` retains the transport-independent native-service facade.
 - [x] Completed the real-emulator launch matrix against the extracted core: managed EightyOne 48K/128K launches, profile copying, focusable windows, Spectaculator direct launch, running-instance choice, SpecStub reuse, new-instance launch, process survival, cleanup, and automated missing-resource/immediate-exit cases all pass.
-- [x] Extracted the library model, collection discovery/configuration/loading, import matching, metadata mutations, scraper dispatch, and bounded background-job state into transport-independent `emugui_core` services with focused tests. `server.py` now retains thin compatibility functions and the low-level filesystem/network adapters.
+- [x] Extracted the library model, collection discovery/configuration/loading, import matching, metadata mutations, scraper dispatch, and bounded background-job state into transport-independent `emugui_core` services with focused tests. `emugui_service.py` retains thin compatibility functions and the low-level filesystem/network adapters.
 - [x] Replaced hardcoded server emulator definitions with validated versioned configuration, added generic Add/Edit/Delete emulator controls, safe argument-array templates, collection defaults, and template-driven launches while preserving the ZX adapters.
 - [x] Connected EmuGUI scraper secrets to the WebHub native host's Windows Credential Manager boundary and completed verified write-before-delete migration of the configured ScreenScraper and TheGamesDB credentials.
 - [x] Completed the final feature-parity sweep across the real 12,933-game library and disposable writable collections, covering frontend route parity, collection maintenance, metadata, scraping, artwork, POKs, favourites, emulator/profile configuration, secure credentials, jobs, read-only guards, native restart/reload behaviour, and the closed legacy server port.
 
 1. [Completed] Freeze the current EmuGUI server as the behaviour reference.
 2. [Completed] Add tests around collection loading, metadata actions, jobs, emulator/profile resolution, and ZX launches before extraction.
-3. [Completed] Extract the profile lifecycle, Windows/ZX launch core, library and collection services, metadata operations, scraper dispatch, and long-running job state into `emugui_core` while retaining the optional HTTP adapter and low-level platform adapters.
+3. [Completed] Extract the profile lifecycle, Windows/ZX launch core, library and collection services, metadata operations, scraper dispatch, and long-running job state into `emugui_core` while retaining the low-level platform adapters.
 4. [Completed in WebHub 0.11.216 / extension 1.0.49] Add a narrow EmuGUI namespace, exact configured-page authentication, and chunked bounded API/artwork relays to the extension.
-5. [Completed in WebHub 0.11.216 / extension 1.0.49] Switch the external EmuGUI frontend to extension RPC when opened from `file://`, retaining HTTP fetches only as the standalone development fallback.
+5. [Completed in WebHub 0.11.216 / extension 1.0.49] Switch the external EmuGUI frontend to extension RPC when opened from `file://`.
 6. [Completed in EmuGUI commit `536b311`] Verify feature parity for current management workflows.
 7. [Completed in WebHub 0.11.209 / extension 1.0.42] Add native game bindings and **Send to WebHub**.
 8. [Completed in WebHub 0.11.209 / extension 1.0.42] Add first-class Hub game items and launch/status actions.
 9. [Completed in WebHub 0.11.214 / extension 1.0.47] Add open, reveal, in-place rebind, selected-game handoff, and actionable binding states.
 10. [Completed: automated and live launch matrices pass] Validate real EightyOne, Spectaculator, managed-profile, running-instance, and missing-file scenarios.
 11. [Completed in WebHub 0.11.216 / extension 1.0.49] Remove the normal requirement to run `Start Morpheus EmuGUI.bat`; the configured external page now uses the extension/native transport, including large collections.
-12. [Completed] Retain the HTTP adapter as an optional standalone frontend-development tool, not a normal runtime requirement.
+12. [Completed in WebHub 0.11.220 / extension 1.0.52] Remove the retired HTTP handler, port-8765 lifecycle scripts, frontend fetch fallback, and localhost EmuGUI authorization; rename the retained native module to `emugui_service.py`.
 
 Scraper secrets remain outside the extension and Hub databases. The native host's existing Windows Credential Manager service performs verified write-before-delete migration from legacy EmuGUI JSON and supplies credentials only to the native scraper service.
 

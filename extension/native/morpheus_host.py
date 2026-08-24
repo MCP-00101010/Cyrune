@@ -1084,25 +1084,25 @@ def save_config(config):
 # EmuGUI service bridge
 # ---------------------------------------------------------------------------
 
-def _configured_emugui_server():
+def _configured_emugui_service():
     configured_root = str(load_config().get('emuguiRoot', '') or '').strip()
     if not configured_root:
         raise RuntimeError('Morpheus EmuGUI is not configured in the native host')
     root = os.path.realpath(configured_root)
-    server_path = os.path.join(root, 'server.py')
-    if not os.path.isdir(root) or not os.path.isfile(server_path):
+    service_path = os.path.join(root, 'emugui_service.py')
+    if not os.path.isdir(root) or not os.path.isfile(service_path):
         raise FileNotFoundError('The configured Morpheus EmuGUI installation is unavailable')
-    return root, server_path
+    return root, service_path
 
 
 def _load_emugui_module():
     global EMUGUI_MODULE, EMUGUI_MODULE_PATH
-    root, server_path = _configured_emugui_server()
-    if EMUGUI_MODULE is not None and EMUGUI_MODULE_PATH == server_path:
+    root, service_path = _configured_emugui_service()
+    if EMUGUI_MODULE is not None and EMUGUI_MODULE_PATH == service_path:
         return EMUGUI_MODULE
 
     module_name = 'morpheus_emugui_native_service'
-    spec = importlib.util.spec_from_file_location(module_name, server_path)
+    spec = importlib.util.spec_from_file_location(module_name, service_path)
     if spec is None or spec.loader is None:
         raise RuntimeError('The Morpheus EmuGUI service could not be loaded')
     module = importlib.util.module_from_spec(spec)
@@ -1136,12 +1136,12 @@ def _load_emugui_module():
             status=secret_status,
         )
     EMUGUI_MODULE = module
-    EMUGUI_MODULE_PATH = server_path
+    EMUGUI_MODULE_PATH = service_path
     return module
 
 
 def authorize_emugui_page(page_url):
-    root, _server_path = _configured_emugui_server()
+    root, _service_path = _configured_emugui_service()
     parsed = urllib.parse.urlsplit(str(page_url or ''))
     if parsed.scheme.casefold() != 'file' or parsed.netloc not in {'', 'localhost'}:
         return False
@@ -1516,7 +1516,7 @@ def emugui_game_link(game_key, rebind=False):
     query = {'game': str(entry.get('gameId') or '')}
     if rebind:
         query['hubRebind'] = str(game_key)
-    root, _server_path = _configured_emugui_server()
+    root, _service_path = _configured_emugui_service()
     page_path = os.path.realpath(os.path.join(root, 'web', 'index.html'))
     page_url = Path(page_path).as_uri()
     return f'{page_url}?{urllib.parse.urlencode(query)}'

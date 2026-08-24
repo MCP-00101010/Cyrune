@@ -475,7 +475,7 @@ class NativePersistenceTests(unittest.TestCase):
         with TemporaryDirectory(dir=TEST_TEMP_ROOT) as directory:
             root = Path(directory) / 'EmuGUI'
             root.mkdir()
-            (root / 'server.py').write_text(
+            (root / 'emugui_service.py').write_text(
                 "def dispatch_emugui_read(method):\n"
                 "    assert method == 'STATUS'\n"
                 "    return {\n"
@@ -523,7 +523,7 @@ class NativePersistenceTests(unittest.TestCase):
         with TemporaryDirectory(dir=TEST_TEMP_ROOT) as directory:
             root = Path(directory) / 'EmuGUI'
             root.mkdir()
-            (root / 'server.py').write_text(
+            (root / 'emugui_service.py').write_text(
                 "secret_hooks = {}\n"
                 "def configure_native_secret_service(**hooks):\n"
                 "    secret_hooks.update(hooks)\n"
@@ -553,7 +553,7 @@ class NativePersistenceTests(unittest.TestCase):
     def test_emugui_game_binding_is_opaque_reused_and_launchable(self):
         with TemporaryDirectory(dir=TEST_TEMP_ROOT) as directory:
             root = Path(directory)
-            (root / 'server.py').write_text('# test service\n', encoding='utf-8')
+            (root / 'emugui_service.py').write_text('# test service\n', encoding='utf-8')
             (root / 'web').mkdir()
             (root / 'web' / 'index.html').write_text('<meta name="morpheus-emugui">', encoding='utf-8')
             image = root / 'cover.png'
@@ -629,7 +629,7 @@ class NativePersistenceTests(unittest.TestCase):
     def test_emugui_game_status_reports_actionable_binding_failures(self):
         with TemporaryDirectory(dir=TEST_TEMP_ROOT) as directory:
             root = Path(directory)
-            (root / 'server.py').write_text('# test service\n', encoding='utf-8')
+            (root / 'emugui_service.py').write_text('# test service\n', encoding='utf-8')
             (root / 'web').mkdir()
             (root / 'web' / 'index.html').write_text('<meta name="morpheus-emugui">', encoding='utf-8')
             config_path = root / 'native-config.json'
@@ -679,7 +679,7 @@ class NativePersistenceTests(unittest.TestCase):
             root = Path(directory) / 'EmuGUI'
             (root / 'web').mkdir(parents=True)
             (root / 'web' / 'index.html').write_text('<meta name="morpheus-emugui">', encoding='utf-8')
-            (root / 'server.py').write_text('# test service\n', encoding='utf-8')
+            (root / 'emugui_service.py').write_text('# test service\n', encoding='utf-8')
             original = HOST.CONFIG_PATH
             HOST.CONFIG_PATH = str(Path(directory) / 'native-config.json')
             try:

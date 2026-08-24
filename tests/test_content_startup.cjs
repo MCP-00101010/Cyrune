@@ -199,12 +199,12 @@ test('discovery retries registration after the initial background handshake fail
   assert.equal(document.documentElement.dataset.morpheusExtensionRelay, 'background-ready');
 });
 
-test('EmuGUI localhost page registers before requesting bounded game delivery', async () => {
+test('EmuGUI file page registers before requesting bounded game delivery', async () => {
   const listeners = [];
   const runtimeMessages = [];
   const posted = [];
   const window = {
-    location: { href: 'http://127.0.0.1:8765/', protocol: 'http:', hostname: '127.0.0.1', port: '8765' },
+    location: { href: 'file:///F:/Projects/Coding/Morpheus%20EmuGUI/web/index.html', protocol: 'file:', hostname: '', port: '' },
     addEventListener(type, listener) { if (type === 'message') listeners.push(listener); },
     postMessage(message) { posted.push(message); }
   };
@@ -217,7 +217,7 @@ test('EmuGUI localhost page registers before requesting bounded game delivery', 
       sendMessage: async message => {
         runtimeMessages.push(message);
         if (message.type === 'MW_EMUGUI_REGISTER') {
-          return { ok: true, emuguiSessionToken: 'emugui-session-1', transport: 'http' };
+          return { ok: true, emuguiSessionToken: 'emugui-session-1', transport: 'extension' };
         }
         return { ok: true, deliveryId: 'game-one', persisted: 'shared' };
       },
@@ -234,11 +234,11 @@ test('EmuGUI localhost page registers before requesting bounded game delivery', 
   } });
 
   assert.deepEqual(JSON.parse(JSON.stringify(runtimeMessages[0])), {
-    type: 'MW_EMUGUI_REGISTER', pageUrl: 'http://127.0.0.1:8765/'
+    type: 'MW_EMUGUI_REGISTER', pageUrl: 'file:///F:/Projects/Coding/Morpheus%20EmuGUI/web/index.html'
   });
   assert.deepEqual(JSON.parse(JSON.stringify(runtimeMessages[1])), {
     type: 'MW_EMUGUI_SEND_GAME', gameId: 'jetpac', emulatorId: 'eightyone', profileId: 'profile-48k',
-    rebindGameKey: '', deliveryId: '', emuguiSessionToken: 'emugui-session-1', pageUrl: 'http://127.0.0.1:8765/'
+    rebindGameKey: '', deliveryId: '', emuguiSessionToken: 'emugui-session-1', pageUrl: 'file:///F:/Projects/Coding/Morpheus%20EmuGUI/web/index.html'
   });
   assert.equal(posted.at(-1)._emuguiRes, true);
   assert.equal(posted.at(-1).persisted, 'shared');

@@ -8,11 +8,7 @@ globalThis.__morpheusWebHubRelayLoaded = true;
 // once at document_idle, after Morpheus' identifying meta tag is available.
 const IS_MORPHEUS = !!document.querySelector('meta[name="morpheus-webhub"]');
 const IS_EMUGUI = !!document.querySelector('meta[name="morpheus-emugui"]')
-  && (window.location.protocol === 'file:' || (
-    window.location.protocol === 'http:'
-    && ['localhost', '127.0.0.1'].includes(window.location.hostname)
-    && window.location.port === '8765'
-  ));
+  && window.location.protocol === 'file:';
 const pendingPagePushes = new Map();
 let pushSequence = 0;
 let registeredWithBackground = false;

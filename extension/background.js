@@ -394,17 +394,13 @@ async function registerEmuGuiPage(sender, pageUrl) {
   }
   let parsed;
   try { parsed = new URL(url); } catch { return { ok: false, error: 'EmuGUI page address is invalid' }; }
-  let authorized = parsed.protocol === 'http:'
-    && ['localhost', '127.0.0.1'].includes(parsed.hostname)
-    && parsed.port === '8765';
-  if (parsed.protocol === 'file:') {
-    await ensureNativeStorageReady();
-    if (!nativeAvailable) return { ok: false, error: 'Native host is required to authorize the EmuGUI file page' };
-    const result = await sendPersistentNativeMessage({ type: 'EMUGUI_AUTHORIZE_PAGE', pageUrl: url }, EMUGUI_REQUEST_TIMEOUT_MS);
-    authorized = result?.ok === true && result.authorized === true;
-  }
+  if (parsed.protocol !== 'file:') return { ok: false, error: 'EmuGUI must be opened from its configured local file page' };
+  await ensureNativeStorageReady();
+  if (!nativeAvailable) return { ok: false, error: 'Native host is required to authorize the EmuGUI file page' };
+  const result = await sendPersistentNativeMessage({ type: 'EMUGUI_AUTHORIZE_PAGE', pageUrl: url }, EMUGUI_REQUEST_TIMEOUT_MS);
+  const authorized = result?.ok === true && result.authorized === true;
   if (!authorized) return { ok: false, error: 'This is not the configured Morpheus EmuGUI page' };
-  const transport = parsed.protocol === 'file:' ? 'extension' : 'http';
+  const transport = 'extension';
   const registration = { url, sessionToken: createHubSessionToken(), registeredAt: Date.now(), transport };
   emuguiRegistrations.set(tabId, registration);
   return { ok: true, emuguiSessionToken: registration.sessionToken, transport };
@@ -416,7 +412,6 @@ function authorizeEmuGuiPageRequest(msg, sender) {
   return !!registration
     && msg?.emuguiSessionToken === registration.sessionToken
     && msg?.pageUrl === registration.url
-    && (registration.transport === 'extension' || msg?.type === 'MW_EMUGUI_SEND_GAME')
     && (!sender.tab.url || sender.tab.url === registration.url);
 }
 
@@ -1649,18 +1644,15 @@ async function openGameInEmuGui(gameKey, rebind = false) {
   } catch {
     return { ok: false, error: 'EmuGUI returned an invalid page address' };
   }
-  const localHttpTarget = target.protocol === 'http:' && ['127.0.0.1', 'localhost'].includes(target.hostname)
-    && target.port === '8765' && target.pathname === '/';
   const localFileTarget = target.protocol === 'file:' && /\/web\/index\.html$/i.test(target.pathname);
-  if (!localHttpTarget && !localFileTarget) {
+  if (!localFileTarget) {
     return { ok: false, error: 'EmuGUI returned an unsupported page address' };
   }
   const tabs = await browser.tabs.query({});
   const existing = (tabs || []).find(tab => {
     try {
       const url = new URL(tab.url || '');
-      if (target.protocol === 'file:') return url.protocol === 'file:' && url.pathname.toLowerCase() === target.pathname.toLowerCase();
-      return url.protocol === 'http:' && ['127.0.0.1', 'localhost'].includes(url.hostname) && url.port === '8765';
+      return url.protocol === 'file:' && url.pathname.toLowerCase() === target.pathname.toLowerCase();
     } catch { return false; }
   });
   if (existing) {

@@ -1,4 +1,4 @@
-const APP_VERSION = '0.11.219';
+const APP_VERSION = '0.11.220';
 
 document.documentElement.classList.add('hub-booting');
 

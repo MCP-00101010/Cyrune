@@ -215,7 +215,7 @@ async function loadBackground(options = {}) {
               messageListeners.forEach(listener => listener({ ok: true, game: { gameKey: message.gameKey, state: 'ready', title: 'Jetpac' } }));
             } else if (message.type === 'OPEN_GAME_IN_EMUGUI') {
               const suffix = message.rebind ? '&hubRebind=game_abcdefghijklmnop' : '';
-              messageListeners.forEach(listener => listener({ ok: true, url: `http://127.0.0.1:8765/?game=jetpac${suffix}` }));
+              messageListeners.forEach(listener => listener({ ok: true, url: `file:///F:/Projects/Coding/Morpheus%20EmuGUI/web/index.html?game=jetpac${suffix}` }));
             } else if (message.type === 'REBIND_GAME') {
               messageListeners.forEach(listener => listener(options.emuguiBinding || { ok: true, game: { gameKey: message.gameKey, state: 'ready', title: 'Jetpac', tags: ['Games', 'ZX Spectrum'], systemId: 'zx-spectrum', systemName: 'ZX Spectrum', emulatorName: 'EightyOne', profileName: 'Spectrum 48K', thumbnailCache: '' } }));
             } else if (message.type === 'LAUNCH_APPROVED_APPLICATION' || message.type === 'LAUNCH_GAME' || message.type === 'REVEAL_GAME' || message.type === 'FORGET_GAME') {
@@ -431,15 +431,15 @@ test('EmuGUI status is routed through the native host', async () => {
   assert.equal(harness.nativeRequests.at(-1).type, 'EMUGUI_STATUS');
 });
 
-test('authorized EmuGUI page creates a native binding and delivers a compact game to Hub Inbox', async () => {
-  const harness = await loadBackground({ tabs: [{ id: 10, url: 'file:///hub.html', active: true }] });
+test('authorized EmuGUI file page creates a native binding and delivers a compact game to Hub Inbox', async () => {
+  const harness = await loadBackground({ usePersistentNative: true, tabs: [{ id: 10, url: 'file:///hub.html', active: true }] });
   await new Promise(resolve => harness.listeners.message(
     { type: 'MW_REGISTER', pageUrl: 'file:///hub.html', active: true },
     { tab: { id: 10, url: 'file:///hub.html', active: true } },
     resolve
   ));
 
-  const pageUrl = 'http://127.0.0.1:8765/';
+  const pageUrl = 'file:///F:/Projects/Coding/Morpheus%20EmuGUI/web/index.html';
   const registration = await new Promise(resolve => harness.listeners.message(
     { type: 'MW_EMUGUI_REGISTER', pageUrl },
     { tab: { id: 20, url: pageUrl } },
@@ -456,7 +456,7 @@ test('authorized EmuGUI page creates a native binding and delivers a compact gam
   ));
 
   assert.equal(result.ok, true);
-  assert.equal(harness.nativeRequests.at(-1).type, 'EMUGUI_CREATE_HUB_BINDING');
+  assert.equal(harness.nativeConnections[0].messages.at(-1).type, 'EMUGUI_CREATE_HUB_BINDING');
   assert.equal(harness.sentTabs.at(-1).message.type, 'MW_RECEIVE_GAME');
   assert.equal(harness.sentTabs.at(-1).message.game.gameKey, 'game_abcdefghijklmnop');
   assert.equal(harness.sentTabs.at(-1).message.game.systemId, 'zx-spectrum');
@@ -465,7 +465,7 @@ test('authorized EmuGUI page creates a native binding and delivers a compact gam
   assert.equal('path' in harness.sentTabs.at(-1).message.game, false);
 });
 
-test('EmuGUI delivery rejects pages outside its fixed localhost origin', async () => {
+test('EmuGUI delivery rejects pages outside its configured file page', async () => {
   const harness = await loadBackground();
   const result = await new Promise(resolve => harness.listeners.message(
     { type: 'MW_EMUGUI_SEND_GAME', gameId: 'jetpac' },
@@ -477,21 +477,18 @@ test('EmuGUI delivery rejects pages outside its fixed localhost origin', async (
   assert.equal(harness.nativeRequests.some(message => message.type === 'EMUGUI_CREATE_HUB_BINDING'), false);
 });
 
-test('localhost EmuGUI fallback cannot invoke the privileged management RPC', async () => {
+test('retired localhost EmuGUI pages can no longer register', async () => {
   const harness = await loadBackground();
   const pageUrl = 'http://127.0.0.1:8765/';
-  const sender = { tab: { id: 20, url: pageUrl } };
   const registration = await new Promise(resolve => harness.listeners.message(
-    { type: 'MW_EMUGUI_REGISTER', pageUrl }, sender, resolve
+    { type: 'MW_EMUGUI_REGISTER', pageUrl },
+    { tab: { id: 20, url: pageUrl } },
+    resolve
   ));
-  const result = await new Promise(resolve => harness.listeners.message({
-    type: 'MW_EMUGUI_RPC', method: 'POST', path: '/api/delete', body: { game_id: 'jetpac' }, pageUrl,
-    emuguiSessionToken: registration.emuguiSessionToken
-  }, sender, resolve));
 
-  assert.equal(result.ok, false);
-  assert.match(result.error, /not authorized/i);
-  assert.equal(harness.nativeRequests.some(message => message.type === 'EMUGUI_API'), false);
+  assert.equal(registration.ok, false);
+  assert.match(registration.error, /configured local file page/i);
+  assert.equal(harness.nativeRequests.some(message => message.type === 'EMUGUI_AUTHORIZE_PAGE'), false);
 });
 
 test('configured EmuGUI file page registers once and relays API and asset requests', async () => {
@@ -735,7 +732,7 @@ test('Hub game actions open a focused EmuGUI rebind page and reveal through nati
 
   assert.equal(opened.ok, true);
   assert.equal(revealed.ok, true);
-  assert.match(harness.createdTabs[0].url, /^http:\/\/127\.0\.0\.1:8765\/\?game=jetpac&hubRebind=/);
+  assert.match(harness.createdTabs[0].url, /^file:\/\/\/F:\/Projects\/Coding\/Morpheus%20EmuGUI\/web\/index\.html\?game=jetpac&hubRebind=/);
   assert.deepEqual(harness.nativeConnections[0].messages.map(message => message.type), [
     'PING', 'READ_CONFIG', 'OPEN_GAME_IN_EMUGUI', 'REVEAL_GAME'
   ]);
