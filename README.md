@@ -4,7 +4,7 @@ Small local browser launcher and collection manager for emulator libraries.
 
 ## Run
 
-With Morpheus WebHub extension 1.0.49 or newer installed and its native host configured for this EmuGUI checkout, open:
+With Morpheus WebHub extension 1.0.50 or newer installed and its native host configured for this EmuGUI checkout, open:
 
 ```text
 web/index.html
@@ -36,6 +36,7 @@ python server.py --no-browser
 ## Shape
 
 - `server.py` contains the transport-neutral service operations and the optional development HTTP adapter.
+- `emugui_core/profiles.py` owns emulator-profile import, refresh, editing, deletion, and launch-profile selection independently of either browser transport.
 - `web/` contains the canonical browser frontend used by both file/RPC and HTTP modes.
 - `data/state.json` stores favourites and recent plays.
 - The default collection is `E:\Emulation\Software Library\Sinclair\ZX Spectrum\Desasteron Spectrum Collection`.

@@ -38,4 +38,5 @@ def test_file_page_uses_one_extension_rpc_transport_with_http_fallback():
     assert 'requestWebHub("MW_EMUGUI_ASSET"' in source
     assert "if (usesExtensionTransport)" in source
     assert "payload.ok === false && payload.cancelled !== true" in source
+    assert 'payload.path === "/api/pick-path" ? 305000 : 125000' in source
     assert "const response = await fetch(path" in source

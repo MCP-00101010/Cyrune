@@ -41,7 +41,7 @@ def test_library_is_constructed_once_on_first_use():
 
 def test_explicit_profile_binding_overrides_automatic_profile_selection():
     server = load_server()
-    server.managed_profiles = lambda: [
+    server.get_profile_service().profiles = lambda: [
         {"id": "automatic", "emulator_id": "eightyone", "priority": 1, "rule": {}},
         {"id": "hub-choice", "emulator_id": "eightyone", "priority": 99, "rule": {}},
     ]
@@ -96,3 +96,33 @@ def test_native_asset_reader_is_bounded_to_supported_collection_images(tmp_path)
         assert "escapes" in str(error)
     else:
         raise AssertionError("Out-of-collection asset was accepted")
+
+
+def test_file_transport_preserves_launch_choices_and_profile_routes():
+    server = load_server()
+    calls = []
+    server.launch_game = lambda game_id, emulator, launch_action, force_new: calls.append(
+        ("launch", game_id, emulator, launch_action, force_new)
+    ) or {"ok": False, "needs_choice": True, "supports_new": True}
+    server.import_emulator_profile = lambda data: calls.append(("import", data)) or {"ok": True, "profile": {"id": "48k"}}
+    server.update_emulator_profile = lambda data: calls.append(("update", data)) or {"ok": True}
+    server.delete_emulator_profile = lambda profile_id: calls.append(("delete", profile_id)) or {"ok": True}
+    server.update_emulator_profile_from_source = lambda profile_id: calls.append(("source", profile_id)) or {"ok": True}
+
+    launch = server.dispatch_emugui_api("POST", "/api/launch", {}, {
+        "game_id": "jetpac", "emulator": "eightyone", "launch_action": "new", "force_new": True,
+    })
+    imported = server.dispatch_emugui_api("POST", "/api/emulator-profiles/import", {}, {"name": "48K"})
+    server.dispatch_emugui_api("POST", "/api/emulator-profiles/update", {}, {"profile_id": "48k"})
+    server.dispatch_emugui_api("POST", "/api/emulator-profiles/delete", {}, {"profile_id": "48k"})
+    server.dispatch_emugui_api("POST", "/api/emulator-profiles/update-source", {}, {"profile_id": "48k"})
+
+    assert launch["needs_choice"] is True
+    assert imported["profile"]["id"] == "48k"
+    assert calls == [
+        ("launch", "jetpac", "eightyone", "new", True),
+        ("import", {"name": "48K"}),
+        ("update", {"profile_id": "48k"}),
+        ("delete", "48k"),
+        ("source", "48k"),
+    ]
