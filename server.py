@@ -14,9 +14,8 @@ import threading
 import time
 import tkinter as tk
 from tkinter import filedialog
-import uuid
 import webbrowser
-from dataclasses import asdict, dataclass
+from dataclasses import asdict
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -37,6 +36,16 @@ from emugui_core.launching import (
     launch_visible,
     prepare_eightyone_profile,
     should_check_immediate_exit,
+)
+from emugui_core.jobs import BackgroundJobService
+from emugui_core.library import Game, GameLibrary
+from emugui_core.collections import CollectionService, file_count_in_tree as core_file_count_in_tree
+from emugui_core.metadata import MetadataService
+from emugui_core.scraping import ScraperAdapter, ScraperService
+from emugui_core.collection_loading import (
+    CollectionLoader,
+    import_match_summary as core_import_match_summary,
+    mark_import_view_matches as core_mark_import_view_matches,
 )
 
 
@@ -95,8 +104,7 @@ DEFAULT_EMULATORS = {
     },
 }
 
-JOBS_LOCK = threading.Lock()
-JOBS: dict[str, dict[str, object]] = {}
+JOB_SERVICE = BackgroundJobService()
 TGDB_LOOKUP_CACHE: dict[str, dict[str, str]] = {}
 DEFAULT_SCRAPERS = {
     "manual": {
@@ -138,151 +146,17 @@ DEFAULT_SCRAPERS = {
 }
 
 
-@dataclass
-class Game:
-    id: str
-    title: str
-    title_key: str
-    sort_title: str
-    tosec_title: str
-    memory: str
-    system: str
-    section: str
-    category: str
-    type: str
-    language: str
-    extension: str
-    path: str
-    file_name: str
-    letter: str
-    view: str = "collection"
-    year: str = ""
-    publisher: str = ""
-    version: str = ""
-    demo: str = ""
-    video: str = ""
-    copyright_status: str = ""
-    development_status: str = ""
-    media_type: str = ""
-    media_label: str = ""
-    genre: str = ""
-    developer: str = ""
-    platform: str = ""
-    region: str = ""
-    players: str = ""
-    coop: str = ""
-    rating: str = ""
-    youtube_id: str = ""
-    description: str = ""
-    screenshot: str = ""
-    loading_screen: str = ""
-    scraper_source: str = ""
-    scraper_id: str = ""
-    languages: tuple[str, ...] = ()
-    countries: tuple[str, ...] = ()
-    tosec_tags: tuple[str, ...] = ()
-    flags: tuple[str, ...] = ()
-    dump_flags: tuple[str, ...] = ()
-    more_info: tuple[str, ...] = ()
-    tags: tuple[str, ...] = ()
-    hardware: tuple[str, ...] = ()
-    default_emulator: str = ""
-    emulator_profile: str = ""
-    has_poks: bool = False
-    pok_count: int = 0
-    favourite: bool = False
-    is_ulaplus: bool = False
-    import_status: str = ""
-    import_match_count: int = 0
-    import_system_match_count: int = 0
-    import_matches: tuple[dict[str, object], ...] = ()
-
-
-class Library:
+class Library(GameLibrary):
     def __init__(self) -> None:
-        self._lock = threading.Lock()
-        self.games: list[Game] = []
-        self.game_by_id: dict[str, Game] = {}
-        self.poks_by_title_memory: dict[tuple[str, str], list[dict[str, str]]] = {}
-        self.poks_by_file: dict[str, dict[str, str]] = {}
-        self.poks_by_game_id: dict[str, list[dict[str, str]]] = {}
-        self.pok_by_id: dict[str, dict[str, str]] = {}
-        self.rebuild()
-
-    def rebuild(self, progress=None) -> None:
-        with self._lock:
-            init_state()
-            favourites = load_favourites()
-            poks = load_poks()
-            games = load_games(poks, favourites, progress)
-            self.games = games
-            self.game_by_id = {game.id: game for game in games}
-            self.poks_by_title_memory = poks
-            self.poks_by_file = {normalize_rel_path(pok.get("output_path", "")): pok for rows in poks.values() for pok in rows}
-            self.poks_by_game_id = self.build_game_pok_links(games)
-            self.pok_by_id = {pok["id"]: pok for rows in poks.values() for pok in rows}
-
-    def list_games(self, view: str = "collection") -> list[dict]:
-        with self._lock:
-            if view == "all":
-                return [asdict(game) for game in self.games]
-            return [asdict(game) for game in self.games if game.view == view]
-
-    def get_game(self, game_id: str) -> Game | None:
-        with self._lock:
-            return self.game_by_id.get(game_id)
-
-    def get_poks(self, game: Game) -> list[dict[str, str]]:
-        with self._lock:
-            linked = self.poks_by_game_id.get(game.id, [])
-            if linked:
-                return list(linked)
-            return list(self.poks_by_title_memory.get((game.title_key, game.memory), []))
-
-    def get_pok(self, pok_id: str) -> dict[str, str] | None:
-        with self._lock:
-            return self.pok_by_id.get(pok_id)
-
-    def set_favourite(self, game_id: str, favourite: bool) -> Game | None:
-        with self._lock:
-            game = self.game_by_id.get(game_id)
-            if game:
-                game.favourite = favourite
-            return game
-
-    def remove_game(self, game_id: str) -> None:
-        with self._lock:
-            self.games = [game for game in self.games if game.id != game_id]
-            self.game_by_id.pop(game_id, None)
-            self.poks_by_game_id.pop(game_id, None)
-
-    def replace_game(self, game_id: str, replacement: Game | None = None) -> None:
-        with self._lock:
-            self.games = [game for game in self.games if game.id != game_id]
-            if replacement:
-                self.games.append(replacement)
-            mark_import_view_matches(self.games)
-            self.game_by_id = {game.id: game for game in self.games}
-            self.poks_by_game_id = self.build_game_pok_links(self.games)
-
-    def build_game_pok_links(self, games: list[Game]) -> dict[str, list[dict[str, str]]]:
-        links: dict[str, list[dict[str, str]]] = {}
-        metadata = load_metadata()
-        linked_paths_by_game_id = {
-            str(item.get("id", "")): [normalize_rel_path(path) for path in item.get("poks", []) if path]
-            for item in metadata.get("games", [])
-        }
-        for game in games:
-            poks = []
-            seen: set[str] = set()
-            for rel_path in linked_paths_by_game_id.get(game.id, []):
-                pok = self.poks_by_file.get(rel_path)
-                if pok and pok["id"] not in seen:
-                    poks.append(pok)
-                    seen.add(pok["id"])
-            if poks:
-                links[game.id] = poks
-        return links
+        super().__init__(
+            init_state=init_state,
+            load_favourites=load_favourites,
+            load_poks=load_poks,
+            load_games=load_games,
+            normalize_relative_path=normalize_rel_path,
+            mark_import_matches=mark_import_view_matches,
+            load_metadata=load_metadata,
+        )
 
 
 def init_state() -> None:
@@ -587,77 +461,32 @@ def select_managed_profile(emulator_id: str, game: Game, profile_id: str = "") -
 
 
 def discover_collections() -> list[dict[str, object]]:
-    collections = [
-        {
-            "id": "desasteron",
-            "name": DESASTERON_COLLECTION.name,
-            "root": str(DESASTERON_COLLECTION),
-            "role": "library",
-            "writable": True,
-            "auto_metadata": True,
-        }
-    ]
-    for path in sorted(COLLECTIONS_BASE.iterdir(), key=lambda item: item.name.lower()):
-        if not path.is_dir() or path.resolve() == DESASTERON_COLLECTION.resolve():
-            continue
-        if not looks_like_collection(path):
-            continue
-        collection_id = unique_collection_id(path.name, {item["id"] for item in collections})
-        collections.append(
-            {
-                "id": collection_id,
-                "name": path.name,
-                "root": str(path),
-                "role": "source",
-                "writable": False,
-                "auto_metadata": False,
-            }
-        )
-    return collections
+    return get_collection_service().discover()
 
 
 def looks_like_collection(path: Path) -> bool:
-    if (path / "collection-metadata.json").exists():
-        return True
-    for child in path.iterdir():
-        if child.is_file() and child.suffix.lower() in {".tap", ".tzx", ".z80", ".sna", ".szx", ".pok"}:
-            return True
-        if child.is_dir() and child.name.lower() in {"games", "tap", "tzx", "48k", "128k", "poks", "cheats"}:
-            return True
-    return False
+    from emugui_core.collections import looks_like_collection as core_looks_like_collection
+    return core_looks_like_collection(path)
 
 
 def unique_collection_id(name: str, used: set[str]) -> str:
-    base = normalize_title(name).replace(" ", "-") or stable_id(name)
-    candidate = base
-    i = 2
-    while candidate in used:
-        candidate = f"{base}-{i}"
-        i += 1
-    return candidate
+    from emugui_core.collections import unique_collection_id as core_unique_collection_id
+    return core_unique_collection_id(name, used)
+
+
+def get_collection_service() -> CollectionService:
+    return CollectionService(
+        default_root=DESASTERON_COLLECTION,
+        collections_base=COLLECTIONS_BASE,
+        load_config=load_config,
+        save_config=save_config,
+        load_state=load_state,
+    )
 
 
 def collections_payload() -> dict:
     init_config()
-    active = active_collection()
-    collections = []
-    for item in load_config().get("collections", []):
-        root = Path(str(item.get("root", "")))
-        collections.append(
-            {
-                "id": item.get("id", ""),
-                "name": item.get("name", root.name),
-                "root": str(root),
-                "role": item.get("role", "source"),
-                "writable": bool(item.get("writable", False)),
-                "auto_metadata": bool(item.get("auto_metadata", False)),
-                "incoming_count": incoming_file_count(root) if bool(item.get("writable", False)) else 0,
-                "trash_count": trash_file_count(root) if bool(item.get("writable", False)) else 0,
-                "active": item.get("id") == active.get("id"),
-                "available": root.exists(),
-            }
-        )
-    return {"collections": collections, "active": active}
+    return get_collection_service().payload()
 
 
 def incoming_file_count(root: Path) -> int:
@@ -671,69 +500,23 @@ def trash_file_count(root: Path) -> int:
 
 
 def file_count_in_tree(root: Path, extensions: set[str] | None = None) -> int:
-    if not root.exists() or not root.is_dir():
-        return 0
-    try:
-        return sum(1 for path in root.rglob("*") if path.is_file() and (extensions is None or path.suffix.lower() in extensions))
-    except OSError:
-        return 0
+    return core_file_count_in_tree(root, extensions)
 
 def add_collection(root: str, name: str = "", writable: bool = False, auto_metadata: bool = False) -> dict:
-    path = Path(root).expanduser().resolve()
-    if not path.exists() or not path.is_dir():
-        return {"ok": False, "error": f"Folder does not exist: {path}"}
-    config = load_config()
-    for item in config.get("collections", []):
-        if Path(str(item.get("root", ""))).resolve() == path:
-            if name.strip():
-                item["name"] = name.strip()
-            item["writable"] = writable
-            item["auto_metadata"] = auto_metadata
-            item["role"] = "library" if writable else "source"
-            save_config(config)
-            return {"ok": True, "collection": item, "existing": True}
-    used = {item.get("id", "") for item in config.get("collections", [])}
-    collection_id = unique_collection_id(name or path.name, used)
-    item = {
-        "id": collection_id,
-        "name": name.strip() or path.name,
-        "root": str(path),
-        "role": "library" if writable else "source",
-        "writable": writable,
-        "auto_metadata": auto_metadata,
-    }
-    config.setdefault("collections", []).append(item)
-    save_config(config)
-    return {"ok": True, "collection": item, "existing": False}
+    return get_collection_service().add(root, name, writable, auto_metadata)
 
 
 def active_collection() -> dict:
-    config = load_config()
-    active_id = load_active_collection_id()
-    for item in config.get("collections", []):
-        if item.get("id") == active_id:
-            return item
-    return config.get("collections", [discover_collections()[0]])[0]
+    return get_collection_service().active()
 
 
 def load_active_collection_id() -> str:
-    state = load_state()
-    active_id = state.get("active_collection_id")
-    if active_id:
-        return str(active_id)
-    return str(load_config().get("default_collection", "desasteron"))
+    return get_collection_service().active_id()
 
 
 def activate_collection(collection_id: str) -> dict:
     global COLLECTION, REPORTS, METADATA_FILE
-    config = load_config()
-    selected = None
-    for item in config.get("collections", []):
-        if item.get("id") == collection_id:
-            selected = item
-            break
-    if selected is None:
-        selected = config.get("collections", [discover_collections()[0]])[0]
+    selected = get_collection_service().resolve(collection_id)
     root = Path(str(selected.get("root", DESASTERON_COLLECTION))).resolve()
     COLLECTION = root
     REPORTS = COLLECTION / "_reports"
@@ -751,45 +534,15 @@ def current_collection_auto_metadata() -> bool:
 
 
 def start_index_job(title: str, work) -> str:
-    job_id = uuid.uuid4().hex[:12]
-    with JOBS_LOCK:
-        JOBS[job_id] = {
-            "id": job_id,
-            "status": "running",
-            "phase": "starting",
-            "current": 0,
-            "total": 0,
-            "title": title,
-            "message": "Starting...",
-            "error": "",
-        }
-
-    def progress(phase: str, current: int, total: int, message: str) -> None:
-        update_job(job_id, phase=phase, current=current, total=total, message=message)
-
-    def runner() -> None:
-        try:
-            work(progress)
-            update_job(job_id, status="done", phase="done", message="Done")
-        except Exception as exc:
-            update_job(job_id, status="error", phase="error", error=str(exc), message=str(exc))
-
-    threading.Thread(target=runner, daemon=True).start()
-    return job_id
+    return JOB_SERVICE.start(title, work)
 
 
 def update_job(job_id: str, **updates: object) -> None:
-    with JOBS_LOCK:
-        job = JOBS.get(job_id)
-        if not job:
-            return
-        job.update(updates)
-        job["updated_at"] = dt.datetime.now(dt.UTC).isoformat(timespec="seconds")
+    JOB_SERVICE.update(job_id, **updates)
 
 
 def get_job(job_id: str) -> dict[str, object]:
-    with JOBS_LOCK:
-        return dict(JOBS.get(job_id, {"id": job_id, "status": "missing", "error": "Unknown job"}))
+    return JOB_SERVICE.get(job_id)
 
 
 def start_select_collection_job(collection_id: str) -> str:
@@ -943,64 +696,27 @@ def parse_pok_file(path: Path) -> list[dict[str, object]]:
 
 
 def load_games(poks: dict[tuple[str, str], list[dict[str, str]]], favourites: set[str], progress=None) -> list[Game]:
-    if METADATA_FILE.exists():
-        if progress:
-            progress("indexing", 0, 0, "Loading metadata")
-        games = load_metadata_games(poks, favourites)
-        games.extend(load_incoming_games(poks, favourites))
-        games.extend(load_trash_games(poks, favourites))
-        mark_import_view_matches(games)
-        games.sort(key=lambda item: (item.view != "incoming", item.title_key, item.system, item.section, item.file_name.lower()))
-        return games
-
-    games: list[Game] = []
-    reported_paths: set[str] = set()
-    games.extend(load_official_games(poks, favourites, reported_paths))
-    games.extend(load_homebrew_games(poks, favourites, reported_paths))
-    games.extend(load_scanned_collection_games(poks, favourites, reported_paths, progress))
-    games.extend(load_language_review_games(poks, favourites))
-    games.sort(key=lambda item: (item.title_key, item.system, item.section, item.file_name.lower()))
-    if current_collection_auto_metadata():
-        save_metadata_from_games(games, poks)
-    games.extend(load_incoming_games(poks, favourites))
-    games.extend(load_trash_games(poks, favourites))
-    mark_import_view_matches(games)
-    return games
+    loader = CollectionLoader(
+        metadata_path=lambda: METADATA_FILE,
+        load_metadata_games=load_metadata_games,
+        load_incoming_games=load_incoming_games,
+        load_trash_games=load_trash_games,
+        load_official_games=load_official_games,
+        load_homebrew_games=load_homebrew_games,
+        load_scanned_games=load_scanned_collection_games,
+        load_language_review_games=load_language_review_games,
+        auto_metadata_enabled=current_collection_auto_metadata,
+        save_metadata_from_games=save_metadata_from_games,
+    )
+    return loader.load(poks, favourites, progress)
 
 
 def mark_import_view_matches(games: list[Game]) -> None:
-    collection_games = [game for game in games if game.view not in {"incoming", "trash"}]
-    title_counts: dict[str, int] = {}
-    title_system_counts: dict[tuple[str, str], int] = {}
-    title_matches: dict[str, list[Game]] = {}
-    for game in collection_games:
-        title_counts[game.title_key] = title_counts.get(game.title_key, 0) + 1
-        title_system_counts[(game.title_key, game.system)] = title_system_counts.get((game.title_key, game.system), 0) + 1
-        title_matches.setdefault(game.title_key, []).append(game)
-    for game in games:
-        if game.view not in {"incoming", "trash"}:
-            continue
-        title_count = title_counts.get(game.title_key, 0)
-        system_count = title_system_counts.get((game.title_key, game.system), 0)
-        game.import_match_count = title_count
-        game.import_system_match_count = system_count
-        game.import_matches = tuple(import_match_summary(match) for match in title_matches.get(game.title_key, [])[:8])
-        if system_count:
-            game.import_status = "system-match"
-        elif title_count:
-            game.import_status = "title-match"
-        else:
-            game.import_status = "new"
+    core_mark_import_view_matches(games)
 
 
 def import_match_summary(game: Game) -> dict[str, object]:
-    return {
-        "title": game.title,
-        "system": game.system,
-        "publisher": game.publisher,
-        "countries": list(game.countries),
-        "languages": list(game.languages),
-    }
+    return core_import_match_summary(game)
 
 
 def load_metadata_games(poks: dict[tuple[str, str], list[dict[str, str]]], favourites: set[str]) -> list[Game]:
@@ -2332,179 +2048,61 @@ def open_in_explorer(game_id: str) -> dict:
 
 
 def rename_game(game_id: str, name: str) -> dict:
-    game = get_library().get_game(game_id)
-    if not game:
-        return {"ok": False, "error": "Unknown game"}
-    source = Path(game.path)
-    if not source.exists():
-        return {"ok": False, "error": f"Missing game file: {source}"}
-    cleaned = clean_file_name(name)
-    if not cleaned:
-        return {"ok": False, "error": "Please enter a filename"}
-    requested = Path(cleaned)
-    if requested.suffix and requested.suffix.lower() != source.suffix.lower():
-        return {"ok": False, "error": f"File extension must stay {source.suffix}"}
-    target_stem = requested.stem if requested.suffix else cleaned
-    target_name = f"{target_stem}{source.suffix}"
-    target = unique_path(source.with_name(target_name))
-    source.replace(target)
-    update_metadata_game(game_id, file=collection_relative(target), format=target.suffix.lower())
-    get_library().rebuild()
-    return {"ok": True, "path": str(target), "name": target.name}
+    return get_metadata_service().rename_game(game_id, name)
+
+
+def get_metadata_service() -> MetadataService:
+    return MetadataService(
+        library_provider=get_library,
+        ensure_metadata_file=ensure_metadata_file,
+        load_metadata=load_metadata,
+        save_metadata=save_metadata,
+        game_to_metadata_item=game_to_metadata_item,
+        apply_metadata_changes=apply_metadata_changes,
+        apply_metadata_values=apply_metadata_values,
+        build_target_path=build_metadata_target_path,
+        metadata_warnings=metadata_edit_warnings,
+        metadata_change_labels=metadata_change_labels,
+        collection_relative=collection_relative,
+        unique_path=unique_path,
+        clean_file_name=clean_file_name,
+        update_metadata_game=update_metadata_game,
+        clean_metadata_text=clean_metadata_text,
+        clean_asset_path=clean_asset_path,
+        dedupe=dedupe,
+    )
 
 
 def apply_scrape_metadata(game_id: str, candidate: object, assets: object | None = None, remote_assets: object | None = None) -> dict:
-    if not isinstance(candidate, dict):
-        return {"ok": False, "error": "Missing scrape candidate"}
-    game = get_library().get_game(game_id)
-    if not game:
-        return {"ok": False, "error": "Unknown game"}
-    changes = scrape_candidate_changes(candidate, assets if isinstance(assets, dict) else {}, remote_assets if isinstance(remote_assets, dict) else {})
-    if not changes:
-        return {"ok": False, "error": "Scrape candidate has no usable metadata"}
-    result = update_game_metadata([game_id], changes, False)
-    if not result.get("ok"):
-        return result
-    updated = get_library().get_game(game_id)
-    return {"ok": True, "updated_count": result.get("updated_count", 0), "changes": changes, "game": asdict(updated) if updated else None}
+    return get_metadata_service().apply_scrape(game_id, candidate, remote_assets)
 
 
 def scrape_candidate_changes(candidate: dict, assets: dict, remote_assets: dict) -> dict:
-    changes: dict[str, object] = {}
-    for key in ("title", "year", "publisher", "genre", "developer", "platform", "region", "players", "coop", "rating", "youtube_id", "description", "scraper_source", "scraper_id"):
-        value = clean_metadata_text(candidate.get(key, ""), max_len=2000 if key == "description" else 160)
-        if value:
-            changes["date" if key == "year" else key] = value
-    screenshot = clean_asset_path(remote_assets.get("screenshot") or candidate.get("screenshot"))
-    loading_screen = clean_asset_path(remote_assets.get("loading_screen") or candidate.get("loading_screen"))
-    if screenshot:
-        changes["screenshot"] = screenshot
-    if loading_screen:
-        changes["loading_screen"] = loading_screen
-    return changes
+    return get_metadata_service().scrape_candidate_changes(candidate, remote_assets)
 
 
 def update_game_metadata(game_ids: object, changes: object, rename_files: bool = False) -> dict:
-    if not isinstance(game_ids, list) or not game_ids:
-        return {"ok": False, "error": "No games selected"}
-    if not isinstance(changes, dict):
-        return {"ok": False, "error": "Missing metadata changes"}
-    ensure_metadata_file()
-    metadata = load_metadata()
-    items = metadata.setdefault("games", [])
-    by_id = {str(item.get("id", "")): item for item in items}
-    updated: list[dict[str, str]] = []
-    errors: list[str] = []
-    warnings: list[str] = []
-
-    for raw_game_id in game_ids:
-        game_id = str(raw_game_id)
-        game = get_library().get_game(game_id)
-        if not game:
-            errors.append(f"Unknown game: {game_id}")
-            continue
-        item = by_id.get(game_id)
-        if item is None:
-            item = game_to_metadata_item(game, [])
-            items.append(item)
-            by_id[game_id] = item
-        result = apply_metadata_changes(game, item, changes, rename_files)
-        if result.get("ok"):
-            updated.append({"id": game_id, "file": str(item.get("file", ""))})
-            warnings.extend(str(warning) for warning in result.get("warnings", []))
-        else:
-            errors.append(str(result.get("error") or game.file_name))
-
-    if updated:
-        save_metadata(metadata)
-        get_library().rebuild()
-    return {"ok": not errors, "updated": updated, "errors": errors, "warnings": warnings, "updated_count": len(updated)}
+    return get_metadata_service().update(game_ids, changes, rename_files)
 
 
 def preview_game_metadata(game_ids: object, changes: object, rename_files: bool = False) -> dict:
-    if not isinstance(game_ids, list) or not game_ids:
-        return {"ok": False, "error": "No games selected"}
-    if not isinstance(changes, dict):
-        return {"ok": False, "error": "Missing metadata changes"}
-    metadata = load_metadata()
-    by_id = {str(item.get("id", "")): item for item in metadata.get("games", [])}
-    previews = []
-    warnings: list[str] = []
-    change_labels = metadata_change_labels(changes)
-
-    for raw_game_id in game_ids[:50]:
-        game_id = str(raw_game_id)
-        game = get_library().get_game(game_id)
-        if not game:
-            continue
-        original = by_id.get(game_id) or game_to_metadata_item(game, [])
-        item = dict(original)
-        apply_metadata_values(game, item, changes)
-        source = Path(game.path)
-        target = build_metadata_target_path(source, item, str(original.get("title") or game.title)) if rename_files else source
-        collision = rename_files and target.exists() and target.resolve() != source.resolve()
-        new_target = unique_path(target) if collision else target
-        item_warnings = metadata_edit_warnings(
-            original.get("title_key") or game.title_key,
-            original.get("system") or game.system,
-            original.get("memory") or game.memory,
-            item,
-        )
-        if collision:
-            item_warnings.append("filename collision; a suffix will be added")
-        warnings.extend(item_warnings)
-        previews.append(
-            {
-                "id": game_id,
-                "title": item.get("title", game.title),
-                "current_filename": source.name,
-                "new_filename": new_target.name,
-                "current_folder": collection_relative(source.parent),
-                "new_folder": collection_relative(new_target.parent),
-                "rename_files": rename_files,
-                "filename_changed": source.name != new_target.name or source.parent.resolve() != new_target.parent.resolve(),
-                "warnings": item_warnings,
-            }
-        )
-
-    return {
-        "ok": True,
-        "count": len(game_ids),
-        "preview_count": len(previews),
-        "changes": change_labels,
-        "rename_files": rename_files,
-        "warnings": dedupe(warnings),
-        "previews": previews,
-    }
+    return get_metadata_service().preview(game_ids, changes, rename_files)
 
 
 def scrape_preview(game_id: str, provider_id: str = "manual") -> dict:
-    game = get_library().get_game(game_id)
-    if not game:
-        return {"ok": False, "error": "Unknown game"}
-    provider = configured_scrapers().get(provider_id)
-    if not provider:
-        return {"ok": False, "error": f"Unknown scraper provider: {provider_id}"}
-    if provider.get("type") != "manual" and not provider.get("enabled", False):
-        return {"ok": False, "error": f"{provider.get('name', provider_id)} is disabled"}
-    if provider.get("type") != "manual" and not provider.get("configured"):
-        return {"ok": False, "error": f"{provider.get('name', provider_id)} is not configured yet"}
-    if provider.get("type") == "manual":
-        return manual_scrape_preview(game, provider)
-    if provider.get("type") == "screenscraper":
-        try:
-            return screenscraper_scrape_preview(game, provider)
-        except Exception as exc:
-            return {"ok": False, "error": str(exc)}
-    if provider.get("type") == "thegamesdb":
-        try:
-            return thegamesdb_scrape_preview(game, provider)
-        except Exception as exc:
-            return {"ok": False, "error": str(exc)}
-    return {
-        "ok": False,
-        "error": f"{provider.get('name', provider_id)} provider scaffold exists, but live scraping is not implemented yet",
-    }
+    return get_scraper_service().preview(game_id, provider_id)
+
+
+def get_scraper_service() -> ScraperService:
+    return ScraperService(
+        get_game=lambda game_id: get_library().get_game(game_id),
+        provider_config=configured_scrapers,
+        adapters={
+            "manual": ScraperAdapter("manual", manual_scrape_preview),
+            "screenscraper": ScraperAdapter("screenscraper", screenscraper_scrape_preview),
+            "thegamesdb": ScraperAdapter("thegamesdb", thegamesdb_scrape_preview),
+        },
+    )
 
 
 def screenscraper_scrape_preview(game: Game, provider: dict[str, object]) -> dict:

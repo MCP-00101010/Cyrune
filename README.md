@@ -35,7 +35,10 @@ python server.py --no-browser
 
 ## Shape
 
-- `server.py` provides compatibility functions, collection/metadata operations, and the optional development HTTP adapter.
+- `server.py` provides thin compatibility functions, platform-specific filesystem/network adapters, and the optional development HTTP adapter.
+- `emugui_core/library.py`, `collections.py`, and `collection_loading.py` own the in-memory library model, collection configuration, and loading/import orchestration.
+- `emugui_core/metadata.py` and `scraping.py` own metadata mutations and bounded scraper dispatch while accepting the existing platform adapters as injected dependencies.
+- `emugui_core/jobs.py` owns thread-safe background-job state and progress reporting.
 - `emugui_core/profiles.py` owns emulator-profile import, refresh, editing, deletion, and launch-profile selection independently of either browser transport.
 - `emugui_core/launching.py` owns game/POK launch orchestration, managed-profile preparation, safe argument-array process startup, running-instance choices, and the Windows adapters for EightyOne and Spectaculator/SpecStub.
 - `web/` contains the canonical browser frontend used by both file/RPC and HTTP modes.
