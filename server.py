@@ -26,6 +26,8 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, unquote, urlencode, urlparse
 from urllib.request import Request, urlopen
 
+from emugui_core.service import ReadOnlyEmuGuiService, ServiceContractError
+
 
 LAUNCHER = Path(__file__).resolve().parent
 DEFAULT_COLLECTION_ROOT = Path(
@@ -681,8 +683,10 @@ def normalize_profile_rule(rule: object) -> dict[str, object]:
     return {"systems": dedupe(systems), "tags": dedupe(tags)}
 
 
-def select_managed_profile(emulator_id: str, game: Game) -> dict[str, object] | None:
+def select_managed_profile(emulator_id: str, game: Game, profile_id: str = "") -> dict[str, object] | None:
     candidates = [profile for profile in managed_profiles() if profile.get("emulator_id") == emulator_id]
+    if profile_id:
+        return next((profile for profile in candidates if profile.get("id") == profile_id), None)
     if game.emulator_profile:
         for profile in candidates:
             if profile.get("id") == game.emulator_profile:
@@ -919,7 +923,7 @@ def start_select_collection_job(collection_id: str) -> str:
         state = load_state()
         state["active_collection_id"] = selected.get("id", "desasteron")
         save_state(state)
-        LIBRARY.rebuild(progress)
+        get_library().rebuild(progress)
 
     return start_index_job(title, work)
 
@@ -928,7 +932,7 @@ def start_rebuild_job() -> str:
     active = active_collection()
 
     def work(progress) -> None:
-        LIBRARY.rebuild(progress)
+        get_library().rebuild(progress)
 
     return start_index_job(f"Rebuilding {active.get('name', 'Collection')}", work)
 
@@ -1876,7 +1880,31 @@ def stable_id(text: str) -> str:
     return hashlib.sha1(text.lower().encode("utf-8")).hexdigest()[:16]
 
 
-LIBRARY = Library()
+LIBRARY: Library | None = None
+LIBRARY_LOCK = threading.Lock()
+
+
+def get_library() -> Library:
+    """Build the collection index only when a runtime transport needs it."""
+    global LIBRARY
+    if LIBRARY is None:
+        with LIBRARY_LOCK:
+            if LIBRARY is None:
+                LIBRARY = Library()
+    return LIBRARY
+
+
+EMUGUI_READ_SERVICE = ReadOnlyEmuGuiService(
+    get_library,
+    collections_payload,
+    lambda: emulator_payload(),
+    emulator_profiles_payload,
+)
+
+
+def dispatch_emugui_read(method: object, params: object = None) -> dict[str, object]:
+    """Expose bounded reads independently of HTTP for the extension bridge."""
+    return EMUGUI_READ_SERVICE.dispatch(method, params)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -1887,7 +1915,7 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/api/games":
             params = parse_qs(parsed.query)
             view = params.get("view", ["collection"])[0]
-            self.send_json({"games": LIBRARY.list_games(view)})
+            self.send_json({"games": get_library().list_games(view)})
             return
         if parsed.path == "/api/collections":
             self.send_json(collections_payload())
@@ -1907,8 +1935,8 @@ class Handler(BaseHTTPRequestHandler):
             return
         if parsed.path == "/api/poks":
             params = parse_qs(parsed.query)
-            game = LIBRARY.get_game(params.get("game_id", [""])[0])
-            self.send_json({"poks": LIBRARY.get_poks(game) if game else []})
+            game = get_library().get_game(params.get("game_id", [""])[0])
+            self.send_json({"poks": get_library().get_poks(game) if game else []})
             return
         if parsed.path == "/api/asset":
             self.serve_collection_asset(parse_qs(parsed.query))
@@ -1921,10 +1949,16 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         parsed = urlparse(self.path)
         data = self.read_json()
+        if parsed.path == "/api/read-rpc":
+            try:
+                self.send_json(dispatch_emugui_read(data.get("method"), data.get("params")))
+            except ServiceContractError as exc:
+                self.send_json({"ok": False, "error": str(exc)}, HTTPStatus.BAD_REQUEST)
+            return
         if parsed.path == "/api/favourite":
             game_id = str(data.get("game_id", ""))
             favourite = bool(data.get("favourite", False))
-            game = LIBRARY.set_favourite(game_id, favourite)
+            game = get_library().set_favourite(game_id, favourite)
             if not game:
                 self.send_json({"ok": False, "error": "Unknown game"}, HTTPStatus.BAD_REQUEST)
                 return
@@ -2230,13 +2264,15 @@ def split_extensions(value: object) -> list[str]:
     return extensions
 
 
-def prepare_emulator_profile(emulator: dict[str, object], game: Game) -> None:
+def prepare_emulator_profile(emulator: dict[str, object], game: Game, profile_id: str = "") -> None:
     if emulator.get("type") != "eightyone":
         return
     target = expand_config_path(emulator.get("eightyone_config_target"))
     if not target:
         return
-    managed_profile = select_managed_profile("eightyone", game)
+    managed_profile = select_managed_profile("eightyone", game, profile_id)
+    if profile_id and not managed_profile:
+        raise FileNotFoundError(f"The selected managed EightyOne profile is unavailable: {profile_id}")
     if managed_profile:
         source = expand_config_path(managed_profile.get("managed_path"))
         if not source or not source.exists():
@@ -2245,8 +2281,8 @@ def prepare_emulator_profile(emulator: dict[str, object], game: Game) -> None:
         target.write_bytes(source.read_bytes())
 
 
-def launch_game(game_id: str, emulator_id: str, launch_action: str = "", force_new: bool = False) -> dict:
-    game = LIBRARY.get_game(game_id)
+def launch_game(game_id: str, emulator_id: str, launch_action: str = "", force_new: bool = False, profile_id: str = "") -> dict:
+    game = get_library().get_game(game_id)
     if not game:
         return {"ok": False, "error": "Unknown game"}
     path = Path(game.path)
@@ -2274,7 +2310,7 @@ def launch_game(game_id: str, emulator_id: str, launch_action: str = "", force_n
         else:
             if not emulator_path.exists():
                 return {"ok": False, "error": f"Missing emulator: {emulator_path}"}
-            prepare_emulator_profile(emulator, game)
+            prepare_emulator_profile(emulator, game, profile_id)
             working_dir = expand_config_path(emulator.get("working_dir")) or emulator_path.parent
             process = launch_visible([str(emulator_path), str(path)], working_dir)
         mark_recent(game_id)
@@ -2324,7 +2360,7 @@ def send_to_running_spectaculator(path: Path, game_id: str, running_hwnd: int) -
 
 
 def open_pok(pok_id: str) -> dict:
-    pok = LIBRARY.get_pok(pok_id)
+    pok = get_library().get_pok(pok_id)
     if not pok:
         return {"ok": False, "error": "Unknown POK"}
     path = Path(pok.get("path", ""))
@@ -2344,7 +2380,7 @@ def open_pok(pok_id: str) -> dict:
 
 
 def open_in_explorer(game_id: str) -> dict:
-    game = LIBRARY.get_game(game_id)
+    game = get_library().get_game(game_id)
     if not game:
         return {"ok": False, "error": "Unknown game"}
     path = Path(game.path)
@@ -2358,7 +2394,7 @@ def open_in_explorer(game_id: str) -> dict:
 
 
 def rename_game(game_id: str, name: str) -> dict:
-    game = LIBRARY.get_game(game_id)
+    game = get_library().get_game(game_id)
     if not game:
         return {"ok": False, "error": "Unknown game"}
     source = Path(game.path)
@@ -2375,14 +2411,14 @@ def rename_game(game_id: str, name: str) -> dict:
     target = unique_path(source.with_name(target_name))
     source.replace(target)
     update_metadata_game(game_id, file=collection_relative(target), format=target.suffix.lower())
-    LIBRARY.rebuild()
+    get_library().rebuild()
     return {"ok": True, "path": str(target), "name": target.name}
 
 
 def apply_scrape_metadata(game_id: str, candidate: object, assets: object | None = None, remote_assets: object | None = None) -> dict:
     if not isinstance(candidate, dict):
         return {"ok": False, "error": "Missing scrape candidate"}
-    game = LIBRARY.get_game(game_id)
+    game = get_library().get_game(game_id)
     if not game:
         return {"ok": False, "error": "Unknown game"}
     changes = scrape_candidate_changes(candidate, assets if isinstance(assets, dict) else {}, remote_assets if isinstance(remote_assets, dict) else {})
@@ -2391,7 +2427,7 @@ def apply_scrape_metadata(game_id: str, candidate: object, assets: object | None
     result = update_game_metadata([game_id], changes, False)
     if not result.get("ok"):
         return result
-    updated = LIBRARY.get_game(game_id)
+    updated = get_library().get_game(game_id)
     return {"ok": True, "updated_count": result.get("updated_count", 0), "changes": changes, "game": asdict(updated) if updated else None}
 
 
@@ -2425,7 +2461,7 @@ def update_game_metadata(game_ids: object, changes: object, rename_files: bool =
 
     for raw_game_id in game_ids:
         game_id = str(raw_game_id)
-        game = LIBRARY.get_game(game_id)
+        game = get_library().get_game(game_id)
         if not game:
             errors.append(f"Unknown game: {game_id}")
             continue
@@ -2443,7 +2479,7 @@ def update_game_metadata(game_ids: object, changes: object, rename_files: bool =
 
     if updated:
         save_metadata(metadata)
-        LIBRARY.rebuild()
+        get_library().rebuild()
     return {"ok": not errors, "updated": updated, "errors": errors, "warnings": warnings, "updated_count": len(updated)}
 
 
@@ -2460,7 +2496,7 @@ def preview_game_metadata(game_ids: object, changes: object, rename_files: bool 
 
     for raw_game_id in game_ids[:50]:
         game_id = str(raw_game_id)
-        game = LIBRARY.get_game(game_id)
+        game = get_library().get_game(game_id)
         if not game:
             continue
         original = by_id.get(game_id) or game_to_metadata_item(game, [])
@@ -2505,7 +2541,7 @@ def preview_game_metadata(game_ids: object, changes: object, rename_files: bool 
 
 
 def scrape_preview(game_id: str, provider_id: str = "manual") -> dict:
-    game = LIBRARY.get_game(game_id)
+    game = get_library().get_game(game_id)
     if not game:
         return {"ok": False, "error": "Unknown game"}
     provider = configured_scrapers().get(provider_id)
@@ -3065,7 +3101,7 @@ def metadata_change_labels(changes: dict) -> list[str]:
 def ensure_metadata_file() -> None:
     if METADATA_FILE.exists():
         return
-    save_metadata_from_games(LIBRARY.games, LIBRARY.poks_by_title_memory)
+    save_metadata_from_games(get_library().games, get_library().poks_by_title_memory)
 
 
 def apply_metadata_values(game: Game, item: dict, changes: dict) -> None:
@@ -3407,7 +3443,7 @@ def normalize_text_list(value: object) -> list[str]:
 
 
 def delete_game(game_id: str) -> dict:
-    game = LIBRARY.get_game(game_id)
+    game = get_library().get_game(game_id)
     if not game:
         return {"ok": False, "error": "Unknown game"}
     source = Path(game.path)
@@ -3421,8 +3457,8 @@ def delete_game(game_id: str) -> dict:
         cleanup_empty_parents(source.parent, (COLLECTION / "incoming").resolve())
     else:
         update_metadata_game(game_id, file=collection_relative(target), status="Deleted")
-    trash_game = make_scanned_game(target, trash_root, "trash", LIBRARY.poks_by_title_memory, load_favourites())
-    LIBRARY.replace_game(game_id, trash_game)
+    trash_game = make_scanned_game(target, trash_root, "trash", get_library().poks_by_title_memory, load_favourites())
+    get_library().replace_game(game_id, trash_game)
     return {"ok": True, "path": str(target)}
 
 
@@ -3452,7 +3488,7 @@ def import_incoming_games(game_ids: object) -> dict:
             errors.append({"game_id": game_id, "error": str(exc)})
     if imported:
         save_metadata(metadata)
-        LIBRARY.rebuild()
+        get_library().rebuild()
     if errors:
         return {"ok": False, "error": f"Imported {len(imported)}, failed {len(errors)}", "imported": imported, "errors": errors}
     return {"ok": True, "imported": imported, "count": len(imported)}
@@ -3467,7 +3503,7 @@ def selected_game_ids(game_ids: object) -> list[str]:
 
 
 def import_incoming_game_item(game_id: str, metadata: dict) -> dict:
-    game = LIBRARY.get_game(game_id)
+    game = get_library().get_game(game_id)
     if not game:
         raise ValueError("Unknown game")
     if game.view != "incoming":
@@ -3495,7 +3531,7 @@ def import_incoming_game_item(game_id: str, metadata: dict) -> dict:
     item["id"] = stable_id(item["file"])
     metadata.setdefault("games", []).append(item)
     cleanup_empty_parents(source.parent, incoming)
-    LIBRARY.remove_game(game_id)
+    get_library().remove_game(game_id)
     return {"id": item["id"], "name": target.name, "path": str(target), "folder": collection_relative(target.parent)}
 
 
@@ -3514,14 +3550,14 @@ def restore_trash_games(game_ids: object) -> dict:
             errors.append({"game_id": game_id, "error": str(exc)})
     if restored:
         save_metadata(metadata)
-        LIBRARY.rebuild()
+        get_library().rebuild()
     if errors:
         return {"ok": False, "error": f"Restored {len(restored)}, failed {len(errors)}", "restored": restored, "errors": errors}
     return {"ok": True, "restored": restored, "count": len(restored)}
 
 
 def restore_trash_game_item(game_id: str, metadata: dict) -> dict:
-    game = LIBRARY.get_game(game_id)
+    game = get_library().get_game(game_id)
     if not game:
         raise ValueError("Unknown game")
     if game.view != "trash":
@@ -3551,7 +3587,7 @@ def restore_trash_game_item(game_id: str, metadata: dict) -> dict:
     item["format"] = target.suffix.lower()
     item["id"] = stable_id(item["file"])
     cleanup_empty_parents(source.parent, trash)
-    LIBRARY.remove_game(game_id)
+    get_library().remove_game(game_id)
     return {"id": item["id"], "name": target.name, "path": str(target), "folder": collection_relative(target.parent)}
 
 
@@ -3569,14 +3605,14 @@ def purge_trash_games(game_ids: object) -> dict:
             errors.append({"game_id": game_id, "error": str(exc)})
     if purged:
         save_metadata(metadata)
-        LIBRARY.rebuild()
+        get_library().rebuild()
     if errors:
         return {"ok": False, "error": f"Removed {len(purged)}, failed {len(errors)}", "purged": purged, "errors": errors}
     return {"ok": True, "purged": purged, "count": len(purged)}
 
 
 def purge_trash_game_item(game_id: str, metadata: dict) -> dict:
-    game = LIBRARY.get_game(game_id)
+    game = get_library().get_game(game_id)
     if not game:
         raise ValueError("Unknown game")
     if game.view != "trash":
@@ -3592,7 +3628,7 @@ def purge_trash_game_item(game_id: str, metadata: dict) -> dict:
     rel_source = normalize_rel_path(collection_relative(source))
     metadata["games"] = [entry for entry in metadata.get("games", []) if normalize_rel_path(entry.get("file", "")) != rel_source]
     cleanup_empty_parents(source.parent, trash)
-    LIBRARY.remove_game(game_id)
+    get_library().remove_game(game_id)
     return {"id": game_id, "name": game.file_name}
 
 
@@ -3611,7 +3647,7 @@ def cleanup_empty_parents(start: Path, stop: Path) -> None:
 
 
 def move_between_collection_and_languages(game_id: str) -> dict:
-    game = LIBRARY.get_game(game_id)
+    game = get_library().get_game(game_id)
     if not game:
         return {"ok": False, "error": "Unknown game"}
     source = Path(game.path)
@@ -3621,20 +3657,20 @@ def move_between_collection_and_languages(game_id: str) -> dict:
     if game.view == "languages":
         if METADATA_FILE.exists():
             update_metadata_game(game_id, status="Main")
-            LIBRARY.rebuild()
+            get_library().rebuild()
             return {"ok": True, "path": str(source), "message": "Moved to collection"}
         target = unique_path(COLLECTION / source.resolve().relative_to(review_root.resolve()))
         message = "Moved to collection"
     else:
         if METADATA_FILE.exists():
             update_metadata_game(game_id, status="Language Review")
-            LIBRARY.rebuild()
+            get_library().rebuild()
             return {"ok": True, "path": str(source), "message": "Moved to Other Languages"}
         target = unique_path(review_root / relative_collection_path(source))
         message = "Moved to Other Languages"
     target.parent.mkdir(parents=True, exist_ok=True)
     source.replace(target)
-    LIBRARY.rebuild()
+    get_library().rebuild()
     return {"ok": True, "path": str(target), "message": message}
 
 
@@ -3930,6 +3966,7 @@ def stop_existing_launcher_servers() -> None:
 def main() -> None:
     stop_existing_launcher_servers()
     init_state()
+    get_library()
     server = ThreadingHTTPServer((HOST, PORT), Handler)
     url = f"http://{HOST}:{PORT}"
     log(f"Morpheus EmuGUI running at {url}")

@@ -19,6 +19,39 @@ let listClickTimer = 0;
 let draggedColumnKey = "";
 let virtualFrame = 0;
 let virtualRange = { start: -1, end: -1, columns: -1 };
+let webHubRequestSequence = 0;
+const pendingWebHubRequests = new Map();
+const webHubHandoff = (() => {
+  const params = new URLSearchParams(window.location.search);
+  const gameId = String(params.get("game") || "");
+  const rebindGameKey = String(params.get("hubRebind") || "");
+  return {
+    gameId: /^[a-zA-Z0-9_-]{1,120}$/.test(gameId) ? gameId : "",
+    rebindGameKey: /^game_[a-zA-Z0-9_-]{12,75}$/.test(rebindGameKey) ? rebindGameKey : "",
+  };
+})();
+
+window.addEventListener("message", (event) => {
+  if (event.source !== window || event.data?._emuguiRes !== true) return;
+  const pending = pendingWebHubRequests.get(event.data.requestId);
+  if (!pending) return;
+  clearTimeout(pending.timer);
+  pendingWebHubRequests.delete(event.data.requestId);
+  if (event.data.ok === true) pending.resolve(event.data);
+  else pending.reject(new Error(event.data.error || "The WebHub extension rejected the game shortcut."));
+});
+
+function requestWebHub(type, payload = {}) {
+  const requestId = `emugui-${Date.now()}-${++webHubRequestSequence}`;
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      pendingWebHubRequests.delete(requestId);
+      reject(new Error("Morpheus WebHub extension 1.0.42 or newer is required."));
+    }, 15000);
+    pendingWebHubRequests.set(requestId, { resolve, reject, timer });
+    window.postMessage({ _emuguiReq: true, requestId, type, ...payload }, "*");
+  });
+}
 
 const COUNTRY_NAMES = {
   BR: "Brazil",
@@ -410,6 +443,9 @@ async function init() {
   renderMetadataFilters();
   bindEvents();
   applyFilters();
+  if (webHubHandoff.gameId && state.games.some((game) => game.id === webHubHandoff.gameId)) {
+    await selectGame(webHubHandoff.gameId);
+  }
 }
 
 function bindEvents() {
@@ -1993,6 +2029,7 @@ async function renderDetails(message = "", isError = false) {
     </div>
     <div class="detail-actions">
       <button id="launch">Launch Game</button>
+      <button id="send-webhub" class="secondary">${webHubHandoff.rebindGameKey ? "Update WebHub Shortcut" : "Send to WebHub"}</button>
       <button id="favourite" class="secondary">${game.favourite ? "Remove Favourite" : "Add Favourite"}</button>
       <button id="scrape-metadata" class="secondary">Scrape Metadata</button>
     </div>
@@ -2003,6 +2040,7 @@ async function renderDetails(message = "", isError = false) {
     ${message ? `<div class="message ${isError ? "error" : ""}">${escapeHtml(message)}</div>` : ""}
   `;
   document.querySelector("#launch").addEventListener("click", launchSelected);
+  document.querySelector("#send-webhub").addEventListener("click", sendSelectedToWebHub);
   document.querySelector("#favourite").addEventListener("click", toggleFavourite);
   document.querySelector("#scrape-metadata").addEventListener("click", showScrapePreviewModal);
   document.querySelectorAll(".open-pok").forEach((button) => {
@@ -2102,6 +2140,42 @@ function resolveLaunchMeta(game) {
     profileName: profile ? `${emulatorDisplayName(profile.emulator_id)}: ${profile.name}` : "Automatic / none",
     profileSource,
   };
+}
+
+function resolveLaunchBinding(game) {
+  const emulatorId = game.default_emulator || els.emulator.value || "";
+  const pinnedProfile = game.emulator_profile
+    ? state.emulatorProfiles.find((profile) => profile.id === game.emulator_profile && (!emulatorId || profile.emulator_id === emulatorId))
+    : null;
+  const profile = pinnedProfile || automaticProfileForGame(emulatorId, game);
+  return { emulatorId, profileId: profile?.id || "" };
+}
+
+async function sendSelectedToWebHub() {
+  const game = state.selected;
+  if (!game) return;
+  const binding = resolveLaunchBinding(game);
+  try {
+    await renderDetails("Sending game shortcut to WebHub...");
+    const result = await requestWebHub("MW_EMUGUI_SEND_GAME", {
+      gameId: game.id,
+      emulatorId: binding.emulatorId,
+      profileId: binding.profileId,
+      rebindGameKey: webHubHandoff.rebindGameKey,
+      deliveryId: `emugui-game-${game.id}-${Date.now()}`
+    });
+    if (webHubHandoff.rebindGameKey) {
+      webHubHandoff.rebindGameKey = "";
+      const url = new URL(window.location.href);
+      url.searchParams.delete("hubRebind");
+      window.history.replaceState(null, "", url);
+      await renderDetails(`Updated the existing WebHub shortcut${result.persisted ? ` (${result.persisted})` : ""}.`);
+    } else {
+      await renderDetails(`Sent to WebHub Inbox${result.persisted ? ` (${result.persisted})` : ""}.`);
+    }
+  } catch (error) {
+    await renderDetails(error.message || "The game could not be sent to WebHub.", true);
+  }
 }
 
 function automaticProfileForGame(emulatorId, game) {
@@ -2600,6 +2674,7 @@ function showContextMenu(event, gameId) {
   menu.innerHTML = `
     <div class="context-section">
       ${emulatorButtons}
+      <button data-action="send-webhub">${webHubHandoff.rebindGameKey ? "Update WebHub Shortcut" : "Send to WebHub"}</button>
     </div>
     <div class="context-section">
       <button data-action="explorer">Open in Explorer</button>
@@ -2643,6 +2718,10 @@ async function handleContextAction(action, emulator) {
       const result = await launchGame("", emulator);
       await refreshRecentAfterLaunch();
       await renderDetails(launchMessage(result));
+      return;
+    }
+    if (action === "send-webhub") {
+      await sendSelectedToWebHub();
       return;
     }
     if (action === "rename") {
