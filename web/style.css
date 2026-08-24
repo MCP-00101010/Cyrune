@@ -457,6 +457,7 @@ button.active {
 .modal input[type="text"],
 .modal input[type="number"],
 .modal input[type="password"],
+.modal textarea,
 .modal select {
   width: 100%;
   border: 1px solid var(--line);
@@ -464,6 +465,12 @@ button.active {
   background: #0e1013;
   color: var(--text);
   padding: 6px 9px;
+}
+
+.modal textarea {
+  min-height: 62px;
+  resize: vertical;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
 }
 
 .modal input[type="text"],
@@ -1302,7 +1309,8 @@ tbody tr.empty-row:hover {
 
 .emulator-select-row {
   display: grid;
-  grid-template-columns: minmax(220px, 320px);
+  grid-template-columns: minmax(220px, 1fr) auto;
+  gap: 8px;
   align-items: end;
 }
 
@@ -1317,6 +1325,18 @@ tbody tr.empty-row:hover {
   margin: 0 0 8px;
   color: var(--text);
   font-size: 14px;
+}
+
+.emulator-card-title {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.emulator-card-title h3 {
+  margin: 0;
 }
 
 .emulator-grid {

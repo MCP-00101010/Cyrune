@@ -129,6 +129,7 @@ class CollectionService:
                 "role": item.get("role", "source"),
                 "writable": writable,
                 "auto_metadata": bool(item.get("auto_metadata", False)),
+                "default_emulator": str(item.get("default_emulator", "") or ""),
                 "incoming_count": file_count_in_tree(root / "incoming", {".tap", ".tzx"}) if writable else 0,
                 "trash_count": file_count_in_tree(root / "_Deleted", {".tap", ".tzx"}) if writable else 0,
                 "active": item.get("id") == active.get("id"),
@@ -159,6 +160,7 @@ class CollectionService:
             "role": "library" if writable else "source",
             "writable": writable,
             "auto_metadata": auto_metadata,
+            "default_emulator": "",
         }
         collections.append(item)
         self._save_config(config)

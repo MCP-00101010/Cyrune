@@ -1,0 +1,37 @@
+{
+  "eightyone": {
+    "name": "EightyOne Desasteron",
+    "type": "eightyone",
+    "path": "E:\\Emulation\\Systems\\Sinclair\\EightyOne\\EightyOne-Desasteron.exe",
+    "working_dir": "E:\\Emulation\\Systems\\Sinclair\\EightyOne",
+    "supported_extensions": [".tap", ".tzx", ".z80", ".sna", ".rom"],
+    "arguments": ["{file}"],
+    "eightyone_config_target": "%APPDATA%\\EightyOne\\EightyOne-Desasteron.ini"
+  },
+  "spectaculator": {
+    "name": "Spectaculator Direct",
+    "type": "spectaculator",
+    "path": "E:\\Emulation\\Systems\\Sinclair\\Spectaculator\\Spectaculator.exe",
+    "working_dir": "E:\\Emulation\\Systems\\Sinclair\\Spectaculator",
+    "supported_extensions": [".tap", ".tzx", ".z80", ".sna", ".szx", ".rom"],
+    "arguments": ["{file}"],
+    "pok_helper_path": "E:\\Emulation\\Systems\\Sinclair\\Spectaculator\\SpecStub.exe",
+    "current_arguments": ["{file}"],
+    "pok_arguments": ["{pok_file}"]
+  },
+  "spectaculator_stub": {
+    "name": "Spectaculator SpecStub",
+    "type": "spectaculator_stub",
+    "path": "E:\\Emulation\\Systems\\Sinclair\\Spectaculator\\SpecStub.exe",
+    "working_dir": "E:\\Emulation\\Systems\\Sinclair\\Spectaculator",
+    "arguments": ["{file}"],
+    "hidden": true
+  },
+  "default": {
+    "name": "Windows Default App",
+    "type": "default",
+    "path": "",
+    "arguments": ["{file}"],
+    "hidden": true
+  }
+}

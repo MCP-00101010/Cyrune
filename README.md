@@ -39,6 +39,8 @@ python server.py --no-browser
 - `emugui_core/library.py`, `collections.py`, and `collection_loading.py` own the in-memory library model, collection configuration, and loading/import orchestration.
 - `emugui_core/metadata.py` and `scraping.py` own metadata mutations and bounded scraper dispatch while accepting the existing platform adapters as injected dependencies.
 - `emugui_core/jobs.py` owns thread-safe background-job state and progress reporting.
+- `emugui_core/emulators.py` owns validated emulator definitions, argument-vector templates, custom emulator lifecycle, and collection defaults; built-in definitions live in `defaults/emulators.json`.
+- `emugui_core/secrets.py` keeps scraper credentials behind the WebHub native host's Windows Credential Manager boundary and verifies legacy migration before removing plaintext JSON values.
 - `emugui_core/profiles.py` owns emulator-profile import, refresh, editing, deletion, and launch-profile selection independently of either browser transport.
 - `emugui_core/launching.py` owns game/POK launch orchestration, managed-profile preparation, safe argument-array process startup, running-instance choices, and the Windows adapters for EightyOne and Spectaculator/SpecStub.
 - `web/` contains the canonical browser frontend used by both file/RPC and HTTP modes.
@@ -48,6 +50,8 @@ python server.py --no-browser
 - Override the sibling collection search root with `MORPHEUS_EMUGUI_COLLECTIONS_BASE`.
 
 The runtime intentionally uses only Python's standard library.
+
+Launch templates are JSON arrays of arguments, not command strings. They may use `{file}`, `{file_dir}`, `{file_name}`, `{collection_root}`, `{pok_file}`, `{system}`, and `{title}`. EmuGUI validates executable/helper paths and templates before saving changes.
 
 ## ZX Launch Validation
 

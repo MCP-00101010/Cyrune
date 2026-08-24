@@ -652,6 +652,7 @@ async function reloadCollections() {
   state.collections = payload.collections;
   state.activeCollection = payload.active;
   renderCollections();
+  renderEmulators();
 }
 
 async function refreshCollectionsForDropdown() {
@@ -864,26 +865,32 @@ function renderViewBeacon(element, count, badge, label, titleSuffix) {
 }
 
 function renderEmulators() {
+  const previous = els.emulator.value;
   els.emulator.innerHTML = state.emulators
     .map((emu) => {
       const label = emu.available ? emu.name : `${emu.name} (missing)`;
       return `<option value="${escapeHtml(emu.id)}">${escapeHtml(label)}</option>`;
     })
     .join("");
+  const collectionDefault = state.activeCollection?.default_emulator || "";
+  const preferred = collectionDefault || previous;
+  if (preferred && state.emulators.some((emulator) => emulator.id === preferred)) {
+    els.emulator.value = preferred;
+  }
 }
 
 function showEmulatorProfileModal() {
   const overlay = document.createElement("div");
   overlay.className = "modal-overlay";
-  const spectrumEmulators = supportedSpectrumEmulators();
+  const spectrumEmulators = state.emulators.map(cloneEmulator);
   const editableEmulators = Object.fromEntries(spectrumEmulators.map((emu) => [emu.id, cloneEmulator(emu)]));
   let selectedEmulatorId = spectrumEmulators[0]?.id || "eightyone";
   overlay.innerHTML = `
     <div class="modal emulator-modal">
       <div class="modal-scroll">
-        <h2>Emulator Profiles</h2>
+        <h2>Emulators &amp; Profiles</h2>
         <div class="platform-tabs" role="tablist">
-          <button class="platform-tab active" type="button" role="tab" aria-selected="true">Spectrum</button>
+          <button class="platform-tab active" type="button" role="tab" aria-selected="true">Configured Emulators</button>
         </div>
         <section class="platform-panel">
           <div class="emulator-select-row">
@@ -893,7 +900,15 @@ function showEmulatorProfileModal() {
                 ${spectrumEmulators.map((emu) => `<option value="${escapeHtml(emu.id)}">${escapeHtml(emu.name || emu.id)}</option>`).join("")}
               </select>
             </label>
+            <button class="secondary" data-action="add-emulator" type="button">Add Emulator</button>
           </div>
+          <label>
+            <span>Default for ${escapeHtml(state.activeCollection?.name || "active collection")}</span>
+            <select id="collection-default-emulator">
+              <option value="">No default</option>
+              ${spectrumEmulators.map((emu) => `<option value="${escapeHtml(emu.id)}"${state.activeCollection?.default_emulator === emu.id ? " selected" : ""}>${escapeHtml(emu.name || emu.id)}</option>`).join("")}
+            </select>
+          </label>
           <div id="selected-emulator-settings"></div>
           <section class="emulator-card">
             <h3>Managed Profiles</h3>
@@ -912,7 +927,7 @@ function showEmulatorProfileModal() {
         <div class="message error" id="emulator-error"></div>
       </div>
       <div class="modal-actions sticky-actions">
-        <button data-action="save">Save Emulators</button>
+        <button data-action="save">Save Changes</button>
         <button class="secondary" data-action="cancel">Cancel</button>
       </div>
     </div>
@@ -934,7 +949,14 @@ function showEmulatorProfileModal() {
   };
   renderSelectedEmulator();
   emulatorSelect.addEventListener("change", () => {
-    syncSelectedEmulator();
+    try {
+      syncSelectedEmulator();
+      errorBox.textContent = "";
+    } catch (error) {
+      errorBox.textContent = error.message;
+      emulatorSelect.value = selectedEmulatorId;
+      return;
+    }
     selectedEmulatorId = emulatorSelect.value;
     renderSelectedEmulator();
   });
@@ -951,6 +973,39 @@ function showEmulatorProfileModal() {
     }
     if (button.dataset.action === "pick-path") {
       await pickPathInto(overlay, button);
+      return;
+    }
+    if (button.dataset.action === "add-emulator") {
+      showAddEmulatorModal((emulator) => {
+        editableEmulators[emulator.id] = emulator;
+        const option = document.createElement("option");
+        option.value = emulator.id;
+        option.textContent = emulator.name;
+        emulatorSelect.appendChild(option);
+        const defaultOption = option.cloneNode(true);
+        overlay.querySelector("#collection-default-emulator")?.appendChild(defaultOption);
+        selectedEmulatorId = emulator.id;
+        emulatorSelect.value = emulator.id;
+        renderSelectedEmulator();
+      });
+      return;
+    }
+    if (button.dataset.action === "delete-emulator") {
+      try {
+        errorBox.textContent = "";
+        const payload = await api("/api/emulators/delete", {
+          method: "POST",
+          body: JSON.stringify({ emulator_id: selectedEmulatorId }),
+        });
+        state.emulators = payload.emulators || [];
+        const collections = payload.collections || {};
+        state.collections = collections.collections || state.collections;
+        state.activeCollection = collections.active || state.activeCollection;
+        overlay.remove();
+        renderEmulators();
+      } catch (error) {
+        errorBox.textContent = error.message;
+      }
       return;
     }
     if (button.dataset.action === "import-profile") {
@@ -1002,12 +1057,18 @@ function showEmulatorProfileModal() {
     try {
       errorBox.textContent = "";
       syncSelectedEmulator();
-      const emulators = spectrumEmulators.map((emu) => editableEmulators[emu.id]).filter(Boolean);
+      const emulators = Object.values(editableEmulators).filter(Boolean);
       const payload = await api("/api/emulators", {
         method: "POST",
-        body: JSON.stringify({ emulators }),
+        body: JSON.stringify({
+          emulators,
+          collection_id: state.activeCollection?.id || "",
+          default_emulator: overlay.querySelector("#collection-default-emulator")?.value || "",
+        }),
       });
       state.emulators = payload.emulators;
+      state.collections = payload.collections?.collections || state.collections;
+      state.activeCollection = payload.collections?.active || state.activeCollection;
       renderEmulators();
       overlay.remove();
     } catch (error) {
@@ -1025,7 +1086,7 @@ async function showScraperSettingsModal() {
         <h2>Metadata Providers</h2>
         <section class="emulator-card">
           <h3>ScreenScraper</h3>
-          <p>Used for Spectrum game metadata, screenshots, and loading screens. Developer credentials are optional; password fields can be left blank to keep existing saved values.</p>
+          <p>Used for Spectrum game metadata, screenshots, and loading screens. Credentials are kept in Windows Credential Manager; password fields can be left blank to keep existing values.</p>
           <div id="screenscraper-settings-content" class="profile-import-grid">
             <div class="meta wide">Loading provider settings...</div>
           </div>
@@ -1055,6 +1116,9 @@ async function showScraperSettingsModal() {
     const thegamesdb = (payload.providers || []).find((item) => item.id === "thegamesdb") || {};
     screenscraperContent.innerHTML = screenscraperSettingsFields(screenscraper);
     thegamesdbContent.innerHTML = thegamesdbSettingsFields(thegamesdb);
+    if (!payload.secret_storage?.available) {
+      errorBox.textContent = payload.secret_storage?.error || "Credential storage is unavailable.";
+    }
   } catch (error) {
     screenscraperContent.innerHTML = "";
     thegamesdbContent.innerHTML = "";
@@ -1256,26 +1320,43 @@ function showManagedProfileEditor(profile, parentRoot, selectedEmulatorId) {
 
 function emulatorProfileCard(id, title, emulator) {
   const extensions = formatExtensionList(emulator.supported_extensions);
+  const adapter = emulator.type || "generic";
   const extra =
-    id === "eightyone"
+    adapter === "eightyone"
       ? `
         <label class="wide"><span>Active Config Target</span>${pathPickerInput("eightyone_config_target", emulator.eightyone_config_target || "", "file")}</label>
       `
-      : `
+      : adapter === "spectaculator"
+      ? `
         <label class="wide"><span>SpecStub / POK Helper</span>${pathPickerInput("pok_helper_path", emulator.pok_helper_path || "", "file")}</label>
-      `;
+        <label class="wide"><span>Running-instance Arguments (JSON array)</span><textarea data-field="current_arguments" data-format="arguments">${escapeHtml(formatArgumentList(emulator.current_arguments || ["{file}"]))}</textarea></label>
+        <label class="wide"><span>POK Arguments (JSON array)</span><textarea data-field="pok_arguments" data-format="arguments">${escapeHtml(formatArgumentList(emulator.pok_arguments || ["{pok_file}"]))}</textarea></label>
+      `
+      : "";
+  const deleteButton = emulator.built_in
+    ? ""
+    : '<button class="secondary danger-text" data-action="delete-emulator" type="button">Delete Emulator</button>';
   return `
     <section class="emulator-card" data-emulator-id="${escapeHtml(id)}">
-      <h3>${escapeHtml(title)}</h3>
+      <div class="emulator-card-title"><h3>${escapeHtml(title)}</h3>${deleteButton}</div>
       <div class="emulator-grid">
         <label><span>Name</span><input data-field="name" type="text" value="${escapeHtml(emulator.name || title)}"></label>
+        <label><span>Launch Adapter</span><select data-field="type"${emulator.built_in ? " disabled" : ""}>
+          ${["generic", "eightyone", "spectaculator"].map((value) => `<option value="${value}"${adapter === value ? " selected" : ""}>${value}</option>`).join("")}
+        </select></label>
         <label><span>Supported Extensions</span><input data-field="supported_extensions" type="text" value="${escapeHtml(extensions)}"></label>
         <label class="wide"><span>Executable Path</span>${pathPickerInput("path", emulator.path || "", "file")}</label>
         <label class="wide"><span>Working Directory</span>${pathPickerInput("working_dir", emulator.working_dir || "", "folder")}</label>
+        <label class="wide"><span>Launch Arguments (JSON array)</span><textarea data-field="arguments" data-format="arguments">${escapeHtml(formatArgumentList(emulator.arguments || ["{file}"]))}</textarea></label>
+        <div class="meta wide">Allowed placeholders: {file}, {file_dir}, {file_name}, {collection_root}, {pok_file}, {system}, {title}. Arguments are passed directly without a shell.</div>
         ${extra}
       </div>
     </section>
   `;
+}
+
+function formatArgumentList(value) {
+  return JSON.stringify(Array.isArray(value) ? value : ["{file}"]);
 }
 
 function formatExtensionList(value) {
@@ -1314,9 +1395,81 @@ function readEmulatorProfileForm(root, id) {
   if (!card) return null;
   const result = { id };
   card.querySelectorAll("[data-field]").forEach((input) => {
-    result[input.dataset.field] = input.value.trim();
+    if (input.disabled) return;
+    if (input.dataset.format === "arguments") {
+      let parsed;
+      try {
+        parsed = JSON.parse(input.value);
+      } catch (_error) {
+        throw new Error(`${input.closest("label")?.querySelector("span")?.textContent || "Arguments"} must be a JSON array.`);
+      }
+      if (!Array.isArray(parsed) || parsed.some((item) => typeof item !== "string")) {
+        throw new Error("Command arguments must be a JSON array of strings.");
+      }
+      result[input.dataset.field] = parsed;
+    } else {
+      result[input.dataset.field] = input.value.trim();
+    }
   });
   return result;
+}
+
+function showAddEmulatorModal(onAdd) {
+  const overlay = document.createElement("div");
+  overlay.className = "modal-overlay";
+  overlay.innerHTML = `
+    <div class="modal managed-profile-modal">
+      <h2>Add Emulator</h2>
+      <p>Create a native-only emulator definition. You can configure profiles after saving it.</p>
+      <div class="profile-edit-grid">
+        <label><span>ID</span><input id="add-emulator-id" type="text" placeholder="snes9x"></label>
+        <label><span>Name</span><input id="add-emulator-name" type="text" placeholder="Snes9x"></label>
+        <label><span>Launch Adapter</span><select id="add-emulator-type"><option value="generic">generic</option><option value="eightyone">eightyone</option><option value="spectaculator">spectaculator</option></select></label>
+        <label><span>Extensions</span><input id="add-emulator-extensions" type="text" placeholder=".smc, .sfc"></label>
+        <label class="wide"><span>Executable Path</span>${pathPickerInput("add-emulator-path", "", "file")}</label>
+        <label class="wide"><span>Working Directory</span>${pathPickerInput("add-emulator-working-dir", "", "folder")}</label>
+      </div>
+      <div class="modal-actions"><button data-action="add">Add</button><button class="secondary" data-action="cancel">Cancel</button></div>
+      <div class="message error" id="add-emulator-error"></div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  overlay.querySelector("#add-emulator-id")?.focus();
+  overlay.addEventListener("click", async (event) => {
+    if (event.target === overlay || event.target.closest("button")?.dataset.action === "cancel") {
+      overlay.remove();
+      return;
+    }
+    const button = event.target.closest("button");
+    if (!button) return;
+    if (button.dataset.action === "pick-path") {
+      await pickPathInto(overlay, button);
+      return;
+    }
+    if (button.dataset.action !== "add") return;
+    const id = overlay.querySelector("#add-emulator-id").value.trim().toLowerCase();
+    const name = overlay.querySelector("#add-emulator-name").value.trim();
+    const errorBox = overlay.querySelector("#add-emulator-error");
+    if (!/^[a-z][a-z0-9_-]{0,63}$/.test(id)) {
+      errorBox.textContent = "ID must start with a letter and use only letters, numbers, _ or -.";
+      return;
+    }
+    if (!name || state.emulators.some((emulator) => emulator.id === id)) {
+      errorBox.textContent = !name ? "Name is required." : "That emulator ID already exists.";
+      return;
+    }
+    onAdd({
+      id,
+      name,
+      type: overlay.querySelector("#add-emulator-type").value,
+      path: overlay.querySelector('[data-field="add-emulator-path"]').value.trim(),
+      working_dir: overlay.querySelector('[data-field="add-emulator-working-dir"]').value.trim(),
+      supported_extensions: overlay.querySelector("#add-emulator-extensions").value,
+      arguments: ["{file}"],
+      built_in: false,
+    });
+    overlay.remove();
+  });
 }
 
 function applyFilters() {

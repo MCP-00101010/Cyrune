@@ -1,14 +1,29 @@
 from pathlib import Path
 from types import SimpleNamespace
 
+import emugui_core.launching as launching
 from emugui_core.launching import (
     GameLaunchService,
     emulator_adapter,
     launch_visible,
     prepare_eightyone_profile,
+    render_arguments,
     should_check_immediate_exit,
 )
-import emugui_core.launching as launching
+
+
+def test_argument_templates_render_game_and_collection_values(tmp_path):
+    game_path = tmp_path / "Games" / "Jetpac.tzx"
+    game = type("Game", (), {"title": "Jetpac", "system": "48K"})()
+
+    arguments = render_arguments(
+        ["--machine", "{system}", "--title={title}", "{file}"],
+        game=game,
+        file_path=game_path,
+        collection_root=tmp_path,
+    )
+
+    assert arguments == ["--machine", "48K", "--title=Jetpac", str(game_path)]
 
 
 class FakeProcess:

@@ -11,6 +11,8 @@ import subprocess
 import time
 from typing import Callable
 
+from emugui_core.emulators import normalize_template
+
 
 @dataclass(frozen=True)
 class EmulatorLaunchAdapter:
@@ -66,6 +68,36 @@ def emulator_adapter(emulator_id: str, emulator: dict[str, object] | None = None
     return _ADAPTERS.get(emulator_id) or _ADAPTERS.get(configured_type) or GenericLaunchAdapter(configured_type or emulator_id)
 
 
+def render_arguments(
+    template: object,
+    *,
+    game: object | None = None,
+    file_path: Path | None = None,
+    collection_root: Path | None = None,
+    pok_file: Path | None = None,
+) -> list[str]:
+    """Render a validated argument vector without invoking a shell."""
+
+    arguments = normalize_template(template, "arguments")
+    target = file_path or pok_file
+    values = {
+        "file": str(file_path or ""),
+        "file_dir": str(target.parent if target else ""),
+        "file_name": target.name if target else "",
+        "collection_root": str(collection_root or ""),
+        "pok_file": str(pok_file or ""),
+        "system": str(getattr(game, "system", "") or ""),
+        "title": str(getattr(game, "title", "") or ""),
+    }
+    return [replace_placeholders(argument, values) for argument in arguments]
+
+
+def replace_placeholders(argument: str, values: dict[str, str]) -> str:
+    for name, value in values.items():
+        argument = argument.replace(f"{{{name}}}", value)
+    return argument
+
+
 def prepare_eightyone_profile(
     emulator: dict[str, object],
     game: object,
@@ -110,6 +142,7 @@ class GameLaunchService:
         find_running_window: Callable[[str], int],
         focus_emulator: Callable[[str, object | None], None],
         bring_to_front: Callable[[int], None],
+        collection_root: Callable[[], Path] | None = None,
         sleep: Callable[[float], None] = time.sleep,
         check_immediate_exit: Callable[[Path], bool] | None = None,
     ) -> None:
@@ -124,12 +157,15 @@ class GameLaunchService:
         self._find_running_window = find_running_window
         self._focus_emulator = focus_emulator
         self._bring_to_front = bring_to_front
+        self._collection_root = collection_root or (lambda: Path(""))
         self._sleep = sleep
         self._check_immediate_exit = check_immediate_exit or should_check_immediate_exit
 
     def _emulator(self, emulator_id: str) -> dict[str, object]:
         emulators = self._emulator_provider()
-        return emulators.get(emulator_id) or emulators["default"]
+        if emulator_id not in emulators:
+            raise KeyError(f"Unknown emulator: {emulator_id}")
+        return emulators[emulator_id]
 
     def running_choice(self, emulator_id: str) -> dict[str, object]:
         emulator = self._emulator(emulator_id)
@@ -154,7 +190,12 @@ class GameLaunchService:
                 "needs_confirmation": True,
                 "error": "Spectaculator is already running, but SpecStub.exe is missing. Start a second copy?",
             }
-        process = self._launch_process([str(spec_stub), str(path)], spec_stub.parent)
+        stub = self._emulator_provider()["spectaculator_stub"]
+        arguments = render_arguments(
+            stub.get("arguments", ["{file}"]), game=self._get_game(game_id), file_path=path,
+            collection_root=self._collection_root(),
+        )
+        process = self._launch_process([str(spec_stub), *arguments], spec_stub.parent)
         self._mark_recent(game_id)
         self._focus_emulator("spectaculator_stub", process)
         return {"ok": True, "pid": process.pid, "reused": True}
@@ -174,12 +215,12 @@ class GameLaunchService:
         if not path.exists():
             return {"ok": False, "error": f"Missing game file: {path}"}
 
-        emulator = self._emulator(emulator_id)
-        adapter = emulator_adapter(emulator_id, emulator)
-        emulator_path = self._expand_path(emulator.get("path"))
-        if force_new:
-            launch_action = "new"
         try:
+            emulator = self._emulator(emulator_id)
+            adapter = emulator_adapter(emulator_id, emulator)
+            emulator_path = self._expand_path(emulator.get("path"))
+            if force_new:
+                launch_action = "new"
             running_hwnd = self._find_running_window(emulator_id)
             if running_hwnd:
                 if launch_action == "current" and adapter.current_uses_spectaculator_stub:
@@ -197,7 +238,11 @@ class GameLaunchService:
                     return {"ok": False, "error": f"Missing emulator: {emulator_path}"}
                 self._prepare_profile(emulator, game, profile_id)
                 working_dir = self._expand_path(emulator.get("working_dir")) or emulator_path.parent
-                process = self._launch_process([str(emulator_path), str(path)], working_dir)
+                arguments = render_arguments(
+                    emulator.get("arguments", ["{file}"]), game=game, file_path=path,
+                    collection_root=self._collection_root(),
+                )
+                process = self._launch_process([str(emulator_path), *arguments], working_dir)
             self._mark_recent(game_id)
             payload: dict[str, object] = {"ok": True}
             if process is not None:
@@ -217,11 +262,18 @@ class GameLaunchService:
         path = Path(str(pok.get("path", "")))
         if not path.exists():
             return {"ok": False, "error": f"Missing POK file: {path}"}
-        spec_stub = self._expand_path(self._emulator_provider()["spectaculator_stub"].get("path"))
+        emulators = self._emulator_provider()
+        spectaculator = emulators.get("spectaculator", {})
+        stub_config = emulators.get("spectaculator_stub", {})
+        spec_stub = self._expand_path(stub_config.get("path"))
         if spec_stub is None or not spec_stub.exists():
             return {"ok": False, "error": f"Missing Spectaculator helper: {spec_stub}"}
         try:
-            process = self._launch_process([str(spec_stub), str(path)], spec_stub.parent)
+            arguments = render_arguments(
+                spectaculator.get("pok_arguments", ["{pok_file}"]), pok_file=path,
+                collection_root=self._collection_root(),
+            )
+            process = self._launch_process([str(spec_stub), *arguments], spec_stub.parent)
             self._focus_emulator("spectaculator_stub", process)
             return {"ok": True, "pid": process.pid, "path": str(path)}
         except Exception as exc:

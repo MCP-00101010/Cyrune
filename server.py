@@ -42,6 +42,8 @@ from emugui_core.library import Game, GameLibrary
 from emugui_core.collections import CollectionService, file_count_in_tree as core_file_count_in_tree
 from emugui_core.metadata import MetadataService
 from emugui_core.scraping import ScraperAdapter, ScraperService
+from emugui_core.emulators import EmulatorConfigError, EmulatorConfigService, load_emulator_defaults
+from emugui_core.secrets import SCRAPER_SECRET_FIELDS, ScraperSecretService
 from emugui_core.collection_loading import (
     CollectionLoader,
     import_match_summary as core_import_match_summary,
@@ -72,37 +74,7 @@ METADATA_FILE = COLLECTION / "collection-metadata.json"
 HOST = "127.0.0.1"
 PORT = 8765
 
-DEFAULT_EMULATORS = {
-    "eightyone": {
-        "name": "EightyOne Desasteron",
-        "type": "eightyone",
-        "path": r"E:\Emulation\Systems\Sinclair\EightyOne\EightyOne-Desasteron.exe",
-        "working_dir": r"E:\Emulation\Systems\Sinclair\EightyOne",
-        "supported_extensions": [".tap", ".tzx", ".z80", ".sna", ".rom"],
-        "eightyone_config_target": r"%APPDATA%\EightyOne\EightyOne-Desasteron.ini",
-    },
-    "spectaculator": {
-        "name": "Spectaculator Direct",
-        "type": "spectaculator",
-        "path": r"E:\Emulation\Systems\Sinclair\Spectaculator\Spectaculator.exe",
-        "working_dir": r"E:\Emulation\Systems\Sinclair\Spectaculator",
-        "supported_extensions": [".tap", ".tzx", ".z80", ".sna", ".szx", ".rom"],
-        "pok_helper_path": r"E:\Emulation\Systems\Sinclair\Spectaculator\SpecStub.exe",
-    },
-    "spectaculator_stub": {
-        "name": "Spectaculator SpecStub",
-        "type": "spectaculator_stub",
-        "path": r"E:\Emulation\Systems\Sinclair\Spectaculator\SpecStub.exe",
-        "working_dir": r"E:\Emulation\Systems\Sinclair\Spectaculator",
-        "hidden": True,
-    },
-    "default": {
-        "name": "Windows Default App",
-        "type": "default",
-        "path": "",
-        "hidden": True,
-    },
-}
+DEFAULT_EMULATORS = load_emulator_defaults(LAUNCHER / "defaults" / "emulators.json")
 
 JOB_SERVICE = BackgroundJobService()
 TGDB_LOOKUP_CACHE: dict[str, dict[str, str]] = {}
@@ -124,9 +96,7 @@ DEFAULT_SCRAPERS = {
         "supports_assets": True,
         "base_url": "https://api.screenscraper.fr/api2",
         "username": "",
-        "password": "",
         "developer_id": "",
-        "developer_password": "",
         "system_id": "135",
         "softname": "DesasteronSpectrumLauncher",
         "preferred_language": "en",
@@ -140,10 +110,11 @@ DEFAULT_SCRAPERS = {
         "configured": False,
         "supports_assets": True,
         "base_url": "https://api.thegamesdb.net/v1",
-        "api_key": "",
         "platform_id": "4913",
     },
 }
+SCRAPER_SECRET_SERVICE = ScraperSecretService()
+EMULATOR_CONFIG_SERVICE: EmulatorConfigService | None = None
 
 
 class Library(GameLibrary):
@@ -263,33 +234,38 @@ def expand_config_path(value: object) -> Path | None:
     return Path(os.path.expandvars(text)).expanduser()
 
 
+def get_emulator_config_service() -> EmulatorConfigService:
+    global EMULATOR_CONFIG_SERVICE
+    if EMULATOR_CONFIG_SERVICE is None:
+        EMULATOR_CONFIG_SERVICE = EmulatorConfigService(
+            defaults=DEFAULT_EMULATORS,
+            load_config=load_config,
+            save_config=save_config,
+            expand_path=expand_config_path,
+        )
+    return EMULATOR_CONFIG_SERVICE
+
+
 def configured_emulators(include_hidden: bool = True) -> dict[str, dict[str, object]]:
-    config = load_config()
-    emulators = config.get("emulators") or {}
-    merged: dict[str, dict[str, object]] = {}
-    for emulator_id, defaults in DEFAULT_EMULATORS.items():
-        merged[emulator_id] = {**defaults, **(emulators.get(emulator_id) or {})}
-    for emulator_id, emulator in emulators.items():
-        if emulator_id not in merged and isinstance(emulator, dict):
-            merged[emulator_id] = emulator
-    if include_hidden:
-        return merged
-    return {key: value for key, value in merged.items() if not value.get("hidden")}
+    return get_emulator_config_service().configured(include_hidden=include_hidden)
 
 
 def save_emulator_config(emulators: dict[str, dict[str, object]]) -> None:
+    get_emulator_config_service().save_many([{"id": key, **value} for key, value in emulators.items()])
+
+
+def configure_native_secret_service(*, get_secret, set_secret, delete_secret, status) -> None:
+    """Attach WebHub's native secret service and migrate verified legacy JSON values."""
+
+    SCRAPER_SECRET_SERVICE.configure(
+        get_secret=get_secret,
+        set_secret=set_secret,
+        delete_secret=delete_secret,
+        status=status,
+    )
     config = load_config()
-    current = configured_emulators(include_hidden=True)
-    for emulator_id, updates in emulators.items():
-        if emulator_id not in current:
-            continue
-        merged = {**current[emulator_id], **updates}
-        if emulator_id in DEFAULT_EMULATORS:
-            merged["type"] = DEFAULT_EMULATORS[emulator_id]["type"]
-            merged["hidden"] = DEFAULT_EMULATORS[emulator_id].get("hidden", False)
-        current[emulator_id] = merged
-    config["emulators"] = current
-    save_config(config)
+    if SCRAPER_SECRET_SERVICE.migrate(config):
+        save_config(config)
 
 
 def configured_scrapers() -> dict[str, dict[str, object]]:
@@ -305,6 +281,8 @@ def configured_scrapers() -> dict[str, dict[str, object]]:
                 merged[scraper_id] = scraper
     for scraper_id, scraper in merged.items():
         scraper["id"] = scraper_id
+    SCRAPER_SECRET_SERVICE.hydrate(merged)
+    for scraper_id, scraper in merged.items():
         scraper["configured"] = scraper_configured(scraper)
     return merged
 
@@ -330,6 +308,7 @@ def scrapers_payload() -> dict[str, object]:
     return {
         "providers": providers,
         "asset_root": collection_relative(collection_asset_root()),
+        "secret_storage": SCRAPER_SECRET_SERVICE.status(),
     }
 
 
@@ -361,14 +340,26 @@ def update_scraper_config(scrapers: object) -> dict:
             ):
                 if key in updates:
                     value = updates[key]
-                    merged[key] = bool(value) if key == "enabled" else clean_metadata_text(value, max_len=180)
+                    cleaned = bool(value) if key == "enabled" else clean_metadata_text(value, max_len=180)
+                    if key in SCRAPER_SECRET_FIELDS.get(scraper_id, ()):
+                        SCRAPER_SECRET_SERVICE.set_verified(scraper_id, key, str(cleaned))
+                    else:
+                        merged[key] = cleaned
         elif scraper_id == "thegamesdb":
             for key in ("enabled", "api_key", "platform_id", "base_url"):
                 if key in updates:
                     value = updates[key]
-                    merged[key] = bool(value) if key == "enabled" else clean_metadata_text(value, max_len=180)
+                    cleaned = bool(value) if key == "enabled" else clean_metadata_text(value, max_len=180)
+                    if key in SCRAPER_SECRET_FIELDS.get(scraper_id, ()):
+                        SCRAPER_SECRET_SERVICE.set_verified(scraper_id, key, str(cleaned))
+                    else:
+                        merged[key] = cleaned
         current[scraper_id] = merged
-    config["scrapers"] = current
+    config["scrapers"] = (
+        SCRAPER_SECRET_SERVICE.scrub(current)
+        if SCRAPER_SECRET_SERVICE.status().get("available")
+        else current
+    )
     save_config(config)
     return {"ok": True, "providers": scrapers_payload()["providers"]}
 
@@ -1554,7 +1545,11 @@ def dispatch_emugui_api(method: object, path: object, query: object = None, data
             return add_collection(str(data.get("root", "")), str(data.get("name", "")),
                                   bool(data.get("writable", False)), bool(data.get("auto_metadata", False)))
         if route == "/api/emulators":
-            return update_emulators(data.get("emulators", []))
+            return update_emulators(
+                data.get("emulators", []), data.get("collection_id", ""), data.get("default_emulator", "")
+            )
+        if route == "/api/emulators/delete":
+            return delete_emulator(data.get("emulator_id", ""))
         if route == "/api/scrapers":
             return update_scraper_config(data.get("scrapers", {}))
         if route == "/api/emulator-profiles/import":
@@ -1703,7 +1698,13 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(result, HTTPStatus.OK if result.get("ok") else HTTPStatus.BAD_REQUEST)
             return
         if parsed.path == "/api/emulators":
-            result = update_emulators(data.get("emulators", []))
+            result = update_emulators(
+                data.get("emulators", []), data.get("collection_id", ""), data.get("default_emulator", "")
+            )
+            self.send_json(result, HTTPStatus.OK if result.get("ok") else HTTPStatus.BAD_REQUEST)
+            return
+        if parsed.path == "/api/emulators/delete":
+            result = delete_emulator(data.get("emulator_id", ""))
             self.send_json(result, HTTPStatus.OK if result.get("ok") else HTTPStatus.BAD_REQUEST)
             return
         if parsed.path == "/api/scrapers":
@@ -1901,8 +1902,12 @@ def emulator_payload() -> list[dict]:
                 "path": str(path) if path else "",
                 "working_dir": str(expand_config_path(emulator.get("working_dir")) or ""),
                 "supported_extensions": emulator.get("supported_extensions") or [],
+                "arguments": emulator.get("arguments") or ["{file}"],
+                "current_arguments": emulator.get("current_arguments") or [],
+                "pok_arguments": emulator.get("pok_arguments") or [],
                 "pok_helper_path": str(expand_config_path(emulator.get("pok_helper_path")) or ""),
                 "eightyone_config_target": str(expand_config_path(emulator.get("eightyone_config_target")) or ""),
+                "built_in": key in DEFAULT_EMULATORS,
                 "available": True if not path else path.exists(),
             }
         )
@@ -1936,39 +1941,23 @@ def mark_recent(game_id: str) -> None:
     save_state(state)
 
 
-def update_emulators(payload: object) -> dict:
-    if not isinstance(payload, list):
-        return {"ok": False, "error": "Expected emulator list"}
-    allowed_ids = {"eightyone", "spectaculator"}
-    updates: dict[str, dict[str, object]] = {}
-    for item in payload:
-        if not isinstance(item, dict):
-            continue
-        emulator_id = str(item.get("id", ""))
-        if emulator_id not in allowed_ids:
-            continue
-        updates[emulator_id] = {
-            "name": clean_metadata_text(item.get("name", "")) or DEFAULT_EMULATORS[emulator_id]["name"],
-            "path": str(item.get("path", "")).strip(),
-            "working_dir": str(item.get("working_dir", "")).strip(),
-            "supported_extensions": split_extensions(item.get("supported_extensions", [])),
-        }
-        if emulator_id == "eightyone":
-            updates[emulator_id].update(
-                {
-                    "eightyone_config_target": str(item.get("eightyone_config_target", "")).strip(),
-                }
-            )
-        if emulator_id == "spectaculator":
-            pok_helper = str(item.get("pok_helper_path", "")).strip()
-            updates[emulator_id]["pok_helper_path"] = pok_helper
-            updates["spectaculator_stub"] = {
-                **configured_emulators(include_hidden=True).get("spectaculator_stub", DEFAULT_EMULATORS["spectaculator_stub"]),
-                "path": pok_helper,
-                "working_dir": str(item.get("working_dir", "")).strip(),
-            }
-    save_emulator_config(updates)
-    return {"ok": True, "emulators": emulator_payload()}
+def update_emulators(payload: object, collection_id: object = "", default_emulator: object = "") -> dict:
+    try:
+        service = get_emulator_config_service()
+        service.save_many(payload)
+        if collection_id:
+            service.set_collection_default(collection_id, default_emulator)
+        return {"ok": True, "emulators": emulator_payload(), "collections": collections_payload()}
+    except EmulatorConfigError as exc:
+        return {"ok": False, "error": str(exc)}
+
+
+def delete_emulator(emulator_id: object) -> dict:
+    try:
+        get_emulator_config_service().delete(emulator_id)
+        return {"ok": True, "emulators": emulator_payload(), "collections": collections_payload()}
+    except EmulatorConfigError as exc:
+        return {"ok": False, "error": str(exc)}
 
 
 def split_extensions(value: object) -> list[str]:
@@ -2013,6 +2002,7 @@ def get_launch_service() -> GameLaunchService:
         find_running_window=find_running_emulator_window,
         focus_emulator=focus_launched_emulator,
         bring_to_front=bring_window_to_front,
+        collection_root=lambda: COLLECTION,
         check_immediate_exit=should_check_immediate_exit,
     )
 

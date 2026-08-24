@@ -41,30 +41,8 @@
 
 ## Emulator Profiles
 
-- Stop hardcoding emulator definitions in `server.py`.
 - Add a profile comparison view for managed emulator profiles when the original source file is newer or its hash changed.
 - Remove legacy direct EightyOne profile path keys from existing `config.json` once managed profiles have been imported and tested.
-- Store emulator profiles in launcher config:
-  - emulator name
-  - executable path
-  - supported file extensions
-  - working directory
-  - launch command template
-  - optional secondary command template for sending a game to an already-running instance
-  - optional command template for sending POK/cheat files
-  - platform/OS notes where needed
-- Add an `Add Emulator` / `Edit Emulator` modal.
-- Support placeholder-based launch parameters, for example:
-  - `{file}`
-  - `{file_dir}`
-  - `{file_name}`
-  - `{collection_root}`
-  - `{pok_file}`
-  - `{system}`
-  - `{title}`
-- Add validation for emulator paths and command templates.
-- Allow one default emulator per collection.
-- Add per-game default emulator metadata.
 - Add emulator command templates / CLI argument profiles for hardware-specific launches.
 - Use parsed metadata such as system, ULAPlus, 128K, AY, or other hardware tags to suggest launch profiles.
 - Keep the first version Windows-friendly, but avoid baking in Windows-only assumptions where possible.
