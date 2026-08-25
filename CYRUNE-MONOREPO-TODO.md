@@ -119,12 +119,12 @@ Cross-component work may appear in more than one component changelog when each s
 
 ### Backlog separation gate
 
-- [ ] Create or confirm the five component TODOs.
-- [ ] Move every product feature, behavioural fix, and component refactor out of this migration plan.
-- [ ] Sort the existing Portal-source TODO by owning component.
-- [ ] Merge Arcade product work into `Arcade/TODO.md` without copying completed migration tasks back into it.
-- [ ] Verify every removed task exists in exactly the appropriate component backlog, with cross-component references only where coordination is required.
-- [ ] Keep this document free of feature implementation phases.
+- [x] Create or confirm the five component TODOs.
+- [x] Move every product feature, behavioural fix, and component refactor out of this migration plan.
+- [x] Sort the existing Portal-source TODO by owning component.
+- [x] Merge Arcade product work into `Arcade/TODO.md` without copying completed migration tasks back into it.
+- [x] Verify every removed task exists in exactly the appropriate component backlog, with cross-component references only where coordination is required.
+- [x] Keep this document free of feature implementation phases.
 
 ## Runtime Data Layout
 
@@ -182,14 +182,14 @@ Environment/configuration overrides remain available for portable and developmen
 
 No runtime or ignored file is deleted until its purpose and references have been checked.
 
-- [ ] Portal source: exclude `.build/`, `.test-tmp/`, `dist/`, `.mypy_cache/`, `.pytest_cache/`, and other generated caches from the import snapshot.
+- [x] Portal source: exclude `.build/`, `.test-tmp/`, `dist/`, `.mypy_cache/`, `.pytest_cache/`, and other generated caches from the import snapshot.
 - [ ] Portal source: verify the single ignored root `backgrounds/` image is unreferenced before removing it; it is not byte-identical to any current managed background.
-- [ ] Portal source: treat ignored `assets/backgrounds/` as managed runtime data and migrate it with the Portal database rather than importing it as source.
+- [x] Portal source: treat ignored `assets/backgrounds/` as managed runtime data and migrate it with the Portal database rather than importing it as source.
 - [ ] Portal source: copy and verify tracked `extension/native/config.json` externally, then replace it in source with a sanitised `config.example.json` and ignore the live file.
-- [ ] Portal source: keep tracked source assets such as the astronomy image and tracked vendor dependencies.
-- [ ] Portal source: retire `PROJECT.md` during documentation cutover.
-- [ ] Arcade source: exclude `__pycache__/`, `.pytest_cache/`, and ignored runtime logs from the import snapshot.
-- [ ] Arcade source: migrate `data/` as runtime state rather than application source.
+- [x] Portal source: keep tracked source assets such as the astronomy image and tracked vendor dependencies.
+- [x] Portal source: retire `PROJECT.md` during documentation cutover.
+- [x] Arcade source: exclude `__pycache__/`, `.pytest_cache/`, and ignored runtime logs from the import snapshot.
+- [x] Arcade source: migrate `data/` as runtime state rather than application source.
 - [ ] Arcade source: remove the hard-coded `test_spectaculator_launch.ps1` after confirming `tools/validate_zx_launch.py` covers its useful launch matrix.
 - [ ] Record each removed path and whether it was generated, runtime, obsolete, or archived.
 
@@ -228,15 +228,15 @@ No runtime or ignored file is deleted until its purpose and references have been
 
 ## Phase 2 — Split and Reconcile Documentation
 
-- [ ] Place one TODO and CHANGELOG in each of Portal, Arcade, Relay, Host, and Widgets.
-- [ ] Sort current TODO content by component ownership.
-- [ ] Sort the complete combined changelog history without dropping version/date/validation information.
-- [ ] Preserve mixed historical releases in every materially changed component log with component-specific wording.
-- [ ] Archive the completed Portal/Arcade integration plan.
-- [ ] Remove `PROJECT.md` and replace its still-accurate content with root/component READMEs.
-- [ ] Convert platform limitations and architectural rules into durable component documentation instead of TODO items.
-- [ ] Make the root changelog an infrastructure/release index rather than another product changelog.
-- [ ] Update repository instructions so release changes touch only the affected component versions and changelogs.
+- [x] Place one TODO and CHANGELOG in each of Portal, Arcade, Relay, Host, and Widgets.
+- [x] Sort current TODO content by component ownership.
+- [x] Sort the complete combined changelog history without dropping version/date/validation information.
+- [x] Preserve mixed historical releases in every materially changed component log with component-specific wording.
+- [x] Archive the completed Portal/Arcade integration plan.
+- [x] Remove `PROJECT.md` and replace its still-accurate content with root/component READMEs.
+- [x] Convert platform limitations and architectural rules into durable component documentation instead of TODO items.
+- [x] Make the root changelog an infrastructure/release index rather than another product changelog.
+- [x] Update repository instructions so release changes touch only the affected component versions and changelogs.
 
 ### Phase 2 exit gate
 

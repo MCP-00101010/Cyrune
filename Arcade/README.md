@@ -1,4 +1,4 @@
-# Morpheus EmuGUI
+# Cyrune Arcade
 
 Small local browser launcher and collection manager for emulator libraries.
 
