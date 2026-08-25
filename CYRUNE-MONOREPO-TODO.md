@@ -159,22 +159,22 @@ Environment/configuration overrides remain available for portable and developmen
 
 ### Repository recovery
 
-- [ ] Confirm both worktrees are clean apart from explicitly preserved user files.
-- [ ] Finish and commit the current Arcade-source health pass before importing its history.
-- [ ] Record current Portal, Relay, Host, and Arcade versions.
-- [ ] Tag the last pre-monorepo commits in both repositories.
-- [ ] Create a Git bundle of the Arcade source repository because it has no remote.
+- [x] Confirm both worktrees are clean apart from explicitly preserved user files.
+- [x] Finish and commit the current Arcade-source health pass before importing its history.
+- [x] Record current Portal, Relay, Host, and Arcade versions.
+- [x] Tag the last pre-monorepo commits in both repositories.
+- [x] Create a Git bundle of the Arcade source repository because it has no remote.
 - [ ] Confirm the pushed Portal source remote contains the current branch and create an additional local bundle if desired.
-- [ ] Record current commit IDs and branches.
-- [ ] Create a dedicated Cyrune infrastructure branch in the new monorepo clone.
+- [x] Record current commit IDs and branches.
+- [x] Create a dedicated Cyrune infrastructure branch in the new monorepo clone.
 
 ### Runtime recovery
 
-- [ ] Inventory ignored/local runtime files without printing credentials, database contents, embedded icons, or browsing data.
-- [ ] Record the active native-host registry manifest and launcher paths.
-- [ ] Record only hashes, sizes, and locations for Portal data/backups, Host configuration, Arcade configuration/state, and managed profiles.
-- [ ] Confirm scraper credentials remain in Windows Credential Manager and absent from JSON.
-- [ ] Record binding/approval counts without exporting their targets.
+- [x] Inventory ignored/local runtime files without printing credentials, database contents, embedded icons, or browsing data.
+- [x] Record the active native-host registry manifest and launcher paths.
+- [x] Record only hashes, sizes, and locations for Portal data/backups, Host configuration, Arcade configuration/state, and managed profiles.
+- [x] Confirm scraper credentials remain in Windows Credential Manager and absent from JSON.
+- [x] Record binding/approval counts without exporting their targets.
 - [ ] List user bookmarks or shortcuts pointing to the old local page URLs.
 - [ ] Create verified backups for every runtime source before cleanup or copying.
 
@@ -202,16 +202,16 @@ No runtime or ignored file is deleted until its purpose and references have been
 
 ## Phase 1 — Import Histories and Establish Component Roots
 
-- [ ] Clone the Portal source repository into `F:\Projects\Coding\Cyrune` as the initial monorepo to retain its remote and release history while leaving the old checkout intact.
-- [ ] Import the Arcade source repository’s `main` branch beneath `Arcade/` without squashing its history.
-- [ ] Prefer `git subtree` or an equivalent unrelated-history import over copying files without history.
-- [ ] Move Portal product files beneath `Portal/` with `git mv`.
-- [ ] Move Relay source to root `Relay/` without changing behaviour.
+- [x] Clone the Portal source repository into `F:\Projects\Coding\Cyrune` as the initial monorepo to retain its remote and release history while leaving the old checkout intact.
+- [x] Import the Arcade source repository’s `main` branch beneath `Arcade/` without squashing its history.
+- [x] Prefer `git subtree` or an equivalent unrelated-history import over copying files without history.
+- [x] Move Portal product files beneath `Portal/` with `git mv`.
+- [x] Move Relay source to root `Relay/` without changing behaviour.
 - [ ] Leave Host separation to its dedicated phase so registry/install rollback remains simple.
-- [ ] Create the documented widget group directories but move widget files only in the widget-layout phase.
-- [ ] Add component ownership/path rules to root `AGENTS.md`.
-- [ ] Add a root README explaining component boundaries and focused development commands.
-- [ ] Preserve both old checkouts unchanged until every migration gate passes.
+- [x] Create the documented widget group directories but move widget files only in the widget-layout phase.
+- [x] Add component ownership/path rules to root `AGENTS.md`.
+- [x] Add a root README explaining component boundaries and focused development commands.
+- [x] Preserve both old checkouts unchanged until every migration gate passes.
 
 ### Phase 1 constraints
 
