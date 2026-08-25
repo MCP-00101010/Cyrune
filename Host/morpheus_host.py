@@ -30,7 +30,20 @@ import ctypes
 from ctypes import wintypes
 
 HOST_DIR = os.path.dirname(os.path.abspath(__file__))
-CONFIG_PATH = os.path.join(HOST_DIR, 'config.json')
+
+
+def default_config_path():
+    override = str(os.environ.get('CYRUNE_HOST_CONFIG', '') or '').strip()
+    if override:
+        return os.path.abspath(os.path.expanduser(override))
+    if sys.platform == 'win32':
+        base = os.environ.get('LOCALAPPDATA') or os.path.expanduser('~\\AppData\\Local')
+    else:
+        base = os.environ.get('XDG_CONFIG_HOME') or os.path.expanduser('~/.config')
+    return os.path.join(base, 'Cyrune', 'Host', 'config.json')
+
+
+CONFIG_PATH = default_config_path()
 MAX_DOWNLOAD_BYTES = 25 * 1024 * 1024
 MAX_FAVICON_BYTES = 1024 * 1024
 MAX_APPLICATION_ICON_BYTES = 480 * 1024
@@ -1075,6 +1088,7 @@ def save_config(config):
         'approvedApplications': safe_applications,
         'approvedGames': safe_games
     }
+    os.makedirs(os.path.dirname(CONFIG_PATH), exist_ok=True)
     with open(CONFIG_PATH, 'w', encoding='utf-8') as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
         f.write('\n')

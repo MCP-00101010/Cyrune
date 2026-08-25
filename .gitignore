@@ -10,13 +10,6 @@ __pycache__/
 *.sqlite
 .qodo
 backgrounds/
-Relay/native/morpheus-webhub.json
-Relay/native/backups/
-Relay/native/*.backup.json
-Relay/native/*.before-write.*.json
-Relay/native/*.before-*.json
-Relay/native/morpheus_host.bat
-Relay/native/morpheus_webhub.json
 Host/config.json
 Host/backups/
 Host/*.backup.json

@@ -185,7 +185,7 @@ No runtime or ignored file is deleted until its purpose and references have been
 - [x] Portal source: exclude `.build/`, `.test-tmp/`, `dist/`, `.mypy_cache/`, `.pytest_cache/`, and other generated caches from the import snapshot.
 - [ ] Portal source: verify the single ignored root `backgrounds/` image is unreferenced before removing it; it is not byte-identical to any current managed background.
 - [x] Portal source: treat ignored `assets/backgrounds/` as managed runtime data and migrate it with the Portal database rather than importing it as source.
-- [ ] Portal source: copy and verify tracked `extension/native/config.json` externally, then replace it in source with a sanitised `config.example.json` and ignore the live file.
+- [x] Portal source: copy and verify tracked `extension/native/config.json` externally, then replace it in source with a sanitised `config.example.json` and ignore the live file.
 - [x] Portal source: keep tracked source assets such as the astronomy image and tracked vendor dependencies.
 - [x] Portal source: retire `PROJECT.md` during documentation cutover.
 - [x] Arcade source: exclude `__pycache__/`, `.pytest_cache/`, and ignored runtime logs from the import snapshot.
@@ -249,8 +249,8 @@ No runtime or ignored file is deleted until its purpose and references have been
 - [x] Update Portal HTML script, stylesheet, asset, worker, vendor, and test-root paths.
 - [x] Update Arcade test discovery and service-relative paths.
 - [x] Update Relay source/package paths.
-- [ ] Update Host loader paths only as required to reach the newly imported Arcade application.
-- [ ] Update documentation links and setup commands.
+- [x] Update Host loader paths only as required to reach the newly imported Arcade application.
+- [x] Update documentation links and setup commands.
 - [x] Update local page URLs used by integration tests.
 - [ ] Verify Portal opens directly from `Portal/index.html`.
 - [ ] Verify Arcade opens directly from `Arcade/web/index.html` through Relay.
@@ -266,15 +266,15 @@ No runtime or ignored file is deleted until its purpose and references have been
 
 ## Phase 4 — Separate and Reinstall Cyrune Host
 
-- [ ] Move Host source/installers from the Relay tree to root `Host/`.
-- [ ] Keep Host Python, installers, templates, and runtime data out of the WebExtension package.
-- [ ] Update imports and test paths.
-- [ ] Update installers and launchers for the new source location and selected suite identifiers.
-- [ ] Reinstall the native messaging manifest so Firefox/Zen registry entries point to the new launcher.
-- [ ] Preserve accepted installed and temporary-development extension IDs.
+- [x] Move Host source/installers from the Relay tree to root `Host/`.
+- [x] Keep Host Python, installers, templates, and runtime data out of the WebExtension package.
+- [x] Update imports and test paths.
+- [x] Update installers and launchers for the new source location and selected suite identifiers.
+- [x] Reinstall the native messaging manifest so Firefox/Zen registry entries point to the new launcher.
+- [x] Preserve accepted installed and temporary-development extension IDs.
 - [ ] Add only the path/config diagnostics needed to validate relocation; further native features stay in its component TODO.
 - [ ] Verify the persistent native process starts from the new path and existing launches/services still work.
-- [ ] Verify extension lint no longer sees native files.
+- [x] Verify extension lint no longer sees native files.
 
 ### Phase 4 exit gate
 
@@ -326,10 +326,10 @@ This phase is a path-only reorganisation of already shipped widgets.
 
 ### Host
 
-- [ ] Copy native configuration to the external Host data root.
-- [ ] Preserve approved application/game/directory bindings and validate targets without exporting them.
-- [ ] Update the configured Arcade root.
-- [ ] Reapprove repository-scoped directory handles whose root necessarily changed.
+- [x] Copy native configuration to the external Host data root.
+- [x] Preserve approved application/game/directory bindings and validate targets without exporting them.
+- [x] Update the configured Arcade root.
+- [x] Reapprove repository-scoped directory handles whose root necessarily changed.
 
 ### Local page links
 

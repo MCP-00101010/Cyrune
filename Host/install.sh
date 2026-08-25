@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Morpheus WebHub — native messaging host installer (Linux / macOS)
-# Run from the extension/native/ directory:
+# Cyrune Host — native messaging installer (Linux / macOS)
+# Run from the Host/ directory:
 #   bash install.sh
 # Optional for temporary/debug add-ons:
 #   bash install.sh morpheus-webhub@local '<temporary-id>'
@@ -12,7 +12,7 @@ if [ ${#ALLOWED_EXTENSIONS[@]} -eq 0 ]; then
     ALLOWED_EXTENSIONS=("morpheus-webhub@local")
 fi
 
-echo "Morpheus WebHub — native host installer"
+echo "Cyrune Host installer"
 echo ""
 
 # --- Find Python ---
@@ -35,12 +35,18 @@ ALLOWED_JSON=$(printf '%s\n' "${ALLOWED_EXTENSIONS[@]}" | "$PYTHON" -c 'import j
 HOST="$SCRIPT_DIR/morpheus_host.py"
 chmod +x "$HOST"
 
-# --- Write default config.json if missing ---
-CONFIG="$SCRIPT_DIR/config.json"
+# --- Write default external config.json if missing ---
+CONFIG_ROOT="${XDG_CONFIG_HOME:-$HOME/.config}/Cyrune/Host"
+CONFIG="$CONFIG_ROOT/config.json"
+mkdir -p "$CONFIG_ROOT"
 if [ ! -f "$CONFIG" ]; then
 cat > "$CONFIG" <<JSON
 {
-  "databasePath": ""
+  "databasePath": "",
+  "emuguiRoot": "",
+  "approvedDirectories": {},
+  "approvedApplications": {},
+  "approvedGames": {}
 }
 JSON
     echo "Config  : $CONFIG"
@@ -61,7 +67,7 @@ MANIFEST="$MANIFEST_DIR/morpheus_webhub.json"
 cat > "$MANIFEST" <<JSON
 {
   "name": "morpheus_webhub",
-  "description": "Morpheus WebHub native messaging host",
+  "description": "Cyrune native messaging host",
   "path": "$HOST",
   "type": "stdio",
   "allowed_extensions": $ALLOWED_JSON

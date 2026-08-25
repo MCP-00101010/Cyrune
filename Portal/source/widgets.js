@@ -937,7 +937,7 @@ WIDGET_REGISTRY['image'] = {
 
     browseBtn?.addEventListener('click', async () => {
       if (typeof bridge === 'undefined' || !bridge.isAvailable() || !bridge.nativeIsAvailable()) {
-        alert('File browsing requires the native messaging host.\nSee extension/native/install.ps1 to set it up.');
+        alert('File browsing requires Cyrune Host.\nSee ../Host/install.ps1 to set it up.');
         return;
       }
       const result = await bridge.openFilePicker('image', 'Select widget image');

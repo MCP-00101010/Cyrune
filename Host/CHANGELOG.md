@@ -4,6 +4,15 @@ Historical entries below are preserved from Portal releases whose release notes 
 
 ---
 
+## [Unversioned] — 2026-08-25
+
+### Changed
+
+- Relocated Host source, installers, tests, and templates from Relay into the top-level `Host/` component.
+- Moved live Host configuration outside the checkout to the Cyrune runtime-data root while retaining a documented environment override.
+- Preserved the installed native-messaging host ID and credential namespace for compatibility.
+
+
 ## [0.11.220] — 2026-08-25
 
 ### Changed

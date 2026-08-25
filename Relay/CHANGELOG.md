@@ -4,6 +4,13 @@ Historical entries below are preserved from Portal releases whose release notes 
 
 ---
 
+## [Unversioned] — 2026-08-25
+
+### Changed
+
+- Separated native Python, installers, configuration, tests, and launchers from the WebExtension source tree into Cyrune Host.
+
+
 ## [0.11.220] — 2026-08-25
 
 ### Changed

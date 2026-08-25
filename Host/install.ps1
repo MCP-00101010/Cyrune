@@ -1,5 +1,5 @@
-# Morpheus WebHub — native messaging host installer (Windows)
-# Run from the extension/native/ directory:
+# Cyrune Host — native messaging installer (Windows)
+# Run from the Host/ directory:
 #   powershell -ExecutionPolicy Bypass -File install.ps1
 # Optional for temporary/debug add-ons:
 #   powershell -ExecutionPolicy Bypass -File install.ps1 -ExtensionIds "morpheus-webhub@local","<temporary-id>"
@@ -11,7 +11,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 
-Write-Host "Morpheus WebHub - native host installer" -ForegroundColor Cyan
+Write-Host "Cyrune Host installer" -ForegroundColor Cyan
 Write-Host ""
 
 # --- Find Python ---
@@ -58,11 +58,17 @@ $batContent = "@echo off`r`n`"$python`" `"$hostPath`" %*`r`n"
 [System.IO.File]::WriteAllText($batPath, $batContent, [System.Text.Encoding]::ASCII)
 Write-Host "Launcher: $batPath"
 
-# --- Write default config.json if missing ---
-$configPath = Join-Path $scriptDir "config.json"
+# --- Write default external config.json if missing ---
+$configDir = Join-Path $env:LOCALAPPDATA "Cyrune\Host"
+$configPath = Join-Path $configDir "config.json"
+if (-not (Test-Path $configDir)) { New-Item -ItemType Directory -Path $configDir -Force | Out-Null }
 if (-not (Test-Path $configPath)) {
     $config = [ordered]@{
         databasePath = ""
+        emuguiRoot = ""
+        approvedDirectories = @{}
+        approvedApplications = @{}
+        approvedGames = @{}
     }
     $config | ConvertTo-Json | Set-Content -Path $configPath -Encoding UTF8
     Write-Host "Config   : $configPath"
@@ -77,7 +83,7 @@ if (-not (Test-Path $manifestDir)) { New-Item -ItemType Directory -Path $manifes
 
 $manifest = [ordered]@{
     name                = "morpheus_webhub"
-    description         = "Morpheus WebHub native messaging host"
+    description         = "Cyrune native messaging host"
     path                = $batPath
     type                = "stdio"
     allowed_extensions  = @($allowedExtensionIds)
