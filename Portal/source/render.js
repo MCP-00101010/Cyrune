@@ -473,8 +473,8 @@ function renderAll() {
     state.activeTabId = activeBoard?.tabs?.[0]?.id || null;
   }
   applySettings();
-  elements.hubNameEl.textContent = state.hubName || 'Morpheus WebHub';
-  document.title = state.hubName || 'Morpheus WebHub';
+  elements.hubNameEl.textContent = state.hubName || 'Cyrune Portal';
+  document.title = state.hubName || 'Cyrune Portal';
   renderNav();
   renderEssentials();
   renderBoard({ reuseDerivedCaches: true });

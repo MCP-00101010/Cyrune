@@ -121,7 +121,7 @@ async function addDroppedApplicationShortcut(drop, context) {
     return addApplicationShortcut(context, { pickerTitle: `Select ${drop.title || 'application'}` });
   }
   if (typeof bridge === 'undefined' || !bridge.nativeIsAvailable?.() || !bridge.supports?.('applicationLauncher')) {
-    showNotice('Application shortcuts require the Morpheus extension and native host.');
+    showNotice('Application shortcuts require Cyrune Relay and Cyrune Host.');
     return null;
   }
   try {
@@ -139,7 +139,7 @@ async function addDroppedApplicationShortcut(drop, context) {
 
 async function addApplicationShortcut(context = contextTarget, options = {}) {
   if (typeof bridge === 'undefined' || !bridge.nativeIsAvailable?.() || !bridge.supports?.('applicationLauncher')) {
-    showNotice('Application shortcuts require the Morpheus extension and native host.');
+    showNotice('Application shortcuts require Cyrune Relay and Cyrune Host.');
     return null;
   }
   try {

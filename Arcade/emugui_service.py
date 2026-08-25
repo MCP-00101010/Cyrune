@@ -305,7 +305,7 @@ def save_emulator_config(emulators: dict[str, dict[str, object]]) -> None:
 
 
 def configure_native_secret_service(*, get_secret, set_secret, delete_secret, status) -> None:
-    """Attach WebHub's native secret service and migrate verified legacy JSON values."""
+    """Attach Cyrune Host's secret service and migrate verified legacy JSON values."""
 
     SCRAPER_SECRET_SERVICE.configure(
         get_secret=get_secret,
@@ -1716,7 +1716,7 @@ def dispatch_emugui_api(method: object, path: object, query: object = None, data
         if route == "/api/move-language":
             return move_between_collection_and_languages(str(data.get("game_id", "")))
 
-    raise ServiceContractError("Unsupported EmuGUI API operation")
+    raise ServiceContractError("Unsupported Cyrune Arcade API operation")
 
 
 def read_emugui_asset(relative_path: object, max_bytes: object = 4 * 1024 * 1024) -> dict[str, object]:

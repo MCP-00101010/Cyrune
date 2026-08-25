@@ -99,7 +99,7 @@ async function _translatorDownloadAsset(file, onProgress) {
     onProgress?.(file.size, file.size, file);
     return;
   }
-  if (!_translatorCanDownloadModels()) throw new Error('Install or update the Morpheus Firefox extension to download Mozilla translation models.');
+  if (!_translatorCanDownloadModels()) throw new Error('Install or update Cyrune Relay to download Mozilla translation models.');
   const bytes = new Uint8Array(file.size);
   let offset = 0;
   while (offset < file.size) {

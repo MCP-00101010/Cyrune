@@ -286,3 +286,59 @@ test('EmuGUI file page relays namespaced API requests through its registered ses
   assert.equal(posted.some(message => message._emugui && message._relayReady), true);
   assert.equal(posted.at(-1).result.games.length, 0);
 });
+
+test('Nexus file page registers an exact role and relays only namespaced operations', async () => {
+  const windowListeners = [];
+  const runtimeListeners = [];
+  const runtimeMessages = [];
+  const posted = [];
+  const pageUrl = 'file:///F:/Projects/Coding/Cyrune/Nexus/index.html#overview';
+  const documentUrl = 'file:///F:/Projects/Coding/Cyrune/Nexus/index.html';
+  const window = {
+    location: { href: pageUrl, protocol: 'file:' },
+    addEventListener(type, listener) { if (type === 'message') windowListeners.push(listener); },
+    postMessage(message) { posted.push(message); }
+  };
+  const document = {
+    querySelector: selector => selector === 'meta[name="cyrune-nexus"]' ? {} : null,
+    documentElement: { dataset: {} }
+  };
+  const browser = {
+    runtime: {
+      sendMessage: async message => {
+        runtimeMessages.push(message);
+        if (message.type === 'MW_NEXUS_REGISTER') {
+          return { ok: true, nexusSessionToken: 'nexus-session-1', relayVersion: '1.0.59' };
+        }
+        return { ok: true, settings: { schemaVersion: 1, revision: 2 } };
+      },
+      onMessage: { addListener: listener => runtimeListeners.push(listener) }
+    }
+  };
+  const context = vm.createContext({ browser, document, window, URL, Date, Promise, Set, Number, String, setTimeout, clearTimeout });
+  const filename = path.join(__dirname, '..', 'content.js');
+  vm.runInContext(fs.readFileSync(filename, 'utf8'), context, { filename });
+  await new Promise(resolve => setImmediate(resolve));
+
+  await windowListeners[0]({ source: window, data: {
+    _nexusReq: true, requestId: 'settings-1', type: 'MW_NEXUS_GET_SETTINGS'
+  } });
+  await windowListeners[0]({ source: window, data: {
+    _nexusReq: true, requestId: 'todo-1', type: 'MW_NEXUS_OPEN_TODO', component: 'portal'
+  } });
+  await windowListeners[0]({ source: window, data: {
+    _nexusReq: true, requestId: 'remote-1', type: 'MW_NEXUS_CHECK_REMOTE'
+  } });
+
+  assert.deepEqual(JSON.parse(JSON.stringify(runtimeMessages)), [
+    { type: 'MW_NEXUS_REGISTER', pageUrl: documentUrl },
+    { type: 'MW_NEXUS_GET_SETTINGS', nexusSessionToken: 'nexus-session-1', pageUrl: documentUrl },
+    { type: 'MW_NEXUS_OPEN_TODO', component: 'portal', nexusSessionToken: 'nexus-session-1', pageUrl: documentUrl },
+    { type: 'MW_NEXUS_CHECK_REMOTE', nexusSessionToken: 'nexus-session-1', pageUrl: documentUrl }
+  ]);
+  assert.equal(posted.some(message => message._nexus && message._relayReady), true);
+  assert.equal(posted.at(-1)._nexusRes, true);
+  assert.equal(posted.at(-1).settings.revision, 2);
+  runtimeListeners[0]({ type: 'MW_NEXUS_SETTINGS_CHANGED', revision: 3 });
+  assert.equal(posted.at(-1).revision, 3);
+});

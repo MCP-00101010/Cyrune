@@ -1,6 +1,6 @@
 'use strict';
 
-// Tab ID of the currently registered Morpheus WebHub page.
+// Tab ID of the currently registered Cyrune Portal page.
 let morpheusTabId = null;
 
 // Shared database file path resolved via native host config.
@@ -14,6 +14,7 @@ let hubRelayError = '';
 let hubRegisteredAt = 0;
 const hubRegistrations = new Map();
 const emuguiRegistrations = new Map();
+const nexusRegistrations = new Map();
 let lastActiveWebTab = null;
 let storageInfoReady = false;
 let fileSchemeAccess = null;
@@ -81,6 +82,12 @@ const HUB_PAGE_REQUEST_TYPES = new Set([
   'MW_NOTIFICATION_LIST', 'MW_NOTIFICATION_MARK_READ', 'MW_NOTIFICATION_CLEAR'
 ]);
 const EMUGUI_PAGE_REQUEST_TYPES = new Set(['MW_EMUGUI_SEND_GAME', 'MW_EMUGUI_RPC', 'MW_EMUGUI_ASSET']);
+const NEXUS_PAGE_REQUEST_TYPES = new Set([
+  'MW_NEXUS_PING', 'MW_NEXUS_GET_SETTINGS', 'MW_NEXUS_SAVE_SETTINGS',
+  'MW_NEXUS_GET_STATUS', 'MW_NEXUS_GET_DOCUMENT', 'MW_NEXUS_OPEN_TODO',
+  'MW_NEXUS_CHECK_REMOTE'
+]);
+const MAX_NEXUS_SETTINGS_BYTES = 64 * 1024;
 
 
 // Keep one native-host process alive for startup and chunked reads. Firefox's
@@ -393,16 +400,16 @@ async function registerEmuGuiPage(sender, pageUrl) {
   const tabId = sender?.tab?.id;
   const url = String(pageUrl || sender?.tab?.url || '');
   if (tabId === undefined || !url || (sender.tab.url && sender.tab.url !== url)) {
-    return { ok: false, error: 'EmuGUI registration came from an unsupported page' };
+    return { ok: false, error: 'Cyrune Arcade registration came from an unsupported page' };
   }
   let parsed;
-  try { parsed = new URL(url); } catch { return { ok: false, error: 'EmuGUI page address is invalid' }; }
-  if (parsed.protocol !== 'file:') return { ok: false, error: 'EmuGUI must be opened from its configured local file page' };
+  try { parsed = new URL(url); } catch { return { ok: false, error: 'Cyrune Arcade page address is invalid' }; }
+  if (parsed.protocol !== 'file:') return { ok: false, error: 'Cyrune Arcade must be opened from its configured local file page' };
   await ensureNativeStorageReady();
-  if (!nativeAvailable) return { ok: false, error: 'Native host is required to authorize the EmuGUI file page' };
+  if (!nativeAvailable) return { ok: false, error: 'Cyrune Host is required to authorize the Arcade file page' };
   const result = await sendPersistentNativeMessage({ type: 'EMUGUI_AUTHORIZE_PAGE', pageUrl: url }, EMUGUI_REQUEST_TIMEOUT_MS);
   const authorized = result?.ok === true && result.authorized === true;
-  if (!authorized) return { ok: false, error: 'This is not the configured Morpheus EmuGUI page' };
+  if (!authorized) return { ok: false, error: 'This is not the configured Cyrune Arcade page' };
   const transport = 'extension';
   const registration = { url, sessionToken: createHubSessionToken(), registeredAt: Date.now(), transport };
   emuguiRegistrations.set(tabId, registration);
@@ -416,6 +423,79 @@ function authorizeEmuGuiPageRequest(msg, sender) {
     && msg?.emuguiSessionToken === registration.sessionToken
     && msg?.pageUrl === registration.url
     && (!sender.tab.url || sender.tab.url === registration.url);
+}
+
+async function registerNexusPage(sender, pageUrl) {
+  const tabId = sender?.tab?.id;
+  const url = canonicalNexusDocumentUrl(pageUrl || sender?.tab?.url || '');
+  const senderUrl = canonicalNexusDocumentUrl(sender?.tab?.url || '');
+  if (tabId === undefined || !url || !senderUrl || senderUrl !== url) {
+    return { ok: false, error: 'Cyrune Nexus registration came from an unsupported page' };
+  }
+  await ensureNativeStorageReady();
+  if (!nativeAvailable) return { ok: false, error: 'Cyrune Host is required to authorize the Nexus file page' };
+  const result = await sendPersistentNativeMessage({ type: 'NEXUS_AUTHORIZE_PAGE', pageUrl: url });
+  if (result?.ok !== true || result.authorized !== true) {
+    return { ok: false, error: 'This is not the configured Cyrune Nexus page' };
+  }
+  const registration = { url, sessionToken: createHubSessionToken(), registeredAt: Date.now() };
+  nexusRegistrations.set(tabId, registration);
+  return {
+    ok: true,
+    nexusSessionToken: registration.sessionToken,
+    relayVersion: browser.runtime.getManifest?.()?.version || '',
+    nativeAvailable: true
+  };
+}
+
+function canonicalNexusDocumentUrl(value) {
+  try {
+    const parsed = new URL(String(value || ''));
+    if (parsed.protocol !== 'file:' || parsed.search) return '';
+    parsed.hash = '';
+    return parsed.href;
+  } catch {
+    return '';
+  }
+}
+
+function authorizeNexusPageRequest(msg, sender) {
+  const tabId = sender?.tab?.id;
+  const registration = tabId === undefined ? null : nexusRegistrations.get(tabId);
+  const messageUrl = canonicalNexusDocumentUrl(msg?.pageUrl || '');
+  const senderUrl = canonicalNexusDocumentUrl(sender?.tab?.url || '');
+  return !!registration
+    && msg?.nexusSessionToken === registration.sessionToken
+    && messageUrl === registration.url
+    && senderUrl === registration.url;
+}
+
+async function nexusNativeRequest(message) {
+  await ensureNativeStorageReady();
+  if (!nativeAvailable) return { ok: false, error: 'Cyrune Host is not available' };
+  return sendPersistentNativeMessage(message);
+}
+
+async function getNexusStatus() {
+  const response = await nexusNativeRequest({ type: 'NEXUS_GET_STATUS' });
+  if (response?.ok !== true || !response.snapshot) return response || { ok: false, error: 'Nexus status is unavailable' };
+  const snapshot = response.snapshot;
+  snapshot.services = snapshot.services && typeof snapshot.services === 'object' ? snapshot.services : {};
+  snapshot.services.relay = {
+    available: true,
+    version: browser.runtime.getManifest?.()?.version || '',
+    fileSchemeAccess,
+    fileSchemeAccessRequired,
+    nexusRole: true,
+    nativeAvailable
+  };
+  return { ok: true, snapshot };
+}
+
+async function broadcastNexusSettingsChanged(revision) {
+  await Promise.all([...nexusRegistrations.keys()].map(tabId =>
+    browser.tabs.sendMessage(tabId, { type: 'MW_NEXUS_SETTINGS_CHANGED', revision }).catch(() => null)
+  ));
 }
 
 async function discoverMorpheusTab(tab, { inject = false } = {}) {
@@ -463,7 +543,7 @@ async function ensureMorpheusTab() {
     } catch (error) {
       hubRelayError = error?.message || String(error);
     }
-    forgetMorpheusTab(morpheusTabId, hubRelayError || 'The registered Hub relay is no longer available');
+    forgetMorpheusTab(morpheusTabId, hubRelayError || 'The registered Portal relay is no longer available');
   }
 
   const tabs = await browser.tabs.query({});
@@ -472,7 +552,7 @@ async function ensureMorpheusTab() {
     .sort((left, right) => Number(right.active === true) - Number(left.active === true));
   for (const tab of candidates) {
     if (tab.url?.startsWith('file:') && fileSchemeAccess === false) {
-      hubRelayError = 'Firefox 153+ requires “Access local files on your computer” to be enabled for Morpheus WebHub';
+      hubRelayError = 'Firefox 153+ requires “Access local files on your computer” to be enabled for Cyrune Relay';
       continue;
     }
     if (await discoverMorpheusTab(tab, { inject: true })) return tab;
@@ -572,7 +652,7 @@ function sanitizeNotificationJob(value) {
   const id = String(value?.id || '').trim().replace(/[^a-zA-Z0-9:_-]/g, '').slice(0, 160);
   const when = Number(value?.when);
   if (!id || !Number.isFinite(when) || when > Date.now() + 10 * 365 * 24 * 60 * 60 * 1000) throw new Error('Invalid notification schedule');
-  const title = String(value?.title || 'Morpheus WebHub').trim().slice(0, 100) || 'Morpheus WebHub';
+  const title = String(value?.title || 'Cyrune Portal').trim().slice(0, 100) || 'Cyrune Portal';
   const message = String(value?.message || '').trim().slice(0, 500);
   if (!message) throw new Error('A notification message is required');
   return {
@@ -672,9 +752,9 @@ if (browser.alarms?.onAlarm) {
     void readNotificationStorage(NOTIFICATION_JOBS_KEY, []).then(jobs => {
       const job = (Array.isArray(jobs) ? jobs : []).find(item => item?.id === id);
       return job ? fireHubNotification(job) : null;
-    }).catch(error => console.warn('Morpheus: notification alarm failed', error));
+    }).catch(error => console.warn('Cyrune Relay: notification alarm failed', error));
   });
-  void rehydrateNotificationAlarms().catch(error => console.warn('Morpheus: notification rehydration failed', error));
+  void rehydrateNotificationAlarms().catch(error => console.warn('Cyrune Relay: notification rehydration failed', error));
 }
 
 if (browser.notifications?.onClicked) {
@@ -694,7 +774,7 @@ if (browser.notifications?.onClicked) {
       await browser.storage.local.set({ [NOTIFICATION_PENDING_ACTION_KEY]: event });
       const lastUrl = await readNotificationStorage(LAST_HUB_URL_KEY, '');
       if (isPotentialHubUrl(lastUrl) && browser.tabs.create) await browser.tabs.create({ url: lastUrl, active: true });
-    })().catch(error => console.warn('Morpheus: notification click failed', error));
+    })().catch(error => console.warn('Cyrune Relay: notification click failed', error));
   });
 }
 
@@ -900,13 +980,13 @@ async function sendImportItemsToMorpheus(items, source = '', deliveryId = '') {
 
 async function sendToMorpheus(message) {
   let tab = await ensureMorpheusTab();
-  if (!tab) throw new Error(hubRelayError || 'Morpheus WebHub is not open');
+  if (!tab) throw new Error(hubRelayError || 'Cyrune Portal is not open');
   try {
     return await browser.tabs.sendMessage(tab.id, message);
   } catch (error) {
     forgetMorpheusTab(tab.id, error?.message || String(error));
     tab = await ensureMorpheusTab();
-    if (!tab) throw new Error(hubRelayError || 'Morpheus WebHub relay is unavailable');
+    if (!tab) throw new Error(hubRelayError || 'Cyrune Portal relay is unavailable');
     return browser.tabs.sendMessage(tab.id, message);
   }
 }
@@ -1533,7 +1613,7 @@ async function sendEmuGuiGameToHub(message) {
         profileId: String(message.profileId || '').slice(0, 120)
       }, EMUGUI_REQUEST_TIMEOUT_MS)
     : await createEmuGuiHubBinding(message.gameId, message.emulatorId, message.profileId);
-  if (binding?.ok === false || !binding?.game) throw new Error(binding?.error || 'EmuGUI could not create the game binding');
+  if (binding?.ok === false || !binding?.game) throw new Error(binding?.error || 'Cyrune Arcade could not create the game binding');
   const deliveryId = message.deliveryId || makeDeliveryId('game');
   const delivered = await sendToMorpheus({
     type: rebindGameKey ? 'MW_UPDATE_GAME_BINDING' : 'MW_RECEIVE_GAME',
@@ -1575,7 +1655,7 @@ async function runEmuGuiPageRpc(message) {
     query: message.query && typeof message.query === 'object' ? message.query : {},
     body: message.body && typeof message.body === 'object' ? message.body : {}
   }, timeoutMs);
-  if (response?.ok !== true) return response || { ok: false, error: 'EmuGUI API request failed' };
+  if (response?.ok !== true) return response || { ok: false, error: 'Cyrune Arcade API request failed' };
   return { ok: true, result: await readEmuGuiNativeTransfer(response.transfer) };
 }
 
@@ -1584,9 +1664,9 @@ async function fetchEmuGuiRemoteAsset(url) {
   try {
     target = new URL(String(url || ''));
   } catch {
-    return { ok: false, error: 'EmuGUI artwork URL is invalid' };
+    return { ok: false, error: 'Cyrune Arcade artwork URL is invalid' };
   }
-  if (target.protocol !== 'https:') return { ok: false, error: 'Only HTTPS EmuGUI artwork URLs are supported' };
+  if (target.protocol !== 'https:') return { ok: false, error: 'Only HTTPS Cyrune Arcade artwork URLs are supported' };
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), EMUGUI_REMOTE_ASSET_TIMEOUT_MS);
@@ -1599,17 +1679,17 @@ async function fetchEmuGuiRemoteAsset(url) {
       signal: controller.signal,
       headers: { Accept: 'image/avif,image/webp,image/png,image/jpeg,image/gif;q=0.9,*/*;q=0.1' }
     });
-    if (!response.ok) return { ok: false, error: `EmuGUI artwork returned ${response.status}` };
+    if (!response.ok) return { ok: false, error: `Cyrune Arcade artwork returned ${response.status}` };
     let finalUrl;
     try { finalUrl = new URL(response.url || target.href); } catch { finalUrl = null; }
-    if (!finalUrl || finalUrl.protocol !== 'https:') return { ok: false, error: 'EmuGUI artwork redirected to an unsupported URL' };
+    if (!finalUrl || finalUrl.protocol !== 'https:') return { ok: false, error: 'Cyrune Arcade artwork redirected to an unsupported URL' };
     const contentType = String(response.headers?.get?.('content-type') || '').split(';', 1)[0].trim().toLowerCase();
-    if (!EMUGUI_REMOTE_ASSET_TYPES.has(contentType)) return { ok: false, error: 'EmuGUI artwork returned an unsupported image type' };
+    if (!EMUGUI_REMOTE_ASSET_TYPES.has(contentType)) return { ok: false, error: 'Cyrune Arcade artwork returned an unsupported image type' };
     const declaredLength = Number(response.headers?.get?.('content-length') || 0);
-    if (declaredLength > MAX_EMUGUI_REMOTE_ASSET_BYTES) return { ok: false, error: 'EmuGUI artwork exceeds the 4 MiB limit' };
+    if (declaredLength > MAX_EMUGUI_REMOTE_ASSET_BYTES) return { ok: false, error: 'Cyrune Arcade artwork exceeds the 4 MiB limit' };
     const buffer = await response.arrayBuffer();
     if (!buffer.byteLength || buffer.byteLength > MAX_EMUGUI_REMOTE_ASSET_BYTES) {
-      return { ok: false, error: 'EmuGUI artwork is empty or exceeds the 4 MiB limit' };
+      return { ok: false, error: 'Cyrune Arcade artwork is empty or exceeds the 4 MiB limit' };
     }
     return {
       ok: true,
@@ -1623,7 +1703,7 @@ async function fetchEmuGuiRemoteAsset(url) {
   } catch (error) {
     return {
       ok: false,
-      error: error?.name === 'AbortError' ? 'EmuGUI artwork request timed out' : (error?.message || 'EmuGUI artwork request failed')
+      error: error?.name === 'AbortError' ? 'Cyrune Arcade artwork request timed out' : (error?.message || 'Cyrune Arcade artwork request failed')
     };
   } finally {
     clearTimeout(timer);
@@ -1639,7 +1719,7 @@ async function loadEmuGuiPageAsset(path) {
     { type: 'EMUGUI_ASSET', path: requestedPath },
     EMUGUI_REQUEST_TIMEOUT_MS
   );
-  if (response?.ok !== true) return response || { ok: false, error: 'EmuGUI artwork request failed' };
+  if (response?.ok !== true) return response || { ok: false, error: 'Cyrune Arcade artwork request failed' };
   return { ok: true, asset: await readEmuGuiNativeTransfer(response.transfer) };
 }
 
@@ -1650,44 +1730,44 @@ async function readEmuGuiNativeTransfer(initialTransfer) {
   let totalSize = 0;
   let transferId = '';
   while (true) {
-    if (!transfer || typeof transfer !== 'object') throw new Error('EmuGUI returned an invalid transfer');
+    if (!transfer || typeof transfer !== 'object') throw new Error('Cyrune Arcade returned an invalid transfer');
     const currentId = String(transfer.transferId || '');
-    if (!/^[A-Za-z0-9_-]{16,80}$/.test(currentId)) throw new Error('EmuGUI returned an invalid transfer ID');
-    if (transferId && currentId !== transferId) throw new Error('EmuGUI transfer changed during delivery');
+    if (!/^[A-Za-z0-9_-]{16,80}$/.test(currentId)) throw new Error('Cyrune Arcade returned an invalid transfer ID');
+    if (transferId && currentId !== transferId) throw new Error('Cyrune Arcade transfer changed during delivery');
     transferId = currentId;
     const advertisedSize = Number(transfer.totalSize);
     if (!Number.isSafeInteger(advertisedSize) || advertisedSize < 0 || advertisedSize > MAX_EMUGUI_TRANSFER_BYTES) {
-      throw new Error('EmuGUI transfer is too large');
+      throw new Error('Cyrune Arcade transfer is too large');
     }
-    if (totalSize && advertisedSize !== totalSize) throw new Error('EmuGUI transfer size changed during delivery');
+    if (totalSize && advertisedSize !== totalSize) throw new Error('Cyrune Arcade transfer size changed during delivery');
     totalSize = advertisedSize;
     const bytes = decodeBase64Chunk(String(transfer.chunk || ''));
     if (bytes.length > 512 * 1024 || receivedSize + bytes.length > totalSize) {
-      throw new Error('EmuGUI returned an invalid transfer chunk');
+      throw new Error('Cyrune Arcade returned an invalid transfer chunk');
     }
     chunks.push(bytes);
     receivedSize += bytes.length;
     const nextOffset = Number(transfer.nextOffset);
     if (!Number.isSafeInteger(nextOffset) || nextOffset !== receivedSize) {
-      throw new Error('EmuGUI transfer offset is invalid');
+      throw new Error('Cyrune Arcade transfer offset is invalid');
     }
     if (transfer.done === true) break;
-    if (!bytes.length) throw new Error('EmuGUI transfer stalled');
+    if (!bytes.length) throw new Error('Cyrune Arcade transfer stalled');
     const response = await sendPersistentNativeMessage({
       type: 'EMUGUI_TRANSFER_CHUNK',
       transferId,
       offset: receivedSize
     }, EMUGUI_REQUEST_TIMEOUT_MS);
-    if (response?.ok !== true) throw new Error(response?.error || 'EmuGUI transfer failed');
+    if (response?.ok !== true) throw new Error(response?.error || 'Cyrune Arcade transfer failed');
     transfer = response.transfer;
   }
   if (receivedSize !== totalSize) {
-    throw new Error(`EmuGUI transfer was incomplete (${receivedSize} of ${totalSize} bytes)`);
+    throw new Error(`Cyrune Arcade transfer was incomplete (${receivedSize} of ${totalSize} bytes)`);
   }
   try {
     return JSON.parse(decodeChunkedText(chunks, totalSize));
   } catch {
-    throw new Error('EmuGUI returned invalid JSON');
+    throw new Error('Cyrune Arcade returned invalid JSON');
   }
 }
 
@@ -1704,11 +1784,11 @@ async function openGameInEmuGui(gameKey, rebind = false) {
   try {
     target = new URL(String(result?.url || ''));
   } catch {
-    return { ok: false, error: 'EmuGUI returned an invalid page address' };
+    return { ok: false, error: 'Cyrune Arcade returned an invalid page address' };
   }
   const localFileTarget = target.protocol === 'file:' && /\/web\/index\.html$/i.test(target.pathname);
   if (!localFileTarget) {
-    return { ok: false, error: 'EmuGUI returned an unsupported page address' };
+    return { ok: false, error: 'Cyrune Arcade returned an unsupported page address' };
   }
   const tabs = await browser.tabs.query({});
   const existing = (tabs || []).find(tab => {
@@ -1747,7 +1827,7 @@ async function writeNativeSnapshot(content, expectedVersion = null, expectedHash
       databasePath: databasePath || null
     };
   } catch (e) {
-    console.warn('Morpheus: native write failed', e);
+    console.warn('Cyrune Relay: native write failed', e);
     return {
       ok: false,
       error: e.message,
@@ -1799,7 +1879,7 @@ async function saveState(json, { expectedVersion = null, expectedHash = '' } = {
     try {
       await browser.storage.local.remove('morpheusState');
     } catch (e) {
-      console.warn('Morpheus: extension storage mirror cleanup failed', e);
+      console.warn('Cyrune Relay: extension storage mirror cleanup failed', e);
     }
   } else {
     try {
@@ -1807,7 +1887,7 @@ async function saveState(json, { expectedVersion = null, expectedHash = '' } = {
       mirrored = true;
     } catch (e) {
       mirrorError = e;
-      console.warn('Morpheus: extension storage mirror failed', e);
+      console.warn('Cyrune Relay: extension storage mirror failed', e);
     }
   }
 
@@ -1839,7 +1919,7 @@ async function loadState() {
         databasePath: saveFilePath || null
       };
     } catch (e) {
-      console.warn('Morpheus: native read failed', e);
+      console.warn('Cyrune Relay: native read failed', e);
       // A configured shared file is authoritative. Returning extension-local
       // storage here can make a transient read failure look like an empty
       // shared database to the page.
@@ -1901,7 +1981,11 @@ browser.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return false;
   }
   if (EMUGUI_PAGE_REQUEST_TYPES.has(msg?.type) && !authorizeEmuGuiPageRequest(msg, sender)) {
-    sendResponse({ ok: false, error: 'This request is not authorized for Morpheus EmuGUI' });
+    sendResponse({ ok: false, error: 'This request is not authorized for Cyrune Arcade' });
+    return false;
+  }
+  if (NEXUS_PAGE_REQUEST_TYPES.has(msg?.type) && !authorizeNexusPageRequest(msg, sender)) {
+    sendResponse({ ok: false, error: 'This request is not authorized for Cyrune Nexus' });
     return false;
   }
   switch (msg.type) {
@@ -1931,6 +2015,90 @@ browser.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
     case 'MW_EMUGUI_REGISTER':
       registerEmuGuiPage(sender, msg.pageUrl)
+        .then(sendResponse)
+        .catch(error => sendResponse({ ok: false, error: error?.message || String(error) }));
+      return true;
+
+    case 'MW_NEXUS_REGISTER':
+      registerNexusPage(sender, msg.pageUrl)
+        .then(sendResponse)
+        .catch(error => sendResponse({ ok: false, error: error?.message || String(error) }));
+      return true;
+
+    case 'MW_NEXUS_PING':
+      refreshFileSchemeAccess()
+        .then(() => sendResponse({
+          ok: true,
+          relayVersion: browser.runtime.getManifest?.()?.version || '',
+          nativeAvailable,
+          fileSchemeAccess,
+          capabilities: ['nexusSettings', 'nexusStatus', 'nexusDocuments', 'nexusTodoEditor', 'repositoryRemoteCheck']
+        }))
+        .catch(error => sendResponse({ ok: false, error: error?.message || String(error) }));
+      return true;
+
+    case 'MW_NEXUS_GET_SETTINGS':
+      nexusNativeRequest({ type: 'NEXUS_GET_SETTINGS' })
+        .then(sendResponse)
+        .catch(error => sendResponse({ ok: false, error: error?.message || String(error) }));
+      return true;
+
+    case 'MW_NEXUS_SAVE_SETTINGS': {
+      let serialized = '';
+      try { serialized = JSON.stringify(msg.settings); } catch {}
+      if (!serialized || serialized.length > MAX_NEXUS_SETTINGS_BYTES) {
+        sendResponse({ ok: false, error: 'Nexus settings payload is invalid or too large' });
+        break;
+      }
+      nexusNativeRequest({
+        type: 'NEXUS_SAVE_SETTINGS',
+        settings: msg.settings,
+        expectedRevision: msg.expectedRevision
+      }).then(async response => {
+        if (response?.ok === true && response.conflict !== true) {
+          await broadcastNexusSettingsChanged(response.settings?.revision || 0);
+        }
+        sendResponse(response);
+      }).catch(error => sendResponse({ ok: false, error: error?.message || String(error) }));
+      return true;
+    }
+
+    case 'MW_NEXUS_GET_STATUS':
+      getNexusStatus()
+        .then(sendResponse)
+        .catch(error => sendResponse({ ok: false, error: error?.message || String(error) }));
+      return true;
+
+    case 'MW_NEXUS_GET_DOCUMENT': {
+      const component = String(msg.component || '').toLowerCase();
+      const documentType = String(msg.documentType || '').toLowerCase();
+      const allowedComponents = new Set(['portal', 'widgets', 'arcade', 'relay', 'host', 'nexus', 'project']);
+      const allowedTypes = new Set(['todo', 'changelog', 'project']);
+      if (!allowedComponents.has(component) || !allowedTypes.has(documentType)) {
+        sendResponse({ ok: false, error: 'Unsupported Nexus component document' });
+        break;
+      }
+      nexusNativeRequest({ type: 'NEXUS_GET_DOCUMENT', component, documentType })
+        .then(sendResponse)
+        .catch(error => sendResponse({ ok: false, error: error?.message || String(error) }));
+      return true;
+    }
+
+    case 'MW_NEXUS_OPEN_TODO': {
+      const component = String(msg.component || '').toLowerCase();
+      const allowedComponents = new Set(['portal', 'widgets', 'arcade', 'relay', 'host', 'nexus', 'project']);
+      if (!allowedComponents.has(component)) {
+        sendResponse({ ok: false, error: 'Unsupported Nexus TODO' });
+        break;
+      }
+      nexusNativeRequest({ type: 'NEXUS_OPEN_TODO', component })
+        .then(sendResponse)
+        .catch(error => sendResponse({ ok: false, error: error?.message || String(error) }));
+      return true;
+    }
+
+    case 'MW_NEXUS_CHECK_REMOTE':
+      nexusNativeRequest({ type: 'NEXUS_CHECK_REMOTE' })
         .then(sendResponse)
         .catch(error => sendResponse({ ok: false, error: error?.message || String(error) }));
       return true;
@@ -1992,7 +2160,7 @@ browser.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       return true;
 
     case 'MW_PICK_DATABASE_PATH':
-      pickDatabasePath(msg.title || 'Choose shared database location', msg.defaultName || 'morpheus-webhub.json')
+      pickDatabasePath(msg.title || 'Choose shared database location', msg.defaultName || 'cyrune-portal.json')
         .then(res => sendResponse(res))
         .catch(e => sendResponse({ ok: false, error: e.message }));
       return true;
@@ -2333,11 +2501,11 @@ function setupBookmarkImportMenu() {
     .then(() =>
       browser.menus.create({
         id: MENU_IMPORT_BOOKMARK_ID,
-        title: 'Send to Morpheus Import Manager',
+        title: 'Send to Cyrune Portal Import Manager',
         contexts: ['bookmark']
       })
     )
-    .catch(e => console.warn('Morpheus: failed to create bookmark import menu', e));
+    .catch(e => console.warn('Cyrune Relay: failed to create bookmark import menu', e));
 }
 
 if (browser.menus?.onClicked) {
@@ -2345,7 +2513,7 @@ if (browser.menus?.onClicked) {
   browser.menus.onClicked.addListener((info) => {
     if (info.menuItemId !== MENU_IMPORT_BOOKMARK_ID) return;
     importBookmarkNode(info.bookmarkId).catch(e => {
-      console.warn('Morpheus: bookmark import failed', e);
+      console.warn('Cyrune Relay: bookmark import failed', e);
     });
   });
 }
@@ -2355,14 +2523,14 @@ if (browser.commands?.onCommand) {
     if (command !== 'open-command-palette') return;
     void ensureMorpheusTab()
       .then(async tab => {
-        if (!tab) throw new Error('Morpheus WebHub is not open');
+        if (!tab) throw new Error('Cyrune Portal is not open');
         if (browser.tabs.update) await browser.tabs.update(tab.id, { active: true }).catch(() => {});
         if (tab.windowId !== undefined && browser.windows?.update) {
           await browser.windows.update(tab.windowId, { focused: true }).catch(() => {});
         }
         return sendToMorpheus({ type: 'MW_OPEN_COMMAND_PALETTE' });
       })
-      .catch(error => console.warn('Morpheus: command palette shortcut failed', error));
+      .catch(error => console.warn('Cyrune Relay: command palette shortcut failed', error));
   });
 }
 
@@ -2373,13 +2541,18 @@ if (browser.commands?.onCommand) {
 browser.tabs.onRemoved.addListener(tabId => {
   if (hubRegistrations.has(tabId)) forgetMorpheusTab(tabId);
   emuguiRegistrations.delete(tabId);
+  nexusRegistrations.delete(tabId);
 });
 
 if (browser.tabs.onUpdated) {
   browser.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
     const registration = hubRegistrations.get(tabId);
     if (registration && changeInfo.url && changeInfo.url !== registration.url) {
-      forgetMorpheusTab(tabId, 'The Hub tab navigated away');
+      forgetMorpheusTab(tabId, 'The Portal tab navigated away');
+    }
+    const nexusRegistration = nexusRegistrations.get(tabId);
+    if (nexusRegistration && changeInfo.url && canonicalNexusDocumentUrl(changeInfo.url) !== nexusRegistration.url) {
+      nexusRegistrations.delete(tabId);
     }
     if (changeInfo.status === 'complete' && isPotentialHubUrl(tab?.url || '')) {
       void discoverMorpheusTab(tab, { inject: true });

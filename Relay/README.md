@@ -1,8 +1,15 @@
 # Cyrune Relay
 
-Cyrune Relay is the Firefox-compatible WebExtension that authenticates trusted local Portal and Arcade pages, routes browser actions and durable intake, and maintains the persistent connection to Cyrune Host.
+Cyrune Relay is the Firefox-compatible WebExtension that authenticates trusted local Portal, Arcade, and Nexus pages, routes browser actions and durable intake, and maintains the persistent connection to Cyrune Host. Each local application has an exact, independently registered role; authority is never shared merely because pages are in the same checkout.
 
 The unpackaged extension root is this directory. Native Python, installers, configuration, and launchers live exclusively in `../Host/` and must not be included in Relay packages.
+
+## Architecture and Guidance
+
+- [Relay instructions](AGENTS.md) define authentication, authority, compatibility, storage, packaging, and validation invariants.
+- [Component boundaries](../docs/architecture/component-boundaries.md) define Relay's browser and routing ownership.
+- [Portal–Arcade contract](../docs/architecture/portal-arcade-contract.md) defines canonical clients, role separation, bounded messages, and delivery rules.
+- [Nexus contract](../docs/architecture/nexus-contract.md) defines the exact Nexus role, fixed settings/status/document operations, redaction, and revision rules.
 
 ## Tests
 

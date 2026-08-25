@@ -18,7 +18,7 @@ This document contains migration and repository-structure work only. Product fea
 - Use “formerly Morpheus WebHub/EmuGUI” only as temporary upgrade and recovery wording where users may otherwise confuse old and new local paths.
 - Keep Portal and Arcade as separate applications with separate interfaces and responsibilities.
 - Keep Relay and Host as separate components and trust boundaries.
-- Give Portal, Arcade, Relay, Host, and Widgets their own `TODO.md` and `CHANGELOG.md`.
+- Give Portal, Arcade, Relay, Host, and Widgets their own clearly named `<Component>-TODO.md` and `<Component>-CHANGELOG.md`.
 - The native host requires its own pair because it is independently versioned, installed, security-sensitive, and released on a different cadence from the extension.
 - Keep the root migration TODO limited to repository/infrastructure work.
 - Keep a small root changelog or release index for repository-wide migration/tooling changes only; do not duplicate component release notes there.
@@ -40,8 +40,8 @@ Cyrune/
     vendor/
     tests/
     README.md
-    TODO.md
-    CHANGELOG.md
+    Portal-TODO.md
+    Portal-CHANGELOG.md
   Arcade/
     web/
     emugui_service.py
@@ -50,8 +50,8 @@ Cyrune/
     tools/
     tests/
     README.md
-    TODO.md
-    CHANGELOG.md
+    Arcade-TODO.md
+    Arcade-CHANGELOG.md
   Relay/
     manifest.json
     background.js
@@ -59,14 +59,14 @@ Cyrune/
     popup/
     icons/
     README.md
-    TODO.md
-    CHANGELOG.md
+    Relay-TODO.md
+    Relay-CHANGELOG.md
   Host/
     native host source, installers, launchers, and manifest templates
     config.example.json
     README.md
-    TODO.md
-    CHANGELOG.md
+    Host-TODO.md
+    Host-CHANGELOG.md
   Widgets/
     core/
     coding-development/
@@ -79,8 +79,8 @@ Cyrune/
     utilities/
     weather-hazards/
     README.md
-    TODO.md
-    CHANGELOG.md
+    Widgets-TODO.md
+    Widgets-CHANGELOG.md
   tests/
     integration/
     migration/
@@ -102,7 +102,7 @@ Do not create speculative `packages/` or a generic shared `core/` during the ini
 
 ## Component Documentation Rules
 
-Each component `TODO.md` contains only outstanding work owned by that component. Each component `CHANGELOG.md` contains only completed changes that materially affected that component.
+Each component `<Component>-TODO.md` contains only outstanding work owned by that component. Each component `<Component>-CHANGELOG.md` contains only completed changes that materially affected that component.
 
 Cross-component work may appear in more than one component changelog when each side changed, but each entry should describe that component’s part and use that component’s version where one exists.
 
@@ -110,9 +110,9 @@ Cross-component work may appear in more than one component changelog when each s
 
 - Current root `TODO.md`: split into Portal, Relay, Host, and Widgets TODOs; move guidance/constraints into the relevant README or `AGENTS.md` rather than leaving them as tasks.
 - Current root `CHANGELOG.md`: preserve every historical release entry, then sort applicable entries into component changelogs. Mixed releases may be represented in multiple component logs without losing their original version/date.
-- Current Arcade-source `TODO.md`: becomes `Arcade/TODO.md` after work owned by other components is removed.
+- Current Arcade-source `TODO.md`: becomes `Arcade/Arcade-TODO.md` after work owned by other components is removed.
 - Current completed `EmuGUI-TODO.md`: archive under `docs/history/` as the completed Portal/Arcade integration record; do not treat it as an active backlog.
-- Current Arcade-source history: create `Arcade/CHANGELOG.md` from its Git history and current health-pass record before or during import.
+- Current Arcade-source history: create `Arcade/Arcade-CHANGELOG.md` from its Git history and current health-pass record before or during import.
 - Current `PROJECT.md`: discard during the documentation cutover. Replace it after migration with root and component READMEs derived from the validated final layout.
 - Current untracked `Infrastructure TODO.md`: use only as source material; do not import it as an active TODO after its migration work and component backlog have been accounted for.
 - Root `CHANGELOG.md`: after the split, retain only monorepo import, path migration, data migration, repository tooling, and coordinated release-index entries.
@@ -122,7 +122,7 @@ Cross-component work may appear in more than one component changelog when each s
 - [x] Create or confirm the five component TODOs.
 - [x] Move every product feature, behavioural fix, and component refactor out of this migration plan.
 - [x] Sort the existing Portal-source TODO by owning component.
-- [x] Merge Arcade product work into `Arcade/TODO.md` without copying completed migration tasks back into it.
+- [x] Merge Arcade product work into `Arcade/Arcade-TODO.md` without copying completed migration tasks back into it.
 - [x] Verify every removed task exists in exactly the appropriate component backlog, with cross-component references only where coordination is required.
 - [x] Keep this document free of feature implementation phases.
 
@@ -370,7 +370,7 @@ This phase is a path-only reorganisation of already shipped widgets.
 
 ## Phase 8 — Cutover, Monitoring, and Archive
 
-- [ ] Run the complete cross-component validation matrix.
+- [x] Run the complete cross-component validation matrix (2026-08-25: 89 Portal, 253 Widgets, 8 Relay, 42 Host plus 11 subtests, 10 migration, 14 packaging, and 68 Arcade tests; all syntax, manifest, version, and extension-lint checks passed).
 - [x] Compare application data counts, hashes, profile IDs, bindings, and representative UI/launch workflows against the pre-migration record.
 - [x] Confirm no hard-coded old checkout dependency remains. One unused saved legacy Arcade bookmark remains user data, not a runtime pointer.
 - [x] Document rollback for code, native registration, runtime pointers, and local-page links.

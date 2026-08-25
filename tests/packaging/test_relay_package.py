@@ -74,7 +74,7 @@ def test_current_relay_matches_the_historic_eight_file_package_boundary():
         "popup/popup.html",
         "popup/popup.js",
     )
-    assert PACKAGE._validate_source(REPO / "Relay")["version"] == "1.0.54"
+    assert PACKAGE._validate_source(REPO / "Relay")["version"] == "1.0.59"
 
 
 def test_unsigned_build_is_deterministic_across_paths_with_spaces_and_unicode(tmp_path):
@@ -144,15 +144,24 @@ def test_independent_component_versions_are_validated_without_forcing_equality(t
     repo = tmp_path / "repo"
     (repo / "Portal" / "source").mkdir(parents=True)
     (repo / "Relay").mkdir()
+    (repo / "Nexus" / "source").mkdir(parents=True)
     (repo / "Portal" / "source" / "app.js").write_text("const APP_VERSION = '2.3.4';\n", encoding="utf-8")
     (repo / "Portal" / "index.html").write_text("<b>v2.3.4</b><i>Version 2.3.4</i>", encoding="utf-8")
     (repo / "Relay" / "manifest.json").write_text(json.dumps({"version": "7.8.9"}), encoding="utf-8")
-    (repo / "Relay" / "CHANGELOG.md").write_text("## [7.8.9] — today\n", encoding="utf-8")
-    assert VERSIONS.validate(repo) == {"Portal": "2.3.4", "Relay": "7.8.9"}
+    (repo / "Relay" / "Relay-CHANGELOG.md").write_text("## [7.8.9] — today\n", encoding="utf-8")
+    (repo / "Nexus" / "component.json").write_text(json.dumps({"version": "1.4.2"}), encoding="utf-8")
+    (repo / "Nexus" / "source" / "model.js").write_text(
+        "const NEXUS_VERSION = '1.4.2';\n"
+        "const components = [{ id: 'portal', name: 'Portal', version: '2.3.4' }, "
+        "{ id: 'relay', name: 'Relay', version: '7.8.9' }];\n",
+        encoding="utf-8",
+    )
+    (repo / "Nexus" / "Nexus-CHANGELOG.md").write_text("## [1.4.2] — today\n", encoding="utf-8")
+    assert VERSIONS.validate(repo) == {"Portal": "2.3.4", "Relay": "7.8.9", "Nexus": "1.4.2"}
 
 
 def test_current_component_versions_and_changelogs_align():
-    assert VERSIONS.validate(REPO) == {"Portal": "0.11.222", "Relay": "1.0.54"}
+    assert VERSIONS.validate(REPO) == {"Portal": "0.11.223", "Relay": "1.0.59", "Nexus": "0.1.5"}
 
 
 def test_current_relay_source_builds_and_round_trips_exactly(tmp_path):
@@ -161,6 +170,6 @@ def test_current_relay_source_builds_and_round_trips_exactly(tmp_path):
         Path(result["path"]),
         kind="unsigned",
         source=REPO / "Relay",
-        expected_version="1.0.54",
+        expected_version="1.0.59",
     )
     assert verified["sha256"] == result["sha256"]

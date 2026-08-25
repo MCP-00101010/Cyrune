@@ -139,7 +139,7 @@ test('Nexus tracker keeps one selected game and browser-local caches', async () 
   assert.equal(calls[0].options.method, 'POST');
   assert.ok(calls.every(call => call.options.headers.APIKEY === 'personal-test-key'));
   assert.ok(calls.every(call => call.options.headers['Protocol-Version'] === '1.0.0'));
-  assert.ok(calls.every(call => call.options.headers['Application-Name'] === 'Morpheus WebHub'));
+  assert.ok(calls.every(call => call.options.headers['Application-Name'] === 'Cyrune Portal'));
   assert.ok(calls.every(call => call.options.headers['Application-Version'] === '0.11.196'));
   const requestBody = JSON.parse(calls[0].options.body);
   assert.equal(requestBody.operationName, 'MorpheusNexusModsFeed');

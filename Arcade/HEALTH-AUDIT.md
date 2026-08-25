@@ -1,4 +1,4 @@
-# EmuGUI Health Audit
+# Cyrune Arcade Health Audit
 
 Date: 2026-08-25
 

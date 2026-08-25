@@ -40,7 +40,7 @@ window.addEventListener("message", (event) => {
   clearTimeout(pending.timer);
   pendingWebHubRequests.delete(event.data.requestId);
   if (event.data.ok === true) pending.resolve(event.data);
-  else pending.reject(new Error(event.data.error || "The WebHub extension rejected the game shortcut."));
+  else pending.reject(new Error(event.data.error || "Cyrune Relay rejected the game shortcut."));
 });
 
 function waitForExtensionRelay() {
@@ -432,7 +432,7 @@ async function api(path, options = {}) {
     try {
       body = typeof options.body === "string" ? JSON.parse(options.body) : options.body;
     } catch (_error) {
-      throw new Error("The EmuGUI request body is invalid.");
+      throw new Error("The Cyrune Arcade request body is invalid.");
     }
   }
   const response = await requestWebHub("MW_EMUGUI_RPC", {
@@ -2211,7 +2211,7 @@ async function renderDetails(message = "", isError = false) {
     </div>
     <div class="detail-actions">
       <button id="launch">Launch Game</button>
-      <button id="send-webhub" class="secondary">${webHubHandoff.rebindGameKey ? "Update WebHub Shortcut" : "Send to WebHub"}</button>
+      <button id="send-webhub" class="secondary">${webHubHandoff.rebindGameKey ? "Update Portal Shortcut" : "Send to Portal"}</button>
       <button id="favourite" class="secondary">${game.favourite ? "Remove Favourite" : "Add Favourite"}</button>
       <button id="scrape-metadata" class="secondary">Scrape Metadata</button>
     </div>
@@ -2350,7 +2350,7 @@ async function sendSelectedToWebHub() {
   if (!game) return;
   const binding = resolveLaunchBinding(game);
   try {
-    await renderDetails("Sending game shortcut to WebHub...");
+    await renderDetails("Sending game shortcut to Cyrune Portal...");
     const result = await requestWebHub("MW_EMUGUI_SEND_GAME", {
       gameId: game.id,
       emulatorId: binding.emulatorId,
@@ -2363,12 +2363,12 @@ async function sendSelectedToWebHub() {
       const url = new URL(window.location.href);
       url.searchParams.delete("hubRebind");
       window.history.replaceState(null, "", url);
-      await renderDetails(`Updated the existing WebHub shortcut${result.persisted ? ` (${result.persisted})` : ""}.`);
+      await renderDetails(`Updated the existing Portal shortcut${result.persisted ? ` (${result.persisted})` : ""}.`);
     } else {
-      await renderDetails(`Sent to WebHub Inbox${result.persisted ? ` (${result.persisted})` : ""}.`);
+      await renderDetails(`Sent to Cyrune Portal Inbox${result.persisted ? ` (${result.persisted})` : ""}.`);
     }
   } catch (error) {
-    await renderDetails(error.message || "The game could not be sent to WebHub.", true);
+    await renderDetails(error.message || "The game could not be sent to Cyrune Portal.", true);
   }
 }
 
@@ -2870,7 +2870,7 @@ function showContextMenu(event, gameId) {
   menu.innerHTML = `
     <div class="context-section">
       ${emulatorButtons}
-      <button data-action="send-webhub">${webHubHandoff.rebindGameKey ? "Update WebHub Shortcut" : "Send to WebHub"}</button>
+      <button data-action="send-webhub">${webHubHandoff.rebindGameKey ? "Update Portal Shortcut" : "Send to Portal"}</button>
     </div>
     <div class="context-section">
       <button data-action="explorer">Open in Explorer</button>

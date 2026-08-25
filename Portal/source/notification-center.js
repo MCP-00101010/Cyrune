@@ -11,7 +11,7 @@ function _notificationCenterId() {
 
 function _notificationCenterSanitize(value) {
   if (!value || typeof value !== 'object') return null;
-  const title = String(value.title || 'Morpheus WebHub').trim().slice(0, 100) || 'Morpheus WebHub';
+  const title = String(value.title || 'Cyrune Portal').trim().slice(0, 100) || 'Cyrune Portal';
   const message = String(value.message || '').trim().slice(0, 500);
   if (!message) return null;
   const source = value.source && typeof value.source === 'object' ? value.source : {};

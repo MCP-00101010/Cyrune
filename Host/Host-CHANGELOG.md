@@ -6,15 +6,30 @@ Historical entries below are preserved from Portal releases whose release notes 
 
 ## [Unversioned] — 2026-08-25
 
+### Added
+
+- Added a fixed-purpose Nexus origin check that derives the current branch locally, disables interactive Git credential prompts, calls only timeout-bounded `git ls-remote` against fixed `origin`, and returns sanitized short commit comparisons without fetching or changing repository state.
+- Added a user-triggered, fixed-purpose Nexus TODO editor that maps only registered component IDs to their authoritative TODOs and opens Visual Studio Code with an argument array without returning filesystem or executable paths.
+- Added the authoritative Nexus shared-settings service with typed schema validation, monotonic revisions, stale-write rejection, atomic persistence, bounded content-free history, and retained revision backups beneath the Nexus runtime-data root.
+- Added exact Nexus page authorization, allowlisted component-document reads, and sanitized component, runtime-data, repository, and validation-receipt status operations.
+
 ### Fixed
 
+- Nexus page authorization now treats client-side `#…` routes as views of the same exact `Nexus/index.html` document while continuing to reject query-bearing and different local files.
 - Chunked database and backup reads now bind their continuation token to both file metadata and a SHA-256 content identity, rejecting same-size replacements even when the filesystem reuses the previous modification timestamp.
 
 ### Changed
 
+- Expanded validation-receipt sanitization to admit only the fixed Migration, Packaging, and Tooling suite counts alongside component suites; arbitrary groups and nested output remain discarded.
+- Updated native-host diagnostics, default database filenames, Arcade service errors, and network identification to use the Cyrune Host, Portal, and Arcade names while preserving installed IDs and credential namespaces.
+- Renamed the active backlog and release log to `Host-TODO.md` and `Host-CHANGELOG.md` for unambiguous editor tabs.
 - Relocated Host source, installers, tests, and templates from Relay into the top-level `Host/` component.
 - Moved live Host configuration outside the checkout to the Cyrune runtime-data root while retaining a documented environment override.
 - Preserved the installed native-messaging host ID and credential namespace for compatibility.
+
+### Validation
+
+- All 49 Host tests plus 11 parameterised subtests pass, covering Nexus authorization, validation, atomic revisions, stale-write conflicts, document/editor allowlists, path-free Visual Studio Code startup, fixed-origin remote comparison, status redaction, and remote-URL sanitization.
 
 
 ## [0.11.220] — 2026-08-25
@@ -195,7 +210,7 @@ Historical entries below are preserved from Portal releases whose release notes 
 
 ### Changed
 
-- **Explicit application-drop boundary** — readable `.url` files and allowlisted launcher URIs remain true one-drop application links. Raw `.exe`, `.com`, and binary `.lnk` files deliberately continue through the native picker because Firefox exposes their name and contents but not the absolute Windows source path required for a stable device-local launch binding. This accepted platform limitation is now recorded in `TODO.md` alongside the reason image drops can still be copied directly.
+- **Explicit application-drop boundary** — readable `.url` files and allowlisted launcher URIs remain true one-drop application links. Raw `.exe`, `.com`, and binary `.lnk` files deliberately continue through the native picker because Firefox exposes their name and contents but not the absolute Windows source path required for a stable device-local launch binding. This accepted platform limitation is now recorded in `Host-TODO.md` alongside the reason image drops can still be copied directly.
 
 ### Fixed
 

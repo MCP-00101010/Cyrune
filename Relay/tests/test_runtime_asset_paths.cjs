@@ -12,7 +12,7 @@ test('managed assets follow the configured external Portal database root', () =>
   assert.match(source, /\.\.\.\(databasePath \? \[\] : \['assets'\]\)/);
 });
 
-test('Relay manifest version is bumped for the runtime path change', () => {
+test('Relay manifest and changelog identify the current component release', () => {
   const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'manifest.json'), 'utf8'));
-  assert.equal(manifest.version, '1.0.54');
+  assert.equal(manifest.version, '1.0.59');
 });

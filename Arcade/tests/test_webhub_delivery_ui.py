@@ -28,7 +28,7 @@ def test_webhub_deep_link_selects_a_game_and_supports_in_place_rebinding():
     assert 'params.get("game")' in source
     assert 'params.get("hubRebind")' in source
     assert "await selectGame(webHubHandoff.gameId)" in source
-    assert "Update WebHub Shortcut" in source
+    assert "Update Portal Shortcut" in source
 
 
 def test_file_page_uses_only_the_extension_rpc_transport():

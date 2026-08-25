@@ -585,7 +585,7 @@ test('unconfigured EmuGUI file page is denied before RPC reaches the native serv
   ));
 
   assert.equal(registration.ok, false);
-  assert.match(registration.error, /configured Morpheus EmuGUI/i);
+  assert.match(registration.error, /configured Cyrune Arcade/i);
   assert.equal(harness.nativeConnections[0].messages.some(message => message.type === 'EMUGUI_API'), false);
 });
 

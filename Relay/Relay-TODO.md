@@ -17,6 +17,7 @@ This file owns outstanding WebExtension storage authority, authenticated page ro
 
 - Keep Firefox and Zen as the supported integration target and preserve clear local-file permission diagnostics.
 - Prefer generic Relay/Host service contracts so individual product integrations do not force avoidable extension releases.
+- Add bounded, durable Inbox/Import Manager intake when no Portal tab is open: queue sanitized deliveries in Relay storage, show pending state in the popup, deliver exactly once after the next authenticated Portal registration, and retain delivery-ID deduplication and quota controls.
 
 ## Deferred Chromium Compatibility
 

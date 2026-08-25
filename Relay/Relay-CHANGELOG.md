@@ -4,6 +4,60 @@ Historical entries below are preserved from Portal releases whose release notes 
 
 ---
 
+## [1.0.59] — 2026-08-25
+
+### Added
+
+- **Explicit Nexus origin check** — Relay 1.0.59 adds a fixed no-parameter route from the exact Nexus role to Host's bounded, read-only current-branch comparison. It forwards no URL, ref, path, command, or credential material from the page.
+
+### Validation
+
+- Relay routing, page transport, packaging/version alignment, manifest validation, and `web-ext lint` cover the new operation.
+
+## [1.0.58] — 2026-08-25
+
+### Added
+
+- **Allowlisted Nexus TODO editor** — Relay 1.0.58 routes the exact Nexus role's user-triggered component ID to Host's fixed Visual Studio Code action. It accepts no path, executable, command, or document type from the page.
+
+### Validation
+
+- All 11 Relay tests and 14 packaging tests pass with TODO-operation allowlisting and page-transport coverage. `web-ext lint` reports zero errors, notices, or warnings.
+
+## [1.0.57] — 2026-08-25
+
+### Fixed
+
+- **Nexus hash-route authentication** — Relay now canonicalizes `Nexus/index.html#…` to its exact underlying document for registration and request checks, so normal Overview, Variables, Activity, Project, and component navigation neither blocks initial Host authorization nor invalidates the opaque tab session.
+- Query-bearing or different local documents remain rejected; only the non-authoritative client-side fragment is excluded from document identity.
+
+### Validation
+
+- All 11 Relay tests pass with regression coverage for fragment-bearing Nexus startup, canonical request routing, and hash-only tab navigation. Packaging/version checks and `web-ext lint` pass for Relay 1.0.57.
+
+## [1.0.56] — 2026-08-25
+
+### Added
+
+- **Exact Nexus client role** — Relay now authenticates only the canonical Cyrune Nexus `file://` page through an independently registered, opaque-session role that cannot reuse Portal or Arcade authority.
+- **Fixed Nexus service bridge** — bounded settings reads/writes, sanitized project status, allowlisted component documents, and settings-revision broadcasts now cross Relay's persistent Host connection without exposing general native operations.
+
+### Validation
+
+- All 11 Relay tests pass, including Nexus registration, role isolation, operation allowlisting, settings bounds, document bounds, and revision notifications. `web-ext lint` reports zero errors, notices, or warnings.
+
+## [1.0.55] — 2026-08-25
+
+### Changed
+
+- **Cyrune Relay identity** — the extension manifest, popup, command description, permissions guidance, browser menu, diagnostics, and Portal/Arcade delivery messages now use the current Cyrune product names.
+- **User-facing defaults** — new database picker requests use `cyrune-portal.json` while the installed extension ID, native-host ID, storage keys, events, and authenticated message contracts remain unchanged for compatibility.
+- **Component documentation names** — renamed the active backlog and release log to `Relay-TODO.md` and `Relay-CHANGELOG.md` for unambiguous editor tabs.
+
+### Validation
+
+- All 8 Relay tests and 14 packaging tests pass, component versions resolve independently to Portal 0.11.223 and Relay 1.0.55, and `web-ext lint` reports zero errors, notices, or warnings.
+
 ## [1.0.54] — 2026-08-25
 
 ### Changed
@@ -210,7 +264,7 @@ Historical entries below are preserved from Portal releases whose release notes 
 
 ### Changed
 
-- **Explicit application-drop boundary** — readable `.url` files and allowlisted launcher URIs remain true one-drop application links. Raw `.exe`, `.com`, and binary `.lnk` files deliberately continue through the native picker because Firefox exposes their name and contents but not the absolute Windows source path required for a stable device-local launch binding. This accepted platform limitation is now recorded in `TODO.md` alongside the reason image drops can still be copied directly.
+- **Explicit application-drop boundary** — readable `.url` files and allowlisted launcher URIs remain true one-drop application links. Raw `.exe`, `.com`, and binary `.lnk` files deliberately continue through the native picker because Firefox exposes their name and contents but not the absolute Windows source path required for a stable device-local launch binding. This accepted platform limitation is now recorded in `Relay-TODO.md` alongside the reason image drops can still be copied directly.
 
 ### Fixed
 
@@ -1242,7 +1296,7 @@ Historical entries below are preserved from Portal releases whose release notes 
 - **Sidebar opacity controls** — Global Settings now lets sidebar cards inherit the active tab container opacity by default or use a dedicated sidebar opacity override instead.
 - **Edit/create modal unification** — create/edit flows across the hub now use the shared transparent shell, flatter inner sections, and aligned tag-field layouts, with widget editing left on the older styling for now.
 - **Utility modal refresh** — Search, Inbox, Import Manager, Tag Manager, Trash, and most utility surfaces now follow the shared header/footer/panel treatment, leaving only minor follow-up polish work around Sets Manager.
-- **Modal pattern rules** — documented the current hub modal styling rules and remaining rollout expectations in the `UI Pattern Notes` section of `TODO.md` so the remaining cleanup work has a clear visual contract.
+- **Modal pattern rules** — documented the current hub modal styling rules and remaining rollout expectations in the `UI Pattern Notes` section of `Relay-TODO.md` so the remaining cleanup work has a clear visual contract.
 - **Tag Manager rename flow** — tags can now be renamed inline directly on their chips with double-click, keeping the Tag Manager interaction style lightweight and consistent.
 
 ### Fixed
@@ -1286,7 +1340,7 @@ Historical entries below are preserved from Portal releases whose release notes 
 - **Board and tab editing flow** — board creation/editing now uses the old collection-style modal role, while tab editing uses the old board-settings modal role.
 - **Import delivery model** — inbox delivery is now tab-aware across Import Manager sends, bulk move flows, and extension tab send, and the Import Manager button now shows a staged-item indicator badge.
 - **UI shell cleanup** — Tag Manager, Sets Manager, and settings-style panels now follow the current modal/header patterns more closely, drag from their headers, and use the updated sidebar/footer presentation.
-- **Project backlog cleanup** — removed actioned overhaul and UI items from `TODO.md` so the backlog reflects only remaining work.
+- **Project backlog cleanup** — removed actioned overhaul and UI items from `Relay-TODO.md` so the backlog reflects only remaining work.
 
 ### Fixed
 

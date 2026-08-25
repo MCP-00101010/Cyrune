@@ -727,7 +727,7 @@ async function _widgetSdkNotificationCancel(id) {
 async function _widgetSdkNotificationPublish(event, options = {}) {
   if (typeof notificationCenterPublish === 'function') return notificationCenterPublish(event, options);
   if (options.system !== false && await _widgetSdkNotificationRequestPermission()) {
-    new Notification(String(event?.title || 'Morpheus WebHub'), { body: String(event?.message || '') });
+    new Notification(String(event?.title || 'Cyrune Portal'), { body: String(event?.message || '') });
   }
   return event;
 }

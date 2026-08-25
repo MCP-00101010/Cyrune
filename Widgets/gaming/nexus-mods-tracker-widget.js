@@ -93,7 +93,7 @@ function _nexusModsHeaders() {
     Accept: 'application/json',
     APIKEY: _nexusModsServiceKey(),
     'Protocol-Version': '1.0.0',
-    'Application-Name': 'Morpheus WebHub',
+    'Application-Name': 'Cyrune Portal',
     'Application-Version': typeof APP_VERSION === 'string' ? APP_VERSION : '0.0.0'
   };
 }

@@ -1,1 +1,1 @@
-"""Transport-independent Morpheus EmuGUI services."""
+"""Transport-independent Cyrune Arcade services."""

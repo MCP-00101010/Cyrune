@@ -318,8 +318,8 @@ function createPortableBundle(root, scope = 'active-tab', options = {}) {
 }
 
 function validatePortableBundle(bundle) {
-  if (!bundle || bundle.kind !== PHASE_TWO_BUNDLE_KIND) return { ok: false, error: 'Not a Morpheus portable bundle' };
-  if (!Number.isInteger(bundle.version) || bundle.version > PHASE_TWO_BUNDLE_VERSION) return { ok: false, error: 'Bundle version is newer than this Hub supports' };
+  if (!bundle || bundle.kind !== PHASE_TWO_BUNDLE_KIND) return { ok: false, error: 'Not a Cyrune Portal portable bundle' };
+  if (!Number.isInteger(bundle.version) || bundle.version > PHASE_TWO_BUNDLE_VERSION) return { ok: false, error: 'Bundle version is newer than this Portal supports' };
   return { ok: true, scope: bundle.scope, counts: {
     boards: bundle.payload?.boards?.length || 0,
     tabs: bundle.payload?.tabs?.length || 0,
@@ -635,7 +635,7 @@ function phaseTwoRenderAutomation(container) {
   const rulesHeader = document.createElement('div'); rulesHeader.className = 'phase2-section-heading';
   const rulesTitle = document.createElement('h4'); rulesTitle.textContent = `Your rules (${state.automationRules.length})`;
   const ruleTools = document.createElement('div'); ruleTools.className = 'phase2-row';
-  ruleTools.appendChild(phaseTwoButton('Export', () => phaseTwoDownloadJson({ kind: 'morpheus-automation-rules', version: 1, rules: state.automationRules }, 'morpheus-automation-rules.json')));
+  ruleTools.appendChild(phaseTwoButton('Export', () => phaseTwoDownloadJson({ kind: 'morpheus-automation-rules', version: 1, rules: state.automationRules }, 'cyrune-portal-automation-rules.json')));
   const file = document.createElement('input'); file.type = 'file'; file.accept = '.json'; file.hidden = true;
   file.addEventListener('change', () => { const selected = file.files?.[0]; if (!selected) return; const reader = new FileReader(); reader.onload = () => { try { const parsed = JSON.parse(reader.result); if (!Array.isArray(parsed.rules)) throw new Error('Rules are missing'); pushUndoSnapshot(); state.automationRules = parsed.rules.map(normalizeAutomationRule); saveState(); renderHubToolsPanel(); } catch (error) { showNotice(error.message); } }; reader.readAsText(selected); });
   ruleTools.append(phaseTwoButton('Import', () => file.click()), file); rulesHeader.append(rulesTitle, ruleTools); container.appendChild(rulesHeader);
@@ -789,7 +789,7 @@ function phaseTwoRenderTransfer(container) {
     const smartItems = typeof getSmartViewResults === 'function' ? getSmartViewResults(typeof activeSmartViewId === 'string' ? activeSmartViewId : 'recent', { days: 'all', limit: 'all' }) : [];
     const usage = includeUsage.checked && typeof getBookmarkActivityState === 'function' ? getBookmarkActivityState() : null;
     const bundle = createPortableBundle(state, scope.value, { setId: set.value, folderId: folder.value, items: smartItems, selectedIds: typeof selectedItemIds === 'undefined' ? [] : selectedItemIds, includeTags: includeTags.checked, includeSets: includeSets.checked, includeFavicons: includeFavicons.checked, includeBackgrounds: includeBackgrounds.checked, includeUsage: includeUsage.checked, usage });
-    phaseTwoDownloadJson(bundle, `morpheus-${scope.value}-${new Date().toISOString().slice(0, 10)}.json`);
+    phaseTwoDownloadJson(bundle, `cyrune-portal-${scope.value}-${new Date().toISOString().slice(0, 10)}.json`);
   }, true));
   const importCard = document.createElement('div'); importCard.className = 'phase2-transfer-card';
   const importHeading = document.createElement('h4'); importHeading.textContent = 'Portable import';

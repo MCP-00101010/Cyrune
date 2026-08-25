@@ -464,7 +464,7 @@ function _mediaWatchlistSorted(widget) {
 function _mediaWatchlistExport(widget) {
   const payload = JSON.stringify({ format: 'morpheus-media-watchlist', version: 3, records: _mediaWatchlistRecords(widget) }, null, 2);
   const url = URL.createObjectURL(new Blob([payload], { type: 'application/json' }));
-  const link = document.createElement('a'); link.href = url; link.download = 'morpheus-media-watchlist.json'; link.click();
+  const link = document.createElement('a'); link.href = url; link.download = 'cyrune-media-watchlist.json'; link.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 

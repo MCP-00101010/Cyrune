@@ -229,6 +229,17 @@ test('state loading repairs orphaned boards instead of deleting them', () => {
   assert.equal(parsed.schemaVersion, 6);
 });
 
+test('state loading migrates only the exact legacy default Portal title', () => {
+  const harness = loadStateScript();
+  const base = { boards: [], navItems: [], settings: {}, essentials: [] };
+
+  const legacy = harness.context.parseStateJson(JSON.stringify({ ...base, hubName: 'Morpheus WebHub' }));
+  const custom = harness.context.parseStateJson(JSON.stringify({ ...base, hubName: 'My WebHub' }));
+
+  assert.equal(legacy.hubName, 'Cyrune Portal');
+  assert.equal(custom.hubName, 'My WebHub');
+});
+
 test('persisted snapshots omit active-tab board compatibility aliases', () => {
   const harness = loadStateScript();
   const snapshot = JSON.parse(harness.context.serializeStateSnapshot());

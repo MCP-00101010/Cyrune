@@ -6,6 +6,13 @@ This log records repository-wide migration, tooling, and coordinated release cha
 
 ### Added
 
+- Added the Nexus 0.1.5 and Relay 1.0.59 explicit origin check: the authenticated page can request a fixed, non-interactive comparison of the current branch with live `origin`, while Host returns only sanitized commit state and never fetches or mutates the checkout.
+- Added the Nexus 0.1.4 and Relay 1.0.58 TODO-editing route: component and project TODOs open as exact allowlisted Visual Studio Code files through Host, while changelogs retain read-only previews without open links.
+- Added a coordinated validation-receipt writer and Nexus 0.1.3 Activity presentation for the last successful commit, component versions, passing suite counts, and fixed release gates; receipts remain atomic, content-free, and outside the checkout.
+- Added the Nexus 0.1.1 authoritative service across Nexus, Relay 1.0.56, and Host: typed atomic settings with revision conflicts, an exact authenticated Nexus role, sanitized live project/runtime/repository status, allowlisted project documents, and honest disconnected fallback behaviour.
+- Added Cyrune Nexus as a sixth component with routed guidance, project documentation, a typed shared-settings and sanitized-status contract, component metadata, focused tests, and a functional direct-file first draft covering Overview, Variables, Activity, Project, and component document views.
+- Added routed component-specific `AGENTS.md` files for Portal, Widgets, Arcade, Relay, and Host, plus an active Portal–Arcade integration contract promoted from the completed legacy plan.
+- Added a new Cyrune-wide `PROJECT.md` covering component boundaries, runtime data, compatibility, development, validation, packaging, documentation, and migration status.
 - Added the Phase 8 non-interactive cutover audit, sanitized data/binding comparison, legacy-path and secret-location checks, cleanup classification, and coordinated rollback record.
 - Added deterministic Relay AMO packaging, exact archive allowlisting, SHA-256 sidecars, content-free reports, signed-XPI import validation, and independent component-version checks.
 - Added a versioned, copy-first runtime migration coordinator with atomic writes, reread/parse/hash verification, sanitized receipts, interrupted-copy recovery, explicit divergent-data replacement, and focused migration coverage.
@@ -16,6 +23,9 @@ This log records repository-wide migration, tooling, and coordinated release cha
 
 ### Changed
 
+- Linked all active architecture guidance from the project and component READMEs, restored missing Portal module/persistence/settings/rendering rules and full modal details, and replaced stale legacy product wording in Arcade guidance while labelling retained compatibility variables.
+- Renamed every component TODO and changelog with its component prefix, reconciled the legacy Portal and Arcade backlogs into the owning current TODOs, and updated repository references.
+- Replaced remaining user-facing WebHub, EmuGUI, and Morpheus labels with Cyrune Portal, Arcade, Relay, Host, and Widgets while preserving compatibility-sensitive installed IDs, storage keys, events, binding fields, credential namespaces, and portable-format identifiers.
 - Retired Arcade's hard-coded Spectaculator diagnostic after the configurable ZX validation matrix and focused Windows-default association coverage superseded it; preserved a verified copy of the unreferenced legacy root background without deleting its source.
 - Restored Relay packaging beneath ignored `artifacts/Relay/<version>` while retaining the historic eight-file payload boundary and separating unsigned upload artifacts from Mozilla-signed packages.
 - Externalised and activated Portal and Arcade runtime data beneath `%LOCALAPPDATA%/Cyrune`, retaining verified recovery copies and leaving both legacy runtime sources untouched. Portal background references and Arcade managed-profile paths were the only transformed fields.
@@ -28,8 +38,18 @@ This log records repository-wide migration, tooling, and coordinated release cha
 - Verified Portal and Arcade at their final Cyrune `file://` paths through the relocated Relay and Host.
 - Recovered Arcade's ignored runtime state after validation exposed an incomplete source-only import: 30 favourites, 30 recent entries, three collection records, two managed emulator profiles, and both managed profile files are present again. Existing external collection metadata remained intact.
 
+### Fixed
+
+- Fixed the first live Nexus connection gate in Nexus 0.1.2 and Relay 1.0.57 by binding its exact local document independently of client-side hash navigation; the earlier check incorrectly rejected `index.html#overview` as a different page.
+
 ### Validation
 
+- The receipt-producing coordinated run passes 89 Portal, 253 Widgets, 68 Arcade, 11 Relay, 49 Host plus 11 parameterised subtests, 11 Nexus, 10 migration, 14 packaging, and 3 tooling tests. JavaScript syntax, manifest parsing, independent versions, packaging, and `web-ext lint` pass, and the resulting runtime receipt contains only its fixed schema.
+- The authoritative Nexus service passes 8 Nexus tests, 11 Relay tests, and 47 Host tests plus 11 parameterised subtests, covering exact roles, bounds, typed validation, atomic revisions, conflicts, allowlisted documents, status redaction, and remote-URL sanitization. Relay 1.0.56 passes `web-ext lint` with zero errors, notices, or warnings.
+- The Nexus baseline passes 89 Portal tests, 7 Nexus tests, 253 Widget tests, 8 Relay tests, 42 Host tests plus 11 parameterised subtests, 10 migration tests, 14 packaging/version tests, and 68 Arcade tests. All coordinated JavaScript syntax, manifest, independent-version, and `web-ext lint` checks pass with zero errors, notices, or warnings.
+- Nexus 0.1.0 adds focused component-catalogue, settings-normalization, safe-document, safe-Markdown, direct-file structure, and version-alignment coverage; Nexus source is included in the coordinated JavaScript syntax pass.
+- All active guidance Markdown links resolve, every root-plus-component instruction chain is under 7 KiB, and the only remaining legacy product names in active guidance are the intentional one-line upgrade identifiers in the Portal and Arcade READMEs.
+- The final naming and migration audit passes 89 Portal tests, 253 Widget tests, 8 Relay tests, 42 Host tests plus 11 parameterised subtests, 10 migration tests, 14 packaging tests, and 68 Arcade tests. All JavaScript syntax, Relay manifest, independent-version, and `web-ext lint` checks pass; source scans found no unexpected active-checkout references outside compatibility contracts, test fixtures, and migration records.
 - A clean clone at a different space-and-Unicode absolute path passes the complete coordinated checks and reproduces the Relay 1.0.54 archive hash exactly. The final upgraded-checkout matrix passes with 68 Arcade tests; the active receipt, Portal structural counts, every Phase 6 binding, Arcade profile IDs/hashes, favourites, recent count, emulator/profile/game preflight, legacy-path scan, and location-only secret scan also pass without modifying active data.
 - The completed Phase 7 combined-checkout validation passes 88 Portal tests, 253 Widget tests, 8 Relay tests, 42 Host tests plus 11 parameterised subtests, 10 migration tests, 14 packaging tests, and 67 Arcade tests. JavaScript syntax, manifest parsing, independent Portal/Relay version checks, and `web-ext lint` all pass; the Relay archive also reproduces byte-for-byte from a clean checkout at a different space-and-Unicode path.
 - The activated Phase 6 runtime baseline passes 88 Portal tests, 253 Widget tests, 8 Relay tests, 42 Host tests plus 11 parameterised subtests, 10 migration tests, and 67 Arcade tests. JavaScript syntax, Relay manifest validation, and `web-ext lint` pass with zero errors, notices, or warnings.

@@ -135,7 +135,7 @@ const defaultState = {
   activeBoardId: 'board-1',
   activeTabId: 'board-1-tab-1',
   databasePath: '',
-  hubName: 'Morpheus WebHub',
+  hubName: 'Cyrune Portal',
   lastExported: null,
   tags: [],
   sets: [],
@@ -309,7 +309,7 @@ function notifyLocalCacheQuota(sharedSaveTarget = false) {
     ? 'Browser cache is full; continuing to save changes to the shared database.'
     : 'Browser storage is full. Changes are kept in this tab, but may not survive a reload until storage is freed or shared storage is available.';
   if (typeof showNotice === 'function') showNotice(message);
-  else console.warn(`Morpheus: ${message}`);
+  else console.warn(`Cyrune Portal: ${message}`);
 }
 
 function clearTrashCacheForQuotaRecovery() {
@@ -329,7 +329,7 @@ function persistLocalCacheMeta(metaPatch = {}) {
   try {
     localStorage.setItem(LOCAL_CACHE_META_KEY, JSON.stringify(localCacheMeta));
   } catch (error) {
-    console.warn('Morpheus: failed to persist local cache metadata', error);
+    console.warn('Cyrune Portal: failed to persist local cache metadata', error);
   }
   return localCacheMeta;
 }
@@ -1153,7 +1153,7 @@ function parseStateJson(saved) {
     }
     migrateItems(parsed.navItems);
     coerceNavFolderModes(parsed.navItems);
-    if (!parsed.hubName) parsed.hubName = 'Morpheus WebHub';
+    if (!parsed.hubName || parsed.hubName === 'Morpheus WebHub') parsed.hubName = 'Cyrune Portal';
     if (!parsed.settings) parsed.settings = { ...defaultSettings };
     else parsed.settings = { ...defaultSettings, ...parsed.settings };
     migrateStyleSettings(parsed.settings);
@@ -1229,7 +1229,7 @@ function persistStateToLocalCache(json = null, options = {}) {
     localCacheQuotaNoticeShown = false;
   } catch (error) {
     if (!isStorageQuotaError(error)) throw error;
-    console.warn('Morpheus: local browser cache quota exceeded', error);
+    console.warn('Cyrune Portal: local browser cache quota exceeded', error);
     clearTrashCacheForQuotaRecovery();
     try {
       localStorage.setItem(STORAGE_KEY, snapshot);
@@ -1516,7 +1516,7 @@ function saveState(options = {}) {
   try {
     persistStateToLocalCache(json, { sharedSaveTarget: queuedSharedDiskSave });
   } catch (error) {
-    console.warn('Morpheus: failed to persist local browser cache', error);
+    console.warn('Cyrune Portal: failed to persist local browser cache', error);
     if (!queuedSharedDiskSave) throw error;
   }
   return sharedSavePromise || Promise.resolve({

@@ -103,13 +103,13 @@ function getGameStatus(item) {
 function getGameStatusMessage(status, title = 'This game') {
   const messages = {
     unbound: `${title} is not set up on this device.`,
-    'library-missing': `${title}'s EmuGUI library is not currently active.`,
-    'game-missing': `${title} is missing from its EmuGUI library.`,
+    'library-missing': `${title}'s Cyrune Arcade library is not currently active.`,
+    'game-missing': `${title} is missing from its Cyrune Arcade library.`,
     'emulator-missing': `${title}'s emulator is unavailable.`,
     'profile-missing': `${title}'s emulator profile is unavailable.`,
     incompatible: `${title}'s saved emulator configuration is incompatible.`,
     changed: `${title}'s source configuration has changed and should be rebound.`,
-    unavailable: 'Morpheus EmuGUI is unavailable.'
+    unavailable: 'Cyrune Arcade is unavailable.'
   };
   return status?.error || messages[status?.state] || `${title} is not ready to launch.`;
 }
@@ -190,7 +190,7 @@ async function openGameShortcutInEmuGui(item, options = {}) {
   } catch (error) {
     const status = await refreshGameStatus(item, { render: false });
     showNotice(status.state === 'ready'
-      ? (error?.message || 'The game could not be opened in EmuGUI.')
+      ? (error?.message || 'The game could not be opened in Cyrune Arcade.')
       : getGameStatusMessage(status, item.title || 'This game'));
     return false;
   }

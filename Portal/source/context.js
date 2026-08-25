@@ -1000,9 +1000,9 @@ function handleBoardContextMenu(event, item, columnId, parentFolder, depth, effe
     options.push({ label: 'Delete application', action: 'deleteItem' });
   } else if (item.type === 'game') {
     options.push({ label: 'Launch game', action: 'launchGame' });
-    options.push({ label: 'Open in EmuGUI', action: 'openGameInEmuGui' });
+    options.push({ label: 'Open in Cyrune Arcade', action: 'openGameInEmuGui' });
     options.push({ label: 'Reveal game file', action: 'revealGame' });
-    options.push({ label: 'Rebind in EmuGUI…', action: 'rebindGame' });
+    options.push({ label: 'Rebind in Cyrune Arcade…', action: 'rebindGame' });
     options.push({ label: 'Edit game shortcut', action: 'editGame' });
     if (getGameStatus(item).state !== 'unbound') options.push({ label: 'Forget device binding', action: 'forgetGame' });
     options.push({ label: 'Duplicate', action: 'duplicateGame' });
@@ -1175,9 +1175,9 @@ function handleSearchResultContextMenu(event, item, meta) {
     options.push({ label: 'Delete application', action: 'deleteItem' });
   } else if (item.type === 'game') {
     options.push({ label: 'Launch game', action: 'launchGame' });
-    options.push({ label: 'Open in EmuGUI', action: 'openGameInEmuGui' });
+    options.push({ label: 'Open in Cyrune Arcade', action: 'openGameInEmuGui' });
     options.push({ label: 'Reveal game file', action: 'revealGame' });
-    options.push({ label: 'Rebind in EmuGUI…', action: 'rebindGame' });
+    options.push({ label: 'Rebind in Cyrune Arcade…', action: 'rebindGame' });
     options.push({ label: 'Edit game shortcut', action: 'editGame' });
     if (getGameStatus(item).state !== 'unbound') options.push({ label: 'Forget device binding', action: 'forgetGame' });
     options.push({ label: 'Show in board', action: `openInBoard:${meta.boardId}` });

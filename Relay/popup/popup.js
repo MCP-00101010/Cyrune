@@ -163,10 +163,10 @@ async function main() {
   function renderStatus() {
     setRow(elMorpheus,
       morpheusOpen
-        ? '● Morpheus is open'
+        ? '● Cyrune Portal is open'
         : (fileSchemeAccessRequired && fileSchemeAccess === false
           ? '○ Local-file access is disabled'
-          : '○ Waiting for Morpheus…'),
+          : '○ Waiting for Cyrune Portal…'),
       morpheusOpen ? 'ok' : 'warn'
     );
 
@@ -181,7 +181,7 @@ async function main() {
       elPath.classList.toggle('warn', !databasePath);
       elPath.classList.toggle('muted', !databasePath);
       if (!morpheusOpen && fileSchemeAccessRequired && fileSchemeAccess === false) {
-        elDetail.textContent = 'Open about:addons → Morpheus WebHub → Permissions, then enable “Access local files on your computer”.';
+        elDetail.textContent = 'Open about:addons → Cyrune Relay → Permissions, then enable “Access local files on your computer”.';
         elDetail.classList.remove('hidden');
         elDetail.classList.add('warn');
       } else if (!morpheusOpen && hubRelayError) {
@@ -196,7 +196,7 @@ async function main() {
       elPath.classList.remove('hidden');
       elPath.classList.add('muted');
       elDetail.textContent = fileSchemeAccessRequired && fileSchemeAccess === false
-        ? 'Open about:addons → Morpheus WebHub → Permissions, then enable “Access local files on your computer”.'
+        ? 'Open about:addons → Cyrune Relay → Permissions, then enable “Access local files on your computer”.'
         : (nativeError ? `Native error: ${nativeError}` : 'Native host did not connect');
       elDetail.classList.remove('hidden');
       elDetail.classList.add('warn');
@@ -252,7 +252,7 @@ async function main() {
     updateActionButtons();
     try {
       await refreshStatus();
-      if (!morpheusOpen) throw new Error('Morpheus WebHub is not open');
+      if (!morpheusOpen) throw new Error('Cyrune Portal is not open');
       const res = await browser.runtime.sendMessage({
         type,
         targetBoardId: target?.board?.id || '',

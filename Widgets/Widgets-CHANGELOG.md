@@ -12,6 +12,8 @@ Historical entries below are preserved from Portal releases whose release notes 
 
 ### Changed
 
+- Updated notification defaults, SDK examples, provider identification, export filenames, and Relay guidance to use the Cyrune Portal, Widgets, and Relay names.
+- Renamed the active backlog and release log to `Widgets-TODO.md` and `Widgets-CHANGELOG.md` for unambiguous editor tabs.
 - Began the path-only category regrouping with Git Workspace under `coding-development/`, colocating its JavaScript, CSS, and focused test without changing its widget ID or behaviour.
 - Moved Nexus Mods Tracker and its focused test into `gaming/`, preserving its existing widget identity, provider boundaries, and load order.
 - Moved Football Tracker and its focused test into `sports/`, preserving provider ordering, calendar integration, and the existing widget ID.
@@ -23,6 +25,10 @@ Historical entries below are preserved from Portal releases whose release notes 
 - Moved Calendar, Focus Session, Saved Sessions, and Universal Search with their focused tests into `personal-productivity/`, retaining cross-widget Calendar feeds and local-state boundaries.
 - Moved the widget registry and built-ins, network adapter, SDK, shared action layout, SDK examples, and manifest validator into `core/` without changing their global contracts or browser load order.
 - Extended root validation to discover colocated widget tests and syntax-check JavaScript throughout `Widgets/`.
+
+### Validation
+
+- The coordinated naming and migration audit passes all 253 colocated Widget tests and JavaScript syntax checks.
 
 ### Validation
 
@@ -1669,7 +1675,7 @@ Historical entries below are preserved from Portal releases whose release notes 
 - **Sidebar opacity controls** — Global Settings now lets sidebar cards inherit the active tab container opacity by default or use a dedicated sidebar opacity override instead.
 - **Edit/create modal unification** — create/edit flows across the hub now use the shared transparent shell, flatter inner sections, and aligned tag-field layouts, with widget editing left on the older styling for now.
 - **Utility modal refresh** — Search, Inbox, Import Manager, Tag Manager, Trash, and most utility surfaces now follow the shared header/footer/panel treatment, leaving only minor follow-up polish work around Sets Manager.
-- **Modal pattern rules** — documented the current hub modal styling rules and remaining rollout expectations in the `UI Pattern Notes` section of `TODO.md` so the remaining cleanup work has a clear visual contract.
+- **Modal pattern rules** — documented the current hub modal styling rules and remaining rollout expectations in the `UI Pattern Notes` section of `Widgets-TODO.md` so the remaining cleanup work has a clear visual contract.
 - **Tag Manager rename flow** — tags can now be renamed inline directly on their chips with double-click, keeping the Tag Manager interaction style lightweight and consistent.
 
 ### Fixed

@@ -1,5 +1,9 @@
 # Cyrune Arcade TODO
 
+## Component Versioning
+
+- Introduce an independent semantic Arcade version with one authoritative declaration, a matching component manifest, visible About/status reporting, changelog enforcement, and repository validation without coupling it to Portal or Relay releases.
+
 ## Metadata Editing
 
 - Extend the first-pass metadata editor with dedicated `Set Country` and `Set Language` quick actions.
@@ -28,6 +32,11 @@
 
 - Add a browsing mode for arbitrary source roots such as raw TOSEC or TheSpectrum collections.
 - Reuse the TOSEC parser for title, year, publisher, memory, country, language, flags, and media/version tags.
+
+## Research Actions
+
+- Add a bounded game context action that searches the web using the game title plus system, with an optional direct TheGamesDB lookup when a stable provider identity is available.
+- Keep search URLs explicit, HTTPS-only, and user-triggered; do not treat search results as trusted metadata until the normal preview/apply workflow validates them.
 
 ## Performance / Large Collections
 

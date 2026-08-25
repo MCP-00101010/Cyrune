@@ -374,7 +374,7 @@ function buildCommandPaletteEntries() {
 
   const settingsPages = [
     ['general', 'General Settings'], ['ui', 'UI Settings'], ['api-keys', 'API Keys'],
-    ['theme', 'Theme Settings'], ['style', 'Style Settings'], ['about', 'About Morpheus WebHub']
+    ['theme', 'Theme Settings'], ['style', 'Style Settings'], ['about', 'About Cyrune Portal']
   ];
   for (const [tab, label] of settingsPages) {
     add({

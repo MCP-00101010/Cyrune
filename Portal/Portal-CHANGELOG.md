@@ -5,6 +5,21 @@ Format: `[version] — date` followed by Added / Changed / Fixed sections.
 
 ---
 
+## [0.11.223] — 2026-08-25
+
+### Changed
+
+- **Cyrune product language** — Portal titles, settings, notices, context actions, export filenames, Arcade integration messages, and Relay/Host setup guidance now use the Cyrune component names.
+- **Component documentation names** — renamed the active backlog and release log to `Portal-TODO.md` and `Portal-CHANGELOG.md` for unambiguous editor tabs.
+
+### Fixed
+
+- **Legacy default title migration** — saved databases that still use the exact former default title now display `Cyrune Portal`; custom user-supplied Portal names remain unchanged.
+
+### Validation
+
+- All 89 Portal tests pass, including new coverage for exact-default title migration and preservation of custom names. The complete coordinated suite, JavaScript syntax checks, component-version validation, and Relay extension lint also pass.
+
 ## [0.11.222] — 2026-08-25
 
 ### Changed
@@ -207,7 +222,7 @@ Format: `[version] — date` followed by Added / Changed / Fixed sections.
 
 ### Changed
 
-- **Explicit application-drop boundary** — readable `.url` files and allowlisted launcher URIs remain true one-drop application links. Raw `.exe`, `.com`, and binary `.lnk` files deliberately continue through the native picker because Firefox exposes their name and contents but not the absolute Windows source path required for a stable device-local launch binding. This accepted platform limitation is now recorded in `TODO.md` alongside the reason image drops can still be copied directly.
+- **Explicit application-drop boundary** — readable `.url` files and allowlisted launcher URIs remain true one-drop application links. Raw `.exe`, `.com`, and binary `.lnk` files deliberately continue through the native picker because Firefox exposes their name and contents but not the absolute Windows source path required for a stable device-local launch binding. This accepted platform limitation is now recorded in `Portal-TODO.md` alongside the reason image drops can still be copied directly.
 
 ### Fixed
 
@@ -2276,7 +2291,7 @@ Format: `[version] — date` followed by Added / Changed / Fixed sections.
 - **Sidebar opacity controls** — Global Settings now lets sidebar cards inherit the active tab container opacity by default or use a dedicated sidebar opacity override instead.
 - **Edit/create modal unification** — create/edit flows across the hub now use the shared transparent shell, flatter inner sections, and aligned tag-field layouts, with widget editing left on the older styling for now.
 - **Utility modal refresh** — Search, Inbox, Import Manager, Tag Manager, Trash, and most utility surfaces now follow the shared header/footer/panel treatment, leaving only minor follow-up polish work around Sets Manager.
-- **Modal pattern rules** — documented the current hub modal styling rules and remaining rollout expectations in the `UI Pattern Notes` section of `TODO.md` so the remaining cleanup work has a clear visual contract.
+- **Modal pattern rules** — documented the current hub modal styling rules and remaining rollout expectations in the `UI Pattern Notes` section of `Portal-TODO.md` so the remaining cleanup work has a clear visual contract.
 - **Tag Manager rename flow** — tags can now be renamed inline directly on their chips with double-click, keeping the Tag Manager interaction style lightweight and consistent.
 
 ### Fixed
@@ -2346,7 +2361,7 @@ Format: `[version] — date` followed by Added / Changed / Fixed sections.
 ### Changed
 
 - **Explicit tab inbox model** — tab inboxes are now stored as real `tab.inbox` state instead of hidden pseudo-columns, while preserving the current inbox UI and delivery behavior.
-- **Backlog cleanup** — removed the now-actioned Inbox Model Cleanup section from `TODO.md`.
+- **Backlog cleanup** — removed the now-actioned Inbox Model Cleanup section from `Portal-TODO.md`.
 
 ### Fixed
 
@@ -2368,7 +2383,7 @@ Format: `[version] — date` followed by Added / Changed / Fixed sections.
 - **Board and tab editing flow** — board creation/editing now uses the old collection-style modal role, while tab editing uses the old board-settings modal role.
 - **Import delivery model** — inbox delivery is now tab-aware across Import Manager sends, bulk move flows, and extension tab send, and the Import Manager button now shows a staged-item indicator badge.
 - **UI shell cleanup** — Tag Manager, Sets Manager, and settings-style panels now follow the current modal/header patterns more closely, drag from their headers, and use the updated sidebar/footer presentation.
-- **Project backlog cleanup** — removed actioned overhaul and UI items from `TODO.md` so the backlog reflects only remaining work.
+- **Project backlog cleanup** — removed actioned overhaul and UI items from `Portal-TODO.md` so the backlog reflects only remaining work.
 
 ### Fixed
 

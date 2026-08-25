@@ -49,7 +49,7 @@ function _phaseOneWriteJsonStorage(key, value) {
     localStorage.setItem(key, JSON.stringify(value));
     return true;
   } catch (error) {
-    console.warn(`Morpheus: failed to store ${key}`, error);
+    console.warn(`Cyrune Portal: failed to store ${key}`, error);
     return false;
   }
 }
@@ -470,7 +470,7 @@ function applyBookmarkUrlChanges(changes, label = 'bookmark URLs') {
   if (typeof renderAll === 'function') renderAll();
   if (typeof saveState === 'function') void saveState();
   syncBookmarkActivityInventory();
-  console.info(`Morpheus: updated ${applicable.length} ${label}`);
+  console.info(`Cyrune Portal: updated ${applicable.length} ${label}`);
   return applicable.length;
 }
 
@@ -921,7 +921,7 @@ function exportBookmarkActivity() {
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement('a');
   anchor.href = url;
-  anchor.download = `morpheus-bookmark-activity-${new Date().toISOString().slice(0, 10)}.json`;
+  anchor.download = `cyrune-portal-bookmark-activity-${new Date().toISOString().slice(0, 10)}.json`;
   anchor.click();
   setTimeout(() => URL.revokeObjectURL(url), 0);
 }

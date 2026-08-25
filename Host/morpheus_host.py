@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Morpheus WebHub — native messaging host.
+Cyrune Host — native messaging host for Portal, Relay, and Arcade.
 Handles file read/write and file-picker dialogs for the Firefox extension.
 """
 
@@ -44,6 +44,28 @@ def default_config_path():
 
 
 CONFIG_PATH = default_config_path()
+CYRUNE_REPO_ROOT = os.path.dirname(HOST_DIR)
+
+
+def default_nexus_data_root():
+    override = str(os.environ.get('CYRUNE_NEXUS_DATA', '') or '').strip()
+    if override:
+        return os.path.abspath(os.path.expanduser(override))
+    if sys.platform == 'win32':
+        base = os.environ.get('LOCALAPPDATA') or os.path.expanduser('~\\AppData\\Local')
+    else:
+        base = os.environ.get('XDG_DATA_HOME') or os.path.expanduser('~/.local/share')
+    return os.path.join(base, 'Cyrune', 'Nexus')
+
+
+NEXUS_DATA_ROOT = default_nexus_data_root()
+NEXUS_SETTINGS_PATH = os.path.join(NEXUS_DATA_ROOT, 'settings.json')
+NEXUS_HISTORY_PATH = os.path.join(NEXUS_DATA_ROOT, 'settings-history.json')
+NEXUS_VALIDATION_PATH = os.path.join(NEXUS_DATA_ROOT, 'validation.json')
+NEXUS_SETTINGS_SCHEMA_VERSION = 1
+MAX_NEXUS_SETTINGS_BYTES = 64 * 1024
+MAX_NEXUS_DOCUMENT_BYTES = 512 * 1024
+MAX_NEXUS_HISTORY = 100
 MAX_DOWNLOAD_BYTES = 25 * 1024 * 1024
 MAX_FAVICON_BYTES = 1024 * 1024
 MAX_APPLICATION_ICON_BYTES = 480 * 1024
@@ -180,7 +202,7 @@ def secret_set(key, value):
     credential.CredentialBlobSize = len(blob)
     credential.CredentialBlob = ctypes.cast(blob_buffer, ctypes.POINTER(ctypes.c_byte))
     credential.Persist = CRED_PERSIST_LOCAL_MACHINE
-    credential.UserName = 'Morpheus WebHub'
+    credential.UserName = 'Cyrune Host'
     if not advapi32.CredWriteW(ctypes.byref(credential), 0):
         raise ctypes.WinError(ctypes.get_last_error())
 
@@ -306,7 +328,7 @@ def open_file_picker(accept='', title='Select file'):
     return None
 
 
-def save_file_picker(accept='json', title='Choose file', default_name='morpheus-webhub.json'):
+def save_file_picker(accept='json', title='Choose file', default_name='cyrune-portal.json'):
     filetypes_tk = _picker_filetypes(accept)
 
     # --- Windows first: PowerShell save dialog in STA mode ---
@@ -395,7 +417,7 @@ class FaviconLinkParser(HTMLParser):
 
 def _request_headers(accept):
     return {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:142.0) Gecko/20100101 Firefox/142.0 MorpheusWebHub/1.0',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:142.0) Gecko/20100101 Firefox/142.0 CyruneHost/1.0',
         'Accept': accept,
         'Accept-Language': 'en-US,en;q=0.8'
     }
@@ -1104,17 +1126,536 @@ def save_config(config):
 
 
 # ---------------------------------------------------------------------------
-# EmuGUI service bridge
+# Cyrune Nexus settings, documents, and sanitized project status
+# ---------------------------------------------------------------------------
+
+NEXUS_DEFAULT_SETTINGS = {
+    'schemaVersion': NEXUS_SETTINGS_SCHEMA_VERSION,
+    'revision': 0,
+    'updatedAt': 0,
+    'region': {'country': 'GB', 'city': '', 'timeZone': 'Europe/London', 'locationMode': 'manual'},
+    'units': {'system': 'metric', 'temperature': 'celsius', 'distance': 'kilometres',
+              'speed': 'kilometres-per-hour', 'mass': 'kilograms', 'volume': 'litres',
+              'pressure': 'hectopascals'},
+    'language': {'primary': 'en-GB', 'secondary': '', 'interface': 'en-GB', 'content': 'en-GB'},
+    'formatting': {'date': 'day-month-year', 'clock': '24-hour', 'currency': 'GBP', 'weekStart': 'monday'},
+    'behaviour': {'externalLinks': 'new-tab', 'confirmPrivilegedActions': True, 'restoreLastView': True},
+    'accessibility': {'scale': '100', 'reducedMotion': False, 'highContrast': False},
+    'privacy': {'allowOptionalNetwork': True, 'allowApproximateLocation': False, 'allowPreciseLocation': False}
+}
+
+NEXUS_SETTING_ENUMS = {
+    'region.locationMode': {'manual', 'approximate', 'precise'},
+    'units.system': {'metric', 'imperial', 'custom'},
+    'units.temperature': {'celsius', 'fahrenheit'},
+    'units.distance': {'kilometres', 'miles'},
+    'units.speed': {'kilometres-per-hour', 'miles-per-hour'},
+    'units.mass': {'kilograms', 'pounds'},
+    'units.volume': {'litres', 'gallons-uk', 'gallons-us'},
+    'units.pressure': {'hectopascals', 'inches-of-mercury'},
+    'formatting.date': {'day-month-year', 'month-day-year', 'year-month-day', 'locale'},
+    'formatting.clock': {'12-hour', '24-hour', 'locale'},
+    'formatting.weekStart': {'monday', 'sunday', 'saturday', 'locale'},
+    'behaviour.externalLinks': {'new-tab', 'current-tab', 'component-default'},
+    'accessibility.scale': {'90', '100', '110', '125'}
+}
+
+NEXUS_SETTING_STRING_LIMITS = {
+    'region.country': 2, 'region.city': 80, 'region.timeZone': 80,
+    'language.primary': 35, 'language.secondary': 35, 'language.interface': 35,
+    'language.content': 35, 'formatting.currency': 3
+}
+
+NEXUS_SETTING_BOOLEANS = {
+    'behaviour.confirmPrivilegedActions', 'behaviour.restoreLastView',
+    'accessibility.reducedMotion', 'accessibility.highContrast',
+    'privacy.allowOptionalNetwork', 'privacy.allowApproximateLocation',
+    'privacy.allowPreciseLocation'
+}
+
+NEXUS_DOCUMENTS = {
+    'portal': {'todo': ('Portal', 'Portal-TODO.md'), 'changelog': ('Portal', 'Portal-CHANGELOG.md')},
+    'widgets': {'todo': ('Widgets', 'Widgets-TODO.md'), 'changelog': ('Widgets', 'Widgets-CHANGELOG.md')},
+    'arcade': {'todo': ('Arcade', 'Arcade-TODO.md'), 'changelog': ('Arcade', 'Arcade-CHANGELOG.md')},
+    'relay': {'todo': ('Relay', 'Relay-TODO.md'), 'changelog': ('Relay', 'Relay-CHANGELOG.md')},
+    'host': {'todo': ('Host', 'Host-TODO.md'), 'changelog': ('Host', 'Host-CHANGELOG.md')},
+    'nexus': {'todo': ('Nexus', 'Nexus-TODO.md'), 'changelog': ('Nexus', 'Nexus-CHANGELOG.md')},
+    'project': {'todo': ('CYRUNE-MONOREPO-TODO.md',), 'project': ('PROJECT.md',), 'changelog': ('CHANGELOG.md',)}
+}
+
+
+def _clone_json(value):
+    return json.loads(json.dumps(value, ensure_ascii=False))
+
+
+def _setting_leaf_paths(value, prefix=''):
+    paths = []
+    if not isinstance(value, dict):
+        return [prefix] if prefix else []
+    for key, child in value.items():
+        if key in {'schemaVersion', 'revision', 'updatedAt'} and not prefix:
+            continue
+        path = f'{prefix}.{key}' if prefix else key
+        paths.extend(_setting_leaf_paths(child, path))
+    return paths
+
+
+def validate_nexus_settings(candidate):
+    if not isinstance(candidate, dict):
+        raise ValueError('Nexus settings must be an object')
+    try:
+        encoded = json.dumps(candidate, ensure_ascii=False).encode('utf-8')
+    except (TypeError, ValueError) as error:
+        raise ValueError('Nexus settings must be JSON-compatible') from error
+    if len(encoded) > MAX_NEXUS_SETTINGS_BYTES:
+        raise ValueError('Nexus settings payload is too large')
+    allowed_top = set(NEXUS_DEFAULT_SETTINGS)
+    unknown_top = set(candidate) - allowed_top
+    if unknown_top:
+        raise ValueError(f'Unknown Nexus settings section: {sorted(unknown_top)[0]}')
+    schema_version = candidate.get('schemaVersion', NEXUS_SETTINGS_SCHEMA_VERSION)
+    if schema_version != NEXUS_SETTINGS_SCHEMA_VERSION:
+        raise ValueError('Unsupported Nexus settings schema version')
+    output = _clone_json(NEXUS_DEFAULT_SETTINGS)
+    for section, defaults in NEXUS_DEFAULT_SETTINGS.items():
+        if not isinstance(defaults, dict):
+            continue
+        supplied = candidate.get(section, {})
+        if not isinstance(supplied, dict):
+            raise ValueError(f'Nexus settings section {section} must be an object')
+        unknown = set(supplied) - set(defaults)
+        if unknown:
+            raise ValueError(f'Unknown Nexus setting: {section}.{sorted(unknown)[0]}')
+        for key, default in defaults.items():
+            path = f'{section}.{key}'
+            value = supplied.get(key, default)
+            if path in NEXUS_SETTING_BOOLEANS:
+                if not isinstance(value, bool):
+                    raise ValueError(f'Nexus setting {path} must be true or false')
+            elif path in NEXUS_SETTING_ENUMS:
+                if value not in NEXUS_SETTING_ENUMS[path]:
+                    raise ValueError(f'Nexus setting {path} has an unsupported value')
+            elif path in NEXUS_SETTING_STRING_LIMITS:
+                if not isinstance(value, str) or len(value) > NEXUS_SETTING_STRING_LIMITS[path] or any(ord(ch) < 32 for ch in value):
+                    raise ValueError(f'Nexus setting {path} is invalid')
+            output[section][key] = value
+    if not re.fullmatch(r'[A-Za-z]{2}', output['region']['country']):
+        raise ValueError('Nexus region country must be a two-letter code')
+    output['region']['country'] = output['region']['country'].upper()
+    language_pattern = re.compile(r'^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$')
+    for key in ('primary', 'interface', 'content'):
+        if not language_pattern.fullmatch(output['language'][key]):
+            raise ValueError(f'Nexus language {key} must be a BCP 47 language tag')
+    if output['language']['secondary'] and not language_pattern.fullmatch(output['language']['secondary']):
+        raise ValueError('Nexus secondary language must be a BCP 47 language tag')
+    if not re.fullmatch(r'[A-Za-z]{3}', output['formatting']['currency']):
+        raise ValueError('Nexus currency must be a three-letter code')
+    output['formatting']['currency'] = output['formatting']['currency'].upper()
+    if not re.fullmatch(r'(?:UTC|[A-Za-z0-9._+-]+(?:/[A-Za-z0-9._+-]+)+)', output['region']['timeZone']):
+        raise ValueError('Nexus time zone must be UTC or an IANA time-zone name')
+    if output['region']['locationMode'] == 'approximate' and not output['privacy']['allowApproximateLocation']:
+        raise ValueError('Approximate location mode requires its privacy permission')
+    if output['region']['locationMode'] == 'precise' and not output['privacy']['allowPreciseLocation']:
+        raise ValueError('Precise location mode requires its privacy permission')
+    return output
+
+
+def load_nexus_settings():
+    try:
+        with open(NEXUS_SETTINGS_PATH, 'r', encoding='utf-8') as source:
+            payload = json.load(source)
+    except FileNotFoundError:
+        return _clone_json(NEXUS_DEFAULT_SETTINGS)
+    except (OSError, json.JSONDecodeError) as error:
+        raise RuntimeError(f'The authoritative Nexus settings are unreadable: {error}') from error
+    settings = validate_nexus_settings(payload)
+    revision = payload.get('revision', 0)
+    updated_at = payload.get('updatedAt', 0)
+    if not isinstance(revision, int) or isinstance(revision, bool) or revision < 0:
+        raise ValueError('The authoritative Nexus settings revision is invalid')
+    if not isinstance(updated_at, int) or isinstance(updated_at, bool) or updated_at < 0:
+        raise ValueError('The authoritative Nexus settings timestamp is invalid')
+    settings['revision'] = revision
+    settings['updatedAt'] = updated_at
+    return settings
+
+
+def _nexus_changed_keys(before, after):
+    keys = []
+    for path in _setting_leaf_paths(after):
+        parts = path.split('.')
+        left = before
+        right = after
+        for part in parts:
+            left = left.get(part) if isinstance(left, dict) else None
+            right = right.get(part) if isinstance(right, dict) else None
+        if left != right:
+            keys.append(path)
+    return keys[:64]
+
+
+def _append_nexus_history(record):
+    history = []
+    try:
+        with open(NEXUS_HISTORY_PATH, 'r', encoding='utf-8') as source:
+            loaded = json.load(source)
+        if isinstance(loaded, list):
+            history = [item for item in loaded if isinstance(item, dict)][-MAX_NEXUS_HISTORY + 1:]
+    except (FileNotFoundError, OSError, json.JSONDecodeError):
+        history = []
+    history.append(record)
+    atomic_write_text(NEXUS_HISTORY_PATH, json.dumps(history, ensure_ascii=False, indent=2) + '\n')
+
+
+def save_nexus_settings(candidate, expected_revision):
+    if not isinstance(expected_revision, int) or isinstance(expected_revision, bool) or expected_revision < 0:
+        raise ValueError('Expected Nexus settings revision is invalid')
+    validated = validate_nexus_settings(candidate)
+    with database_write_lock(NEXUS_SETTINGS_PATH):
+        current = load_nexus_settings()
+        if current['revision'] != expected_revision:
+            return {'conflict': True, 'settings': current, 'storage': nexus_storage_status()}
+        saved = validated
+        saved['revision'] = current['revision'] + 1
+        saved['updatedAt'] = int(time.time() * 1000)
+        if os.path.isfile(NEXUS_SETTINGS_PATH):
+            backup_dir = os.path.join(NEXUS_DATA_ROOT, 'backups')
+            backup_path = os.path.join(backup_dir, f'settings.revision-{current["revision"]}.json')
+            with open(NEXUS_SETTINGS_PATH, 'r', encoding='utf-8') as source:
+                atomic_write_text(backup_path, source.read())
+            backups = sorted(Path(backup_dir).glob('settings.revision-*.json'), key=lambda item: item.stat().st_mtime_ns, reverse=True)
+            for obsolete in backups[10:]:
+                try:
+                    obsolete.unlink()
+                except OSError:
+                    pass
+        atomic_write_text(NEXUS_SETTINGS_PATH, json.dumps(saved, ensure_ascii=False, indent=2) + '\n')
+        changed_keys = _nexus_changed_keys(current, saved)
+        history_recorded = True
+        try:
+            _append_nexus_history({'revision': saved['revision'], 'updatedAt': saved['updatedAt'], 'changedKeys': changed_keys})
+        except OSError:
+            history_recorded = False
+        return {'conflict': False, 'settings': saved, 'changedKeys': changed_keys,
+                'historyRecorded': history_recorded, 'storage': nexus_storage_status()}
+
+
+def nexus_storage_status():
+    info = get_file_info(NEXUS_SETTINGS_PATH, include_hash=True)
+    return {'location': NEXUS_SETTINGS_PATH, **info}
+
+
+def authorize_nexus_page(page_url):
+    parsed = urllib.parse.urlsplit(str(page_url or ''))
+    if parsed.scheme.casefold() != 'file' or parsed.netloc not in {'', 'localhost'} or parsed.query:
+        return False
+    path = urllib.request.url2pathname(parsed.path or '')
+    if sys.platform == 'win32' and re.match(r'^/[a-zA-Z]:[\\/]', path):
+        path = path[1:]
+    expected = os.path.realpath(os.path.join(CYRUNE_REPO_ROOT, 'Nexus', 'index.html'))
+    return os.path.normcase(os.path.realpath(path)) == os.path.normcase(expected)
+
+
+def _nexus_document_path(component, document_type):
+    component_id = str(component or '').strip().lower()
+    kind = str(document_type or '').strip().lower()
+    relative_parts = NEXUS_DOCUMENTS.get(component_id, {}).get(kind)
+    if not relative_parts:
+        raise ValueError('Unsupported Nexus component document')
+    path = os.path.realpath(os.path.join(CYRUNE_REPO_ROOT, *relative_parts))
+    if os.path.commonpath([os.path.realpath(CYRUNE_REPO_ROOT), path]) != os.path.realpath(CYRUNE_REPO_ROOT):
+        raise ValueError('Nexus document escaped the project root')
+    return component_id, kind, path
+
+
+def read_nexus_document(component, document_type):
+    component_id, kind, path = _nexus_document_path(component, document_type)
+    info = get_file_info(path)
+    if not info['exists'] or (info.get('size') or 0) > MAX_NEXUS_DOCUMENT_BYTES:
+        raise ValueError('Nexus component document is missing or too large')
+    with open(path, 'r', encoding='utf-8') as source:
+        markdown = source.read(MAX_NEXUS_DOCUMENT_BYTES + 1)
+    if len(markdown.encode('utf-8')) > MAX_NEXUS_DOCUMENT_BYTES:
+        raise ValueError('Nexus component document is too large')
+    return {'component': component_id, 'documentType': kind, 'markdown': markdown,
+            'modifiedMs': info.get('modifiedMs'), 'size': info.get('size')}
+
+
+def _find_vscode_executable():
+    candidates = []
+    if sys.platform == 'win32':
+        candidates.extend([shutil.which('code.exe'), shutil.which('Code.exe')])
+        for variable, parts in (
+                ('LOCALAPPDATA', ('Programs', 'Microsoft VS Code', 'Code.exe')),
+                ('PROGRAMFILES', ('Microsoft VS Code', 'Code.exe')),
+                ('PROGRAMFILES(X86)', ('Microsoft VS Code', 'Code.exe'))):
+            base = str(os.environ.get(variable, '') or '').strip()
+            if base:
+                candidates.append(os.path.join(base, *parts))
+    else:
+        candidates.extend([
+            shutil.which('code'),
+            '/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code'
+        ])
+    for candidate in candidates:
+        if candidate and os.path.isfile(candidate):
+            return os.path.realpath(candidate)
+    raise FileNotFoundError('Visual Studio Code is not installed in a supported location')
+
+
+def open_nexus_todo(component):
+    component_id, _kind, path = _nexus_document_path(component, 'todo')
+    if not os.path.isfile(path):
+        raise FileNotFoundError('The requested Cyrune TODO is unavailable')
+    executable = _find_vscode_executable()
+    subprocess.Popen(
+        [executable, '--reuse-window', path],
+        cwd=CYRUNE_REPO_ROOT,
+        close_fds=True,
+        creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0)
+    )
+    return {'opened': True, 'component': component_id, 'editor': 'Visual Studio Code'}
+
+
+def _read_component_version(component_id):
+    try:
+        if component_id == 'portal':
+            text = Path(CYRUNE_REPO_ROOT, 'Portal', 'source', 'app.js').read_text(encoding='utf-8')
+            match = re.search(r"APP_VERSION\s*=\s*'([^']+)'", text)
+            return match.group(1) if match else 'Unknown'
+        if component_id == 'relay':
+            return str(json.loads(Path(CYRUNE_REPO_ROOT, 'Relay', 'manifest.json').read_text(encoding='utf-8')).get('version') or 'Unknown')
+        if component_id == 'nexus':
+            return str(json.loads(Path(CYRUNE_REPO_ROOT, 'Nexus', 'component.json').read_text(encoding='utf-8')).get('version') or 'Unknown')
+    except (OSError, ValueError, json.JSONDecodeError):
+        return 'Unknown'
+    return 'Unversioned'
+
+
+def _component_updated_ms(component_id):
+    try:
+        output = _run_git(CYRUNE_REPO_ROOT, ['log', '-1', '--format=%ct', '--', component_id.capitalize()]).strip()
+        if output.isdigit():
+            return int(output) * 1000
+    except Exception:
+        pass
+    path = os.path.join(CYRUNE_REPO_ROOT, component_id.capitalize())
+    try:
+        return int(os.stat(path).st_mtime_ns / 1_000_000)
+    except OSError:
+        return 0
+
+
+def nexus_repository_status():
+    path = os.path.realpath(CYRUNE_REPO_ROOT)
+    sampled_at = int(time.time() * 1000)
+    try:
+        status = _run_git(path, ['status', '--porcelain=v2', '--branch'])
+    except Exception:
+        return {'available': False, 'errorCode': 'repository-status-unavailable', 'sampledAt': sampled_at}
+    branch = ''
+    detached = False
+    ahead = behind = staged = unstaged = untracked = 0
+    for line in status.splitlines():
+        if line.startswith('# branch.head '):
+            branch = line[len('# branch.head '):].strip()
+            detached = branch == '(detached)'
+        elif line.startswith('# branch.ab '):
+            match = re.search(r'\+(\d+)\s+-(\d+)', line)
+            if match:
+                ahead, behind = int(match.group(1)), int(match.group(2))
+        elif line.startswith('? '):
+            untracked += 1
+        elif line.startswith(('1 ', '2 ', 'u ')):
+            parts = line.split()
+            xy = parts[1] if len(parts) > 1 else '..'
+            staged += int(len(xy) >= 1 and xy[0] not in {'.', ' '})
+            unstaged += int(len(xy) >= 2 and xy[1] not in {'.', ' '})
+    try:
+        commit = _run_git(path, ['log', '-1', '--format=%H%x1f%h%x1f%ct%x1f%s']).strip().split('\x1f')
+    except Exception:
+        commit = []
+    try:
+        remote = _run_git(path, ['remote', 'get-url', 'origin']).strip()
+    except Exception:
+        remote = ''
+    return {
+        'available': True,
+        'branch': branch or 'HEAD', 'detached': detached, 'ahead': ahead, 'behind': behind,
+        'staged': staged, 'unstaged': unstaged, 'untracked': untracked,
+        'clean': staged == 0 and unstaged == 0 and untracked == 0,
+        'lastCommit': {'hash': commit[0] if len(commit) > 0 else '',
+                       'shortHash': commit[1] if len(commit) > 1 else '',
+                       'timestamp': int(commit[2]) * 1000 if len(commit) > 2 and commit[2].isdigit() else 0,
+                       'subject': commit[3][:300] if len(commit) > 3 else ''},
+        'remoteUrl': _git_remote_link(remote), 'sampledAt': sampled_at
+    }
+
+
+def nexus_repository_remote_status():
+    """Compare the current checkout branch with fixed origin without mutating Git state."""
+    path = os.path.realpath(CYRUNE_REPO_ROOT)
+    sampled_at = int(time.time() * 1000)
+    branch = _run_git(path, ['branch', '--show-current']).strip()
+    if (not re.fullmatch(r'[A-Za-z0-9._/-]{1,200}', branch)
+            or branch.startswith(('/', '-')) or branch.endswith('/')
+            or '..' in branch or '//' in branch or '@{' in branch):
+        raise ValueError('The current Cyrune branch cannot be checked remotely')
+    local_head = _run_git(path, ['rev-parse', 'HEAD']).strip().lower()
+    if not re.fullmatch(r'[0-9a-f]{40,64}', local_head):
+        raise RuntimeError('The local Cyrune commit could not be identified')
+    try:
+        tracking_head = _run_git(
+            path, ['rev-parse', '--verify', f'refs/remotes/origin/{branch}']
+        ).strip().lower()
+    except Exception:
+        tracking_head = ''
+    remote_ref = f'refs/heads/{branch}'
+    output = _run_git_remote(path, ['ls-remote', 'origin', remote_ref])
+    remote_head = ''
+    for line in output.splitlines():
+        parts = line.split('\t', 1)
+        if len(parts) == 2 and parts[1] == remote_ref and re.fullmatch(r'[0-9a-fA-F]{40,64}', parts[0]):
+            remote_head = parts[0].lower()
+            break
+    tracking_valid = bool(re.fullmatch(r'[0-9a-f]{40,64}', tracking_head))
+    return {
+        'available': True,
+        'sampledAt': sampled_at,
+        'branch': branch,
+        'localHead': local_head[:12],
+        'trackingHead': tracking_head[:12] if tracking_valid else '',
+        'remoteHead': remote_head[:12] if remote_head else '',
+        'branchAvailable': bool(remote_head),
+        'headMatchesRemote': bool(remote_head) and local_head == remote_head,
+        'trackingCurrent': bool(remote_head) and tracking_valid and tracking_head == remote_head
+    }
+
+
+def _default_arcade_data_root():
+    override = str(os.environ.get('CYRUNE_ARCADE_DATA', '') or '').strip()
+    if override:
+        return os.path.abspath(os.path.expanduser(override))
+    if sys.platform == 'win32':
+        base = os.environ.get('LOCALAPPDATA') or os.path.expanduser('~\\AppData\\Local')
+    else:
+        base = os.environ.get('XDG_DATA_HOME') or os.path.expanduser('~/.local/share')
+    return os.path.join(base, 'Cyrune', 'Arcade')
+
+
+def _sanitized_validation_receipt():
+    try:
+        if os.path.getsize(NEXUS_VALIDATION_PATH) > 128 * 1024:
+            return None
+        with open(NEXUS_VALIDATION_PATH, 'r', encoding='utf-8') as source:
+            receipt = json.load(source)
+        if not isinstance(receipt, dict):
+            return None
+        sanitized = {}
+        schema_version = receipt.get('schemaVersion')
+        timestamp = receipt.get('timestamp')
+        commit = str(receipt.get('commit', '') or '')
+        if isinstance(schema_version, int) and not isinstance(schema_version, bool) and 0 < schema_version <= 100:
+            sanitized['schemaVersion'] = schema_version
+        if isinstance(timestamp, int) and not isinstance(timestamp, bool) and timestamp >= 0:
+            sanitized['timestamp'] = timestamp
+        if re.fullmatch(r'[0-9a-fA-F]{7,64}', commit):
+            sanitized['commit'] = commit
+        allowed_components = {'Portal', 'Widgets', 'Arcade', 'Relay', 'Host', 'Nexus'}
+        allowed_test_groups = allowed_components | {'Migration', 'Packaging', 'Tooling'}
+        versions = receipt.get('versions')
+        if isinstance(versions, dict):
+            sanitized['versions'] = {
+                key: str(value)[:40] for key, value in versions.items()
+                if key in allowed_components and re.fullmatch(r'(?:[0-9]+\.[0-9]+\.[0-9]+|Unversioned)', str(value or ''))
+            }
+        tests = receipt.get('tests')
+        if isinstance(tests, dict):
+            sanitized_tests = {}
+            for key, value in tests.items():
+                if key not in allowed_test_groups:
+                    continue
+                if isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= 1_000_000:
+                    sanitized_tests[key] = value
+                elif isinstance(value, dict):
+                    counts = {name: count for name, count in value.items()
+                              if name in {'passed', 'failed', 'skipped'} and isinstance(count, int)
+                              and not isinstance(count, bool) and 0 <= count <= 1_000_000}
+                    if counts:
+                        sanitized_tests[key] = counts
+            sanitized['tests'] = sanitized_tests
+        checks = receipt.get('checks')
+        if isinstance(checks, dict):
+            allowed_checks = {'syntax', 'manifest', 'versions', 'packaging', 'lint'}
+            allowed_states = {'passed', 'failed', 'skipped', 'unavailable'}
+            sanitized['checks'] = {
+                key: (value if isinstance(value, bool) else str(value))
+                for key, value in checks.items()
+                if key in allowed_checks and (isinstance(value, bool) or str(value) in allowed_states)
+            }
+        return sanitized or None
+    except (FileNotFoundError, OSError, json.JSONDecodeError):
+        return None
+
+
+def nexus_project_status():
+    component_names = {'portal': 'Portal', 'widgets': 'Widgets', 'arcade': 'Arcade',
+                       'relay': 'Relay', 'host': 'Host', 'nexus': 'Nexus'}
+    components = [
+        {'id': component_id, 'name': name, 'version': _read_component_version(component_id),
+         'updatedMs': _component_updated_ms(component_id)}
+        for component_id, name in component_names.items()
+    ]
+    portal_path = str(load_config().get('databasePath', '') or '')
+    portal_info = get_file_info(portal_path, include_hash=True)
+    portal_record = {'location': portal_path, **portal_info}
+    if portal_info.get('exists') and (portal_info.get('size') or 0) <= 64 * 1024 * 1024:
+        try:
+            with open(portal_path, 'r', encoding='utf-8') as source:
+                portal_record['summary'] = summarize_hub_content(source.read())
+        except (OSError, UnicodeError):
+            portal_record['summary'] = {'valid': False}
+    arcade_root = _default_arcade_data_root()
+    arcade_record = {'location': arcade_root, **get_file_info(os.path.join(arcade_root, 'state.json'), include_hash=True)}
+    try:
+        service = emugui_service_status()
+        arcade_record['service'] = {
+            'available': service.get('available') is True,
+            'serviceVersion': int(service.get('serviceVersion', 0) or 0),
+            'collectionCount': int(service.get('collectionCount', 0) or 0),
+            'emulatorCount': int(service.get('emulatorCount', 0) or 0),
+            'profileCount': int(service.get('profileCount', 0) or 0)
+        }
+    except Exception:
+        arcade_record['service'] = {'available': False, 'errorCode': 'arcade-service-unavailable',
+                                    'message': 'Cyrune Arcade service status is unavailable'}
+    return {
+        'schemaVersion': 1,
+        'sampledAt': int(time.time() * 1000),
+        'components': components,
+        'services': {'host': {'available': True, 'version': 'Unversioned',
+                              'capabilities': ['nexusSettings', 'nexusStatus', 'nexusDocuments',
+                                               'nexusTodoEditor', 'repositoryStatus',
+                                               'repositoryRemoteCheck']}},
+        'data': {'portal': portal_record, 'arcade': arcade_record,
+                 'nexus': {'location': NEXUS_DATA_ROOT, **get_file_info(NEXUS_SETTINGS_PATH, include_hash=True)}},
+        'repository': nexus_repository_status(),
+        'validation': _sanitized_validation_receipt()
+    }
+
+
+# ---------------------------------------------------------------------------
+# Cyrune Arcade service bridge
 # ---------------------------------------------------------------------------
 
 def _configured_emugui_service():
     configured_root = str(load_config().get('emuguiRoot', '') or '').strip()
     if not configured_root:
-        raise RuntimeError('Morpheus EmuGUI is not configured in the native host')
+        raise RuntimeError('Cyrune Arcade is not configured in Cyrune Host')
     root = os.path.realpath(configured_root)
     service_path = os.path.join(root, 'emugui_service.py')
     if not os.path.isdir(root) or not os.path.isfile(service_path):
-        raise FileNotFoundError('The configured Morpheus EmuGUI installation is unavailable')
+        raise FileNotFoundError('The configured Cyrune Arcade installation is unavailable')
     return root, service_path
 
 
@@ -1127,7 +1668,7 @@ def _load_emugui_module():
     module_name = 'morpheus_emugui_native_service'
     spec = importlib.util.spec_from_file_location(module_name, service_path)
     if spec is None or spec.loader is None:
-        raise RuntimeError('The Morpheus EmuGUI service could not be loaded')
+        raise RuntimeError('The Cyrune Arcade service could not be loaded')
     module = importlib.util.module_from_spec(spec)
     previous = sys.modules.get(module_name)
     added_path = root not in sys.path
@@ -1149,7 +1690,7 @@ def _load_emugui_module():
             except ValueError:
                 pass
     if not callable(getattr(module, 'dispatch_emugui_read', None)):
-        raise RuntimeError('The configured EmuGUI does not expose the native service contract')
+        raise RuntimeError('The configured Cyrune Arcade installation does not expose the native service contract')
     configure_secrets = getattr(module, 'configure_native_secret_service', None)
     if callable(configure_secrets):
         configure_secrets(
@@ -1181,18 +1722,18 @@ def emugui_api_request(method, path, query=None, body=None):
     query = query if isinstance(query, dict) else {}
     body = body if isinstance(body, dict) else {}
     if method not in {'GET', 'POST'} or not re.fullmatch(r'/api/[a-z0-9/-]{1,80}', path):
-        raise ValueError('The EmuGUI API request is invalid')
+        raise ValueError('The Cyrune Arcade API request is invalid')
     if len(json.dumps({'query': query, 'body': body}, ensure_ascii=False)) > MAX_EMUGUI_RPC_REQUEST_BYTES:
-        raise ValueError('The EmuGUI API request is too large')
+        raise ValueError('The Cyrune Arcade API request is too large')
     module = _load_emugui_module()
     dispatcher = getattr(module, 'dispatch_emugui_api', None)
     if not callable(dispatcher):
-        raise RuntimeError('The configured EmuGUI does not expose the API service contract')
+        raise RuntimeError('The configured Cyrune Arcade installation does not expose the API service contract')
     result = dispatcher(method, path, query, body)
     if not isinstance(result, dict):
-        raise RuntimeError('The EmuGUI API service returned invalid data')
+        raise RuntimeError('The Cyrune Arcade API service returned invalid data')
     if len(json.dumps(result, ensure_ascii=False)) > MAX_EMUGUI_RPC_RESPONSE_BYTES:
-        raise ValueError('The EmuGUI API response is too large')
+        raise ValueError('The Cyrune Arcade API response is too large')
     return result
 
 
@@ -1200,10 +1741,10 @@ def emugui_asset(relative_path):
     module = _load_emugui_module()
     reader = getattr(module, 'read_emugui_asset', None)
     if not callable(reader):
-        raise RuntimeError('The configured EmuGUI does not expose the asset service contract')
+        raise RuntimeError('The configured Cyrune Arcade installation does not expose the asset service contract')
     result = reader(str(relative_path or ''), MAX_EMUGUI_ASSET_BYTES)
     if not isinstance(result, dict):
-        raise RuntimeError('The EmuGUI asset service returned invalid data')
+        raise RuntimeError('The Cyrune Arcade asset service returned invalid data')
     return result
 
 
@@ -1218,15 +1759,15 @@ def _cleanup_emugui_transfers(now=None):
 def read_emugui_transfer_chunk(transfer_id, offset=0):
     transfer_id = str(transfer_id or '')
     if not re.fullmatch(r'[A-Za-z0-9_-]{16,80}', transfer_id):
-        raise ValueError('The EmuGUI transfer ID is invalid')
+        raise ValueError('The Cyrune Arcade transfer ID is invalid')
     _cleanup_emugui_transfers()
     record = EMUGUI_TRANSFERS.get(transfer_id)
     if not record:
-        raise ValueError('The EmuGUI transfer expired or is unknown')
+        raise ValueError('The Cyrune Arcade transfer expired or is unknown')
     data = record['data']
     offset = int(offset or 0)
     if offset < 0 or offset > len(data):
-        raise ValueError('The EmuGUI transfer offset is invalid')
+        raise ValueError('The Cyrune Arcade transfer offset is invalid')
     end = min(len(data), offset + MAX_EMUGUI_TRANSFER_CHUNK_BYTES)
     done = end >= len(data)
     result = {
@@ -1244,7 +1785,7 @@ def read_emugui_transfer_chunk(transfer_id, offset=0):
 def start_emugui_transfer(payload):
     data = json.dumps(payload, ensure_ascii=False, separators=(',', ':')).encode('utf-8')
     if len(data) > MAX_EMUGUI_RPC_RESPONSE_BYTES:
-        raise ValueError('The EmuGUI response is too large')
+        raise ValueError('The Cyrune Arcade response is too large')
     _cleanup_emugui_transfers()
     while len(EMUGUI_TRANSFERS) >= MAX_EMUGUI_TRANSFERS:
         oldest = min(EMUGUI_TRANSFERS, key=lambda key: EMUGUI_TRANSFERS[key]['createdAt'])
@@ -1258,7 +1799,7 @@ def emugui_service_status():
     """Return a path-free summary suitable for the ordinary Hub client."""
     payload = _load_emugui_module().dispatch_emugui_read('STATUS')
     if not isinstance(payload, dict):
-        raise RuntimeError('The Morpheus EmuGUI service returned an invalid status')
+        raise RuntimeError('The Cyrune Arcade service returned an invalid status')
     active = payload.get('active') if isinstance(payload.get('active'), dict) else {}
     collections = payload.get('collections') if isinstance(payload.get('collections'), list) else []
     emulators = payload.get('emulators') if isinstance(payload.get('emulators'), list) else []
@@ -1279,7 +1820,7 @@ def emugui_service_status():
 def _emugui_record(method, params=None):
     payload = _load_emugui_module().dispatch_emugui_read(method, params or {})
     if not isinstance(payload, dict):
-        raise RuntimeError('The Morpheus EmuGUI service returned invalid data')
+        raise RuntimeError('The Cyrune Arcade service returned invalid data')
     return payload
 
 
@@ -1399,11 +1940,11 @@ def create_emugui_game_binding(game_id, emulator_id='', profile_id='', game_key=
     emulator_id = str(emulator_id or '').strip()
     profile_id = str(profile_id or '').strip()
     if not EMUGUI_ID_PATTERN.fullmatch(game_id):
-        raise ValueError('The EmuGUI game ID is invalid')
+        raise ValueError('The Cyrune Arcade game ID is invalid')
     if emulator_id and not EMUGUI_ID_PATTERN.fullmatch(emulator_id):
-        raise ValueError('The EmuGUI emulator ID is invalid')
+        raise ValueError('The Cyrune Arcade emulator ID is invalid')
     if profile_id and not EMUGUI_ID_PATTERN.fullmatch(profile_id):
-        raise ValueError('The EmuGUI profile ID is invalid')
+        raise ValueError('The Cyrune Arcade profile ID is invalid')
     game_key = str(game_key or '').strip()
     if game_key and not GAME_KEY_PATTERN.fullmatch(game_key):
         raise ValueError('The game binding key is invalid')
@@ -1412,11 +1953,11 @@ def create_emugui_game_binding(game_id, emulator_id='', profile_id='', game_key=
     status = _emugui_record('STATUS')
     game = _emugui_record('GET_GAME', {'gameId': game_id}).get('game')
     if not isinstance(game, dict):
-        raise ValueError('The selected EmuGUI game is unavailable')
+        raise ValueError('The selected Cyrune Arcade game is unavailable')
     active = status.get('active') if isinstance(status.get('active'), dict) else {}
     library_id = str(active.get('id', '') or '')
     if not EMUGUI_ID_PATTERN.fullmatch(library_id):
-        raise ValueError('The active EmuGUI library has no stable ID')
+        raise ValueError('The active Cyrune Arcade library has no stable ID')
 
     emulators = [item for item in status.get('emulators', []) if isinstance(item, dict)]
     if not emulator_id:
@@ -1425,14 +1966,14 @@ def create_emugui_game_binding(game_id, emulator_id='', profile_id='', game_key=
         emulator_id = str(next((item.get('id') for item in emulators if item.get('available') is not False), '') or '')
     emulator = next((item for item in emulators if str(item.get('id', '')) == emulator_id), None)
     if emulator is None or emulator.get('available') is False:
-        raise ValueError('The selected EmuGUI emulator is unavailable')
+        raise ValueError('The selected Cyrune Arcade emulator is unavailable')
 
     profiles = [item for item in status.get('profiles', []) if isinstance(item, dict)]
     profile = None
     if profile_id:
         profile = next((item for item in profiles if str(item.get('id', '')) == profile_id), None)
         if profile is None or str(profile.get('emulator_id', '')) != emulator_id:
-            raise ValueError('The selected EmuGUI profile is unavailable for this emulator')
+            raise ValueError('The selected Cyrune Arcade profile is unavailable for this emulator')
 
     config = load_config()
     bindings = config.setdefault('approvedGames', {})
@@ -1472,10 +2013,10 @@ def resolve_emugui_game_source(game_key):
     status = _emugui_record('STATUS')
     active = status.get('active') if isinstance(status.get('active'), dict) else {}
     if str(active.get('id', '')) != str(entry.get('libraryId', '')):
-        raise RuntimeError('The game library is not currently active in EmuGUI')
+        raise RuntimeError('The game library is not currently active in Cyrune Arcade')
     game = _emugui_record('GET_GAME', {'gameId': entry.get('gameId', '')}).get('game')
     if not isinstance(game, dict):
-        raise FileNotFoundError('The bound game is missing from EmuGUI')
+        raise FileNotFoundError('The bound game is missing from Cyrune Arcade')
     return entry, game, status
 
 
@@ -1516,7 +2057,7 @@ def emugui_game_status(game_key, include_thumbnail=False):
     except Exception as error:
         return _game_public_record(game_key, entry, state='game-missing') | {'error': str(error)}
     if not isinstance(game, dict):
-        return _game_public_record(game_key, entry, state='game-missing') | {'error': 'The bound game is missing from EmuGUI'}
+        return _game_public_record(game_key, entry, state='game-missing') | {'error': 'The bound game is missing from Cyrune Arcade'}
     emulators = [item for item in status.get('emulators', []) if isinstance(item, dict)]
     emulator = next((item for item in emulators if str(item.get('id', '')) == str(entry.get('emulatorId', ''))), None)
     if emulator is None or emulator.get('available') is False:
@@ -1569,9 +2110,9 @@ def launch_emugui_game(game_key):
         entry['gameId'], entry['emulatorId'], profile_id=entry.get('profileId', '')
     )
     if not isinstance(result, dict) or result.get('ok') is not True:
-        error = str((result or {}).get('error') or 'EmuGUI could not launch the game')
+        error = str((result or {}).get('error') or 'Cyrune Arcade could not launch the game')
         if isinstance(result, dict) and (result.get('needs_choice') or result.get('needs_confirmation')):
-            error += ' Open the game in EmuGUI to choose how to handle the running emulator.'
+            error += ' Open the game in Cyrune Arcade to choose how to handle the running emulator.'
         raise RuntimeError(error)
     return True
 
@@ -1818,6 +2359,32 @@ def _run_git(path, arguments, timeout=8):
     return output
 
 
+def _run_git_remote(path, arguments, timeout=15):
+    environment = os.environ.copy()
+    environment.update({
+        'GIT_TERMINAL_PROMPT': '0',
+        'GCM_INTERACTIVE': 'Never',
+        'GIT_ASKPASS': '',
+        'SSH_ASKPASS': '',
+        'GIT_SSH_COMMAND': 'ssh -oBatchMode=yes -oConnectTimeout=8'
+    })
+    result = subprocess.run(
+        ['git', '-C', path, *arguments],
+        capture_output=True,
+        text=True,
+        encoding='utf-8',
+        errors='replace',
+        timeout=timeout,
+        env=environment,
+        creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0)
+    )
+    output = (result.stdout or '')[:8192]
+    error = (result.stderr or '')[:1024]
+    if result.returncode != 0:
+        raise RuntimeError(error.strip() or 'Remote Git check failed')
+    return output
+
+
 def _git_remote_link(remote):
     value = str(remote or '').strip()
     if value.startswith('git@') and ':' in value:
@@ -1825,9 +2392,17 @@ def _git_remote_link(remote):
         value = f'https://{host}/{repo}'
     elif value.startswith('ssh://git@'):
         value = 'https://' + value[len('ssh://git@'):]
-    if not value.startswith('https://'):
+    try:
+        parsed = urllib.parse.urlsplit(value)
+    except ValueError:
         return ''
-    return value[:-4] if value.endswith('.git') else value
+    if parsed.scheme.casefold() != 'https' or not parsed.hostname:
+        return ''
+    host = parsed.hostname
+    if parsed.port:
+        host = f'{host}:{parsed.port}'
+    path = parsed.path[:-4] if parsed.path.endswith('.git') else parsed.path
+    return urllib.parse.urlunsplit(('https', host, path, '', ''))
 
 
 def git_workspace_status(handle):
@@ -2408,6 +2983,72 @@ def handle(msg):
         except Exception as e:
             reply_err(str(e))
 
+    elif msg_type == 'NEXUS_AUTHORIZE_PAGE':
+        try:
+            reply_ok(authorized=authorize_nexus_page(msg.get('pageUrl', '')))
+        except Exception:
+            send_message({'ok': False, 'errorCode': 'nexus-authorization-failed',
+                          'error': 'Cyrune Nexus page authorization failed'})
+
+    elif msg_type == 'NEXUS_GET_SETTINGS':
+        try:
+            reply_ok(settings=load_nexus_settings(), storage=nexus_storage_status())
+        except Exception:
+            send_message({'ok': False, 'errorCode': 'nexus-settings-unavailable',
+                          'error': 'Authoritative Cyrune Nexus settings are unavailable'})
+
+    elif msg_type == 'NEXUS_SAVE_SETTINGS':
+        try:
+            reply_ok(**save_nexus_settings(msg.get('settings'), msg.get('expectedRevision')))
+        except ValueError as error:
+            message = str(error)
+            if message.startswith(('Unknown Nexus setting', 'Unknown Nexus settings section')):
+                message = 'Nexus settings contain an unsupported field'
+            send_message({'ok': False, 'errorCode': 'nexus-settings-invalid', 'error': message[:240]})
+        except Exception:
+            send_message({'ok': False, 'errorCode': 'nexus-settings-save-failed',
+                          'error': 'Authoritative Cyrune Nexus settings could not be saved'})
+
+    elif msg_type == 'NEXUS_GET_DOCUMENT':
+        try:
+            reply_ok(document=read_nexus_document(msg.get('component', ''), msg.get('documentType', '')))
+        except Exception:
+            send_message({'ok': False, 'errorCode': 'nexus-document-unavailable',
+                          'error': 'The requested Cyrune project document is unavailable'})
+
+    elif msg_type == 'NEXUS_OPEN_TODO':
+        try:
+            reply_ok(**open_nexus_todo(msg.get('component', '')))
+        except ValueError:
+            send_message({'ok': False, 'errorCode': 'nexus-todo-unsupported',
+                          'error': 'The requested Cyrune TODO is not supported'})
+        except FileNotFoundError:
+            send_message({'ok': False, 'errorCode': 'vscode-unavailable',
+                          'error': 'Visual Studio Code or the requested Cyrune TODO is unavailable'})
+        except Exception:
+            send_message({'ok': False, 'errorCode': 'nexus-todo-open-failed',
+                          'error': 'The requested Cyrune TODO could not be opened in Visual Studio Code'})
+
+    elif msg_type == 'NEXUS_CHECK_REMOTE':
+        try:
+            reply_ok(remote=nexus_repository_remote_status())
+        except subprocess.TimeoutExpired:
+            send_message({'ok': False, 'errorCode': 'nexus-remote-timeout',
+                          'error': 'The Cyrune origin check timed out without changing the repository'})
+        except ValueError:
+            send_message({'ok': False, 'errorCode': 'nexus-remote-branch-unsupported',
+                          'error': 'The current Cyrune branch cannot be checked against origin'})
+        except Exception:
+            send_message({'ok': False, 'errorCode': 'nexus-remote-unavailable',
+                          'error': 'Cyrune origin could not be checked; local repository status is unchanged'})
+
+    elif msg_type == 'NEXUS_GET_STATUS':
+        try:
+            reply_ok(snapshot=nexus_project_status())
+        except Exception:
+            send_message({'ok': False, 'errorCode': 'nexus-status-unavailable',
+                          'error': 'The Cyrune project status snapshot is unavailable'})
+
     elif msg_type == 'READ_FILE':
         path = msg.get('path', '')
         try:
@@ -2770,7 +3411,7 @@ def handle(msg):
     elif msg_type == 'SAVE_FILE_PICKER':
         accept = msg.get('accept', 'json')
         title = msg.get('title', 'Choose file')
-        default_name = msg.get('defaultName', 'morpheus-webhub.json')
+        default_name = msg.get('defaultName', 'cyrune-portal.json')
         path = save_file_picker(accept, title, default_name)
         if path:
             reply_ok(path=path, name=os.path.basename(path))

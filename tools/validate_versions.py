@@ -26,10 +26,25 @@ def validate(repo: Path) -> dict[str, str]:
     relay_version = str(relay.get("version", "") or "")
     if not SEMVER.fullmatch(relay_version):
         raise ValueError("Relay manifest version is missing or invalid")
-    relay_changelog = (repo / "Relay" / "CHANGELOG.md").read_text(encoding="utf-8")
+    relay_changelog = (repo / "Relay" / "Relay-CHANGELOG.md").read_text(encoding="utf-8")
     if f"## [{relay_version}]" not in relay_changelog:
         raise ValueError("Relay changelog has no entry for the manifest version")
-    return {"Portal": portal_version, "Relay": relay_version}
+
+    nexus_manifest = json.loads((repo / "Nexus" / "component.json").read_text(encoding="utf-8"))
+    nexus_version = str(nexus_manifest.get("version", "") or "")
+    if not SEMVER.fullmatch(nexus_version):
+        raise ValueError("Nexus component version is missing or invalid")
+    nexus_source = (repo / "Nexus" / "source" / "model.js").read_text(encoding="utf-8")
+    if f"NEXUS_VERSION = '{nexus_version}'" not in nexus_source:
+        raise ValueError("Nexus model version does not align with component metadata")
+    if f"id: 'portal', name: 'Portal', version: '{portal_version}'" not in nexus_source:
+        raise ValueError("Nexus Portal source metadata does not align with Portal APP_VERSION")
+    if f"id: 'relay', name: 'Relay', version: '{relay_version}'" not in nexus_source:
+        raise ValueError("Nexus Relay source metadata does not align with the Relay manifest")
+    nexus_changelog = (repo / "Nexus" / "Nexus-CHANGELOG.md").read_text(encoding="utf-8")
+    if f"## [{nexus_version}]" not in nexus_changelog:
+        raise ValueError("Nexus changelog has no entry for the component version")
+    return {"Portal": portal_version, "Relay": relay_version, "Nexus": nexus_version}
 
 
 def main() -> int:

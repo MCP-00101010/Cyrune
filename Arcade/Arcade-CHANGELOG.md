@@ -8,6 +8,8 @@ Historical entries below are preserved from Portal releases whose release notes 
 
 ### Changed
 
+- Updated the Arcade page title, Portal handoff actions, service diagnostics, credential guidance, and transport-neutral documentation to use the Cyrune Arcade, Portal, Relay, and Host names.
+- Renamed the active backlog and release log to `Arcade-TODO.md` and `Arcade-CHANGELOG.md` for unambiguous editor tabs.
 - Retired the hard-coded standalone Spectaculator launch diagnostic after confirming the configurable ZX validation matrix covers direct, current-instance/SpecStub, new-instance, managed-profile, and representative 48K/128K cases; focused tests retain the Windows-default association route.
 - Externalised configuration, favourites/recent state, managed profiles, logs, and cache beneath `%LOCALAPPDATA%/Cyrune/Arcade`; `CYRUNE_ARCADE_DATA` retains a portable/development override.
 - Added atomic JSON persistence, persisted-shape validation, concurrent state protection, failed collection-switch rollback, validated HTTPS scraper origins, bounded job history, and launch-profile forwarding.
@@ -21,6 +23,7 @@ Historical entries below are preserved from Portal releases whose release notes 
 
 ### Validation
 
+- The coordinated naming and migration audit passes all 68 Arcade tests plus JavaScript and Python validation.
 - All 68 Arcade tests pass, including the 12-test focused launch suite, and the non-launching active-data preflight confirms all seven representative emulator/profile/game resources across 12,933 games are available.
 - The external runtime cutover preserves three collections, 30 favourites, 30 recent entries, two emulator profiles and their copied files, configured scraper state, and Credential Manager-backed secrets with no plaintext secret fields. All 67 Arcade tests pass.
 - All 64 pre-Phase-6 Arcade tests pass; JavaScript and Python syntax checks pass. A Firefox 154 smoke test rendered existing remote screenshot and loading-screen metadata through Relay with non-zero image dimensions.
@@ -285,7 +288,7 @@ Historical entries below are preserved from Portal releases whose release notes 
 - **Board and tab editing flow** — board creation/editing now uses the old collection-style modal role, while tab editing uses the old board-settings modal role.
 - **Import delivery model** — inbox delivery is now tab-aware across Import Manager sends, bulk move flows, and extension tab send, and the Import Manager button now shows a staged-item indicator badge.
 - **UI shell cleanup** — Tag Manager, Sets Manager, and settings-style panels now follow the current modal/header patterns more closely, drag from their headers, and use the updated sidebar/footer presentation.
-- **Project backlog cleanup** — removed actioned overhaul and UI items from `TODO.md` so the backlog reflects only remaining work.
+- **Project backlog cleanup** — removed actioned overhaul and UI items from `Arcade-TODO.md` so the backlog reflects only remaining work.
 
 ### Fixed
 

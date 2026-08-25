@@ -1,4 +1,4 @@
-// Bridge between the Morpheus WebHub page and the Firefox extension.
+// Bridge between Cyrune Portal and Cyrune Relay.
 // When the extension is absent every method no-ops and the app continues
 // using localStorage as normal.
 
@@ -490,7 +490,7 @@ const bridge = (() => {
         if (sessionId) {
           try { await _send('MW_ABORT_ASSET_WRITE', { sessionId }, { timeoutMs: DEFAULT_TIMEOUT_MS }); } catch {}
         }
-        console.warn('Morpheus: failed to save asset', error);
+        console.warn('Cyrune Portal: failed to save asset', error);
         return null;
       }
     },
@@ -517,7 +517,7 @@ const bridge = (() => {
           bytes: res.bytes || 0
         } : null;
       } catch (error) {
-        console.warn('Morpheus: failed to cache asset URL', error);
+        console.warn('Cyrune Portal: failed to cache asset URL', error);
         return null;
       }
     },
@@ -538,7 +538,7 @@ const bridge = (() => {
           bytes: res.bytes || 0
         } : null;
       } catch (error) {
-        console.warn('Morpheus: native favicon fetch failed', error);
+        console.warn('Cyrune Portal: native favicon fetch failed', error);
         return null;
       }
     },
@@ -557,7 +557,7 @@ const bridge = (() => {
           bytes: Number(res.bytes || 0)
         } : null;
       } catch (error) {
-        console.warn('Morpheus: extension feed fetch failed', error);
+        console.warn('Cyrune Portal: extension feed fetch failed', error);
         return null;
       }
     },
@@ -631,7 +631,7 @@ const bridge = (() => {
           bytes: Number(res.bytes || 0)
         } : { error: res.error || 'Extension request failed', status: Number(res.status || 0) };
       } catch (error) {
-        console.warn('Morpheus: extension calendar fetch failed', error);
+        console.warn('Cyrune Portal: extension calendar fetch failed', error);
         return null;
       }
     },
@@ -744,11 +744,11 @@ const bridge = (() => {
     async getEmuGuiStatus() {
       if (!_available) await _connect({ retries: 1, delayMs: 200 });
       if (!_available || !_nativeAvailable || !_capabilities.has('emuguiService')) {
-        return { available: false, error: 'Morpheus EmuGUI service is unavailable' };
+        return { available: false, error: 'Cyrune Arcade service is unavailable' };
       }
       const res = await _send('MW_EMUGUI_STATUS', {}, { timeoutMs: EMUGUI_REQUEST_TIMEOUT_MS });
-      if (res.ok === false) return { available: false, error: res.error || 'Morpheus EmuGUI service is unavailable' };
-      return res.emugui || { available: false, error: 'Morpheus EmuGUI service returned no status' };
+      if (res.ok === false) return { available: false, error: res.error || 'Cyrune Arcade service is unavailable' };
+      return res.emugui || { available: false, error: 'Cyrune Arcade service returned no status' };
     },
 
     async getGameStatus(gameKey, options = {}) {
@@ -770,9 +770,9 @@ const bridge = (() => {
 
     async openGameInEmuGui(gameKey, options = {}) {
       if (!_available) await _connect({ retries: 1, delayMs: 200 });
-      if (!_available || !_nativeAvailable || !_capabilities.has('emuguiService')) throw new Error('Morpheus EmuGUI is unavailable');
+      if (!_available || !_nativeAvailable || !_capabilities.has('emuguiService')) throw new Error('Cyrune Arcade is unavailable');
       const res = await _send('MW_OPEN_GAME_IN_EMUGUI', { gameKey, rebind: options.rebind === true }, { timeoutMs: EMUGUI_REQUEST_TIMEOUT_MS });
-      if (res.ok === false) throw new Error(res.error || 'The game could not be opened in EmuGUI');
+      if (res.ok === false) throw new Error(res.error || 'The game could not be opened in Cyrune Arcade');
       return true;
     },
 
@@ -850,7 +850,7 @@ const bridge = (() => {
       }
     },
 
-    async pickDatabasePath(title = 'Choose shared database location', defaultName = 'morpheus-webhub.json') {
+    async pickDatabasePath(title = 'Choose shared database location', defaultName = 'cyrune-portal.json') {
       if (!_available) await _connect({ retries: 1, delayMs: 200 });
       if (!_available || !_nativeAvailable) return null;
       try {

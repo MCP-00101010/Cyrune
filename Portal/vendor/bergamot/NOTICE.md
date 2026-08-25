@@ -1,6 +1,6 @@
 # Bergamot Translator
 
-Morpheus WebHub includes Mozilla's JavaScript/WASM build of Bergamot Translator for local machine translation.
+Cyrune Portal includes Mozilla's JavaScript/WASM build of Bergamot Translator for local machine translation.
 
 - Upstream project: <https://github.com/mozilla/translations>
 - Firefox integration source: <https://github.com/mozilla-firefox/firefox>

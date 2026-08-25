@@ -1294,7 +1294,7 @@ async function updateAboutBridgeStatus() {
   featuresEl.textContent = features.length
     ? `Available features: ${features.join(', ')}.`
     : (localFileExtensionPermissionMayBeBlocked()
-      ? 'Available features: unavailable. In about:addons, open Morpheus WebHub → Permissions and enable “Access local files on your computer”.'
+      ? 'Available features: unavailable. In about:addons, open Cyrune Relay → Permissions and enable “Access local files on your computer”.'
       : 'Available features: unavailable. The hub is running in browser-storage-only mode.');
 
   storageNoteEl.textContent = info.nativeReady && info.databasePath
@@ -1474,7 +1474,7 @@ async function updateSidebarExtensionStatus(info = null) {
   } else if (diagnostics?.relayState === 'not-injected') {
     if (localFileExtensionPermissionMayBeBlocked()) {
       el.textContent = 'Extension needs local-file access';
-      el.title = 'In about:addons, open Morpheus WebHub → Permissions and enable “Access local files on your computer”.';
+      el.title = 'In about:addons, open Cyrune Relay → Permissions and enable “Access local files on your computer”.';
     } else {
       el.textContent = 'Extension relay not injected';
       el.title = 'The extension content script did not run on this page.';
@@ -2564,7 +2564,7 @@ function attachSettingsListeners() {
   };
 
   document.getElementById('stgHubName').addEventListener('input', e => {
-    state.hubName = e.target.value || 'Morpheus WebHub';
+    state.hubName = e.target.value || 'Cyrune Portal';
     elements.hubNameEl.textContent = state.hubName;
     document.title = state.hubName;
   });
@@ -2861,7 +2861,7 @@ function attachSettingsListeners() {
       showNotice('Shared database paths require the native messaging host.');
       return;
     }
-    const picked = await bridge.pickDatabasePath('Choose shared database location', 'morpheus-webhub.json');
+    const picked = await bridge.pickDatabasePath('Choose shared database location', 'cyrune-portal.json');
     if (!picked?.path) {
       showNotice(picked?.error
         ? `No path was returned from the extension: ${picked.error}`
@@ -2882,7 +2882,7 @@ function attachSettingsListeners() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `morpheus-webhub-${state.lastExported.slice(0, 10)}.json`;
+    a.download = `cyrune-portal-${state.lastExported.slice(0, 10)}.json`;
     a.click();
     URL.revokeObjectURL(url);
     updateLastExportedLabel();
@@ -2900,7 +2900,7 @@ function attachSettingsListeners() {
     reader.onload = async ev => {
       try {
         const parsed = JSON.parse(ev.target.result);
-        if (!parsed.boards || !parsed.navItems) { alert('Invalid file: not a Morpheus WebHub export.'); return; }
+        if (!parsed.boards || !parsed.navItems) { alert('Invalid file: not a Cyrune Portal export.'); return; }
         if (parsed.databasePath && typeof bridge !== 'undefined') {
           await bridge.whenReady;
           if (bridge.nativeIsAvailable()) await bridge.setDatabasePath(parsed.databasePath);

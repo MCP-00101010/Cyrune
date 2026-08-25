@@ -1,6 +1,6 @@
 # Cyrune Portal TODO
 
-This file owns outstanding dashboard, board, item, launcher-presentation, and Portal persistence-client work. Widget implementations belong in `../Widgets/TODO.md`; Relay and Host authority belongs in their component TODOs.
+This file owns outstanding dashboard, board, item, launcher-presentation, and Portal persistence-client work. Widget implementations belong in `../Widgets/Widgets-TODO.md`; Relay and Host authority belongs in their named component TODOs.
 
 ## Reliability and Regression Monitoring
 
@@ -12,6 +12,7 @@ This file owns outstanding dashboard, board, item, launcher-presentation, and Po
 - Revisit upward drag-and-drop placement within the bottom-aligned widget group without reintroducing the geometry feedback loop fixed in Portal 0.11.119.
 - Review background loading with many tabs and images for duplicate decoding, avoidable rerenders, and retained image data.
 - Revisit a per-item “ignore inheritance” option after more real-world use of tag inheritance.
+- Finish applying the established content-modal and utility-modal patterns to remaining create/edit and Sets surfaces: consistent headers/footers, true text-rail alignment, compact tag sections, sidebar-opacity panels, and accessible control sizing.
 
 ## Required-Relay Persistence Cutover
 
@@ -25,6 +26,7 @@ This file owns outstanding dashboard, board, item, launcher-presentation, and Po
 
 ## Code Health and Documentation
 
+- Adopt the authoritative Nexus shared-settings contract for applicable regional, unit, language, formatting, accessibility, and privacy defaults once the Nexus/Relay/Host service is versioned; keep Portal operational with documented defaults when it is unavailable.
 - Continue decomposing large rendering modules where a stable boundary exists and document major functions/data shapes.
 - Extract stable user-facing strings into locale files and support drop-in translations.
 - Expand user/developer documentation for installation, state schema, rendering, and bridge usage after the migration layout is stable.

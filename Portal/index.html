@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="morpheus-webhub" content="1.0" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Morpheus WebHub</title>
+  <title>Cyrune Portal</title>
   <link rel="stylesheet" href="vendor/maplibre-gl/maplibre-gl.css" />
   <link rel="stylesheet" href="source/styles.css" />
   <link rel="stylesheet" href="../Widgets/core/widget-sdk.css" />
@@ -299,7 +299,7 @@
       <div class="sidebar-stack">
         <section class="sidebar-card sidebar-card--top">
           <div class="sidebar-header">
-            <h1 id="hubNameEl">Morpheus WebHub</h1>
+            <h1 id="hubNameEl">Cyrune Portal</h1>
           </div>
 
           <div class="sidebar-search">
@@ -333,7 +333,7 @@
 
           <div class="sidebar-meta-row">
             <span id="sidebarExtensionStatus" class="sidebar-extension-status">Checking extension…</span>
-            <button type="button" id="aboutBtn" class="sidebar-version-btn" title="Settings">v0.11.222</button>
+            <button type="button" id="aboutBtn" class="sidebar-version-btn" title="Settings">v0.11.223</button>
           </div>
         </section>
 
@@ -596,7 +596,7 @@
 
     <div id="settingsPanel" class="settings-panel hidden">
       <div class="settings-header">
-        <input id="stgHubName" class="settings-hub-name-input" type="text" placeholder="My WebHub" />
+        <input id="stgHubName" class="settings-hub-name-input" type="text" placeholder="My Cyrune Portal" />
         <div class="settings-tabs">
           <button type="button" class="settings-tab" data-tab="about">About</button>
           <button type="button" class="settings-tab active" data-tab="general">General</button>
@@ -664,7 +664,7 @@
           <div class="settings-section-label settings-section-label--row">Hub Title
             <label class="settings-override-toggle"><input type="checkbox" data-style-override="hubName" /> Use custom</label>
           </div>
-          <div class="settings-help">Controls the main WebHub title shown at the top of the sidebar.</div>
+          <div class="settings-help">Controls the main Portal title shown at the top of the sidebar.</div>
           <div class="settings-row">
             <span>Text size</span>
             <div class="settings-number-group settings-number-group--stepper">
@@ -1067,7 +1067,7 @@
           <div class="settings-help">Use a shared data file when desktop sync is available. Otherwise the hub stays local to this browser.</div>
           <div class="settings-row">
             <span>Shared data file path</span>
-            <input id="stgDatabasePath" type="text" class="settings-text-input" placeholder="C:\Path\morpheus-webhub.json" />
+            <input id="stgDatabasePath" type="text" class="settings-text-input" placeholder="C:\Path\cyrune-portal.json" />
           </div>
           <div class="settings-row">
             <span id="stgDatabasePathStatus" class="settings-muted">Browser-only storage.</span>
@@ -1211,7 +1211,7 @@
         </div>
 
         <div class="settings-section span-full" data-tab="about">
-          <div class="about-version" id="aboutVersionLine">Version 0.11.222</div>
+          <div class="about-version" id="aboutVersionLine">Version 0.11.223</div>
           <p>A local-first bookmark manager. Runs entirely in your browser — no dependencies, no server, no telemetry.</p>
           <div class="settings-row">
             <span>Browser extension</span>

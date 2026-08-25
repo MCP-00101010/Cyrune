@@ -1,4 +1,4 @@
-"""Small, durable persistence helpers shared by EmuGUI services."""
+"""Small, durable persistence helpers shared by Cyrune Arcade services."""
 
 from __future__ import annotations
 

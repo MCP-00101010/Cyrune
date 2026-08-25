@@ -1,4 +1,4 @@
-"""Bounded service contracts shared by EmuGUI transports."""
+"""Bounded service contracts shared by Cyrune Arcade transports."""
 
 from __future__ import annotations
 
@@ -50,7 +50,7 @@ def _search_text(game: dict[str, object]) -> str:
 
 
 class ReadOnlyEmuGuiService:
-    """Transport-neutral, bounded reads over the current EmuGUI runtime."""
+    """Transport-neutral, bounded reads over the current Cyrune Arcade runtime."""
 
     def __init__(
         self,
@@ -124,4 +124,4 @@ class ReadOnlyEmuGuiService:
             return self.search_games(params)
         if name == "GET_GAME":
             return self.get_game(params)
-        raise ServiceContractError("Unsupported EmuGUI read operation")
+        raise ServiceContractError("Unsupported Cyrune Arcade read operation")

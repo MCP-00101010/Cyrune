@@ -4,6 +4,15 @@ Cyrune Portal is the local dashboard, bookmark organiser, launcher surface, Inbo
 
 Open `index.html` directly through a browser with local-file access enabled for Cyrune Relay. Relative scripts, styles, themes, assets, and vendor libraries remain self-contained beneath this directory.
 
+## Architecture and Guidance
+
+- [Portal instructions](AGENTS.md) define implementation, persistence, rendering, portable-data, and validation invariants.
+- [Component boundaries](../docs/architecture/component-boundaries.md) define ownership across Portal, Widgets, Arcade, Relay, and Host.
+- [Portal UI guidelines](../docs/architecture/portal-ui-guidelines.md) define content-modal, utility-modal, settings-draft, and accessibility patterns.
+- [Portal–Arcade contract](../docs/architecture/portal-arcade-contract.md) governs compact game items, bindings, client roles, delivery, and security.
+
+Portal scripts run in a deliberate classic-script order for direct-file compatibility. Keep top-level declarations unique. `state-schema.js` owns persisted structural repair, `state.js` owns normalized state and persistence, `render.js`/`render-items.js` own composition, and `app.js` owns startup and UI orchestration.
+
 ## Platform Limits
 
 - Firefox/Zen may require explicit local-file permission for Relay.

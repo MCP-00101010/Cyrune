@@ -12,31 +12,38 @@ With Cyrune Relay 1.0.53 or newer installed and Cyrune Host configured for this 
 web/index.html
 ```
 
-The normal EmuGUI interface remains in this repository. It sends its API calls through an authenticated WebHub extension session and the persistent native host. WebHub's **Open in EmuGUI** action opens this page and selects the source game automatically.
+The normal Cyrune Arcade interface remains in this repository. It sends its API calls through an authenticated Cyrune Relay session and the persistent Cyrune Host connection. Cyrune Portal's **Open in Cyrune Arcade** action opens this page and selects the source game automatically.
 
-Firefox/Zen must allow the Morpheus WebHub extension to access local files. The extension authorises only this checkout's configured `web/index.html`, not arbitrary file pages.
+Firefox/Zen must allow Cyrune Relay to access local files. Relay authorises only this checkout's configured `web/index.html`, not arbitrary file pages.
+
+## Architecture and Guidance
+
+- [Arcade instructions](AGENTS.md) define product ownership, transport, filesystem, metadata, launch, Portal-integration, and validation invariants.
+- [Component boundaries](../docs/architecture/component-boundaries.md) define ownership across Arcade, Portal, Relay, and Host.
+- [Portal–Arcade contract](../docs/architecture/portal-arcade-contract.md) defines client roles, compact Portal game items, opaque bindings, delivery, and security.
+- [Health audit](HEALTH-AUDIT.md) records the current reliability and real-library performance baseline.
 
 ## Shape
 
-- `emugui_service.py` provides the transport-independent API dispatcher and platform-specific filesystem/network adapters loaded by the WebHub native host.
+- `emugui_service.py` provides the transport-independent API dispatcher and platform-specific filesystem/network adapters loaded by Cyrune Host.
 - `emugui_core/library.py`, `collections.py`, and `collection_loading.py` own the in-memory library model, collection configuration, and loading/import orchestration.
 - `emugui_core/metadata.py` and `scraping.py` own metadata mutations and bounded scraper dispatch while accepting the existing platform adapters as injected dependencies.
 - `emugui_core/jobs.py` owns thread-safe background-job state and progress reporting.
 - `emugui_core/emulators.py` owns validated emulator definitions, argument-vector templates, custom emulator lifecycle, and collection defaults; built-in definitions live in `defaults/emulators.json`.
-- `emugui_core/secrets.py` keeps scraper credentials behind the WebHub native host's Windows Credential Manager boundary and verifies legacy migration before removing plaintext JSON values.
+- `emugui_core/secrets.py` keeps scraper credentials behind Cyrune Host's Windows Credential Manager boundary and verifies legacy migration before removing plaintext JSON values.
 - `emugui_core/profiles.py` owns emulator-profile import, refresh, editing, deletion, and launch-profile selection independently of either browser transport.
 - `emugui_core/launching.py` owns game/POK launch orchestration, managed-profile preparation, safe argument-array process startup, running-instance choices, and the Windows adapters for EightyOne and Spectaculator/SpecStub.
 - `web/` contains the canonical local-file browser frontend, which uses extension RPC exclusively.
 - `%LOCALAPPDATA%/Cyrune/Arcade/state.json` stores favourites and recent plays on Windows. The default is `${XDG_DATA_HOME:-~/.local/share}/Cyrune/Arcade` elsewhere; set `CYRUNE_ARCADE_DATA` for a portable or development override.
 - The default collection is `E:\Emulation\Software Library\Sinclair\ZX Spectrum\Desasteron Spectrum Collection`.
-- Override the default collection with `MORPHEUS_EMUGUI_COLLECTION`.
-- Override the sibling collection search root with `MORPHEUS_EMUGUI_COLLECTIONS_BASE`.
+- Override the default collection with the retained compatibility variable `MORPHEUS_EMUGUI_COLLECTION`.
+- Override the sibling collection search root with the retained compatibility variable `MORPHEUS_EMUGUI_COLLECTIONS_BASE`.
 
 The runtime intentionally uses only Python's standard library.
 
 State, configuration, collection metadata, and emulator-profile files are replaced atomically so an interrupted write does not destroy the previous working copy. Scraper credentials are sent only to validated HTTPS base URLs. See [HEALTH-AUDIT.md](HEALTH-AUDIT.md) for the latest reliability and real-library performance baseline.
 
-Launch templates are JSON arrays of arguments, not command strings. They may use `{file}`, `{file_dir}`, `{file_name}`, `{collection_root}`, `{pok_file}`, `{system}`, and `{title}`. EmuGUI validates executable/helper paths and templates before saving changes.
+Launch templates are JSON arrays of arguments, not command strings. They may use `{file}`, `{file_dir}`, `{file_name}`, `{collection_root}`, `{pok_file}`, `{system}`, and `{title}`. Cyrune Arcade validates executable/helper paths and templates before saving changes.
 
 ## ZX Launch Validation
 

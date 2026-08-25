@@ -1,4 +1,4 @@
-const APP_VERSION = '0.11.222';
+const APP_VERSION = '0.11.223';
 
 document.documentElement.classList.add('hub-booting');
 
@@ -601,7 +601,7 @@ function localCacheLooksNewerThanShared(localMeta, databasePath, localSnapshot, 
   if (localMeta?.source !== 'local') return false;
   if (snapshotsMatch(localSnapshot, sharedSnapshot)) return false;
   if (localSnapshotLooksDangerouslySmaller(localSnapshot, sharedSnapshot)) {
-    console.warn('Morpheus: refusing to treat a much smaller local cache as newer than the shared database.');
+    console.warn('Cyrune Portal: refusing to treat a much smaller local cache as newer than the shared database.');
     return false;
   }
   const liveVersion = sharedFileInfo?.version ?? null;
@@ -631,7 +631,7 @@ async function promoteLocalCacheToShared(options = {}) {
   try {
     if (sharedSnapshot && localSnapshotLooksDangerouslySmaller(snapshot, sharedSnapshot)) {
       blockSharedDiskSync(databasePath);
-      showNotice('The browser cache is much smaller than the shared database, so Morpheus did not overwrite the shared file.');
+      showNotice('The browser cache is much smaller than the shared database, so Cyrune Portal did not overwrite the shared file.');
       return false;
     }
     const result = await bridge.saveState(snapshot, { expectedVersion });
@@ -1518,7 +1518,7 @@ async function initializeHubState() {
 
   if (startupSharedLoadFailed) {
     requestAnimationFrame(() => showNotice(
-      `Morpheus could not read the shared database at ${startupSharedPath}. The empty local fallback is being kept hidden while the connection retries. ${startupSharedLoadError}`
+      `Cyrune Portal could not read the shared database at ${startupSharedPath}. The empty local fallback is being kept hidden while the connection retries. ${startupSharedLoadError}`
     ));
     setTimeout(() => { checkForSharedRecovery().catch(() => {}); }, 0);
   }

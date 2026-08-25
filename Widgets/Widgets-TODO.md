@@ -4,6 +4,10 @@ This file owns widget implementations, the shared widget SDK, presets, local wid
 
 Future network- and native-dependent widgets must use the shared SDK, cache, scheduler, and capability layers. Runtime samples, histories, and view preferences remain local unless the user explicitly shares them.
 
+## Component Versioning
+
+- Introduce an independent semantic Widgets version with one authoritative declaration, a matching component manifest, SDK/catalogue reporting, changelog enforcement, and repository validation without coupling it to Portal releases or individual widget schema versions.
+
 ## Shared Widget Capabilities
 
 - Add reusable widget presets with explicit rules for portable settings, local preferences, credentials, caches, runtime state, scoped export, conflicts, unavailable capabilities, and Undo.
@@ -18,11 +22,6 @@ Future network- and native-dependent widgets must use the shared SDK, cache, sch
 - **Local transport departures:** provider-neutral favourite stops, live/scheduled distinction, disruption information, conservative caching, optional location, and attribution.
 - **Offline Reading Queue:** extension-assisted sanitised captures with metadata, progress, quotas, duplicate handling, per-item removal, and bounded optional offline content.
 - **Kiosk/display mode:** read-only full-screen boards or rotation, schedules, hidden editing controls, reduced background work, burn-in mitigation, and a secure immediate exit.
-
-## Application Launcher Follow-ups (should this not be in Portal TODO rather than Widgets as the Application Launcher is a Portal feature?)
-
-- Consume future Host application discovery without placing native paths in widget/Portal state.
-- Preserve explicit picker fallback, portable unbound items, and generic icons when native icon extraction is unavailable.
 
 ## Football Tracker Widget
 

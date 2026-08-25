@@ -4,6 +4,13 @@ Portal widgets are grouped by their existing catalogue category. Each widget’s
 
 Category names and persisted widget type IDs remain unchanged by this layout.
 
+## Architecture and Guidance
+
+- [Widgets instructions](AGENTS.md) define catalogue layout, state, settings, capabilities, rendering, and validation invariants.
+- [Widget SDK reference](core/sdk/README.md) defines descriptors, services, storage ownership, and local-package rules.
+- [Component boundaries](../docs/architecture/component-boundaries.md) define the Portal host and Relay/Host authority boundaries.
+- [Portal UI guidelines](../docs/architecture/portal-ui-guidelines.md) apply to Portal-hosted widget settings and modal surfaces.
+
 ## Local UI State
 
 Meaningful widget UI state must survive reloads locally. This includes selected tabs, filters, expanded or collapsed sections, and map/globe cameras. Use `WidgetSDK.cache` for bounded browser-local state rather than portable configuration.

@@ -18,6 +18,165 @@ SPEC.loader.exec_module(HOST)
 
 
 class NativePersistenceTests(unittest.TestCase):
+    def test_nexus_settings_are_atomic_revisioned_and_conflict_safe(self):
+        with TemporaryDirectory(dir=TEST_TEMP_ROOT) as directory:
+            root = Path(directory) / 'Nexus'
+            settings_path = root / 'settings.json'
+            history_path = root / 'settings-history.json'
+            validation_path = root / 'validation.json'
+            with patch.object(HOST, 'NEXUS_DATA_ROOT', str(root)), \
+                    patch.object(HOST, 'NEXUS_SETTINGS_PATH', str(settings_path)), \
+                    patch.object(HOST, 'NEXUS_HISTORY_PATH', str(history_path)), \
+                    patch.object(HOST, 'NEXUS_VALIDATION_PATH', str(validation_path)):
+                defaults = HOST.load_nexus_settings()
+                self.assertEqual(defaults['revision'], 0)
+                candidate = json.loads(json.dumps(defaults))
+                candidate['region']['city'] = 'Glasgow'
+                saved = HOST.save_nexus_settings(candidate, 0)
+                self.assertFalse(saved['conflict'])
+                self.assertEqual(saved['settings']['revision'], 1)
+                self.assertEqual(HOST.load_nexus_settings()['region']['city'], 'Glasgow')
+                self.assertIn('region.city', saved['changedKeys'])
+                conflict = HOST.save_nexus_settings(candidate, 0)
+                self.assertTrue(conflict['conflict'])
+                self.assertEqual(conflict['settings']['revision'], 1)
+                history = json.loads(history_path.read_text(encoding='utf-8'))
+                self.assertEqual(history[-1]['revision'], 1)
+
+    def test_nexus_settings_reject_unknown_fields_and_unapproved_location(self):
+        candidate = json.loads(json.dumps(HOST.NEXUS_DEFAULT_SETTINGS))
+        candidate['unexpected'] = {'path': 'C:\\private'}
+        with self.assertRaisesRegex(ValueError, 'Unknown Nexus settings section'):
+            HOST.validate_nexus_settings(candidate)
+        candidate.pop('unexpected')
+        candidate['region']['locationMode'] = 'precise'
+        with self.assertRaisesRegex(ValueError, 'requires its privacy permission'):
+            HOST.validate_nexus_settings(candidate)
+        candidate['region']['locationMode'] = 'manual'
+        candidate['region']['timeZone'] = 'not a time zone'
+        with self.assertRaisesRegex(ValueError, 'IANA time-zone name'):
+            HOST.validate_nexus_settings(candidate)
+
+    def test_nexus_page_and_documents_are_exactly_allowlisted(self):
+        expected = (Path(HOST.CYRUNE_REPO_ROOT) / 'Nexus' / 'index.html').resolve().as_uri()
+        self.assertTrue(HOST.authorize_nexus_page(expected))
+        self.assertFalse(HOST.authorize_nexus_page((Path(HOST.CYRUNE_REPO_ROOT) / 'Portal' / 'index.html').resolve().as_uri()))
+        self.assertFalse(HOST.authorize_nexus_page('https://example.com/Nexus/index.html'))
+        self.assertTrue(HOST.authorize_nexus_page(expected + '#overview'))
+        self.assertTrue(HOST.authorize_nexus_page(expected + '#variables'))
+        self.assertFalse(HOST.authorize_nexus_page(expected + '?unexpected=1'))
+        document = HOST.read_nexus_document('Portal', 'todo')
+        self.assertEqual(document['component'], 'portal')
+        self.assertIn('# Cyrune Portal TODO', document['markdown'])
+        with self.assertRaisesRegex(ValueError, 'Unsupported Nexus component document'):
+            HOST.read_nexus_document('../Portal', 'todo')
+
+    def test_nexus_todo_opens_only_an_allowlisted_file_in_vscode(self):
+        with patch.object(HOST, '_find_vscode_executable', return_value='C:\\Program Files\\Microsoft VS Code\\Code.exe'), \
+                patch.object(HOST.subprocess, 'Popen') as launch:
+            result = HOST.open_nexus_todo('Portal')
+        self.assertEqual(result, {'opened': True, 'component': 'portal', 'editor': 'Visual Studio Code'})
+        arguments = launch.call_args.args[0]
+        self.assertEqual(arguments[:2], ['C:\\Program Files\\Microsoft VS Code\\Code.exe', '--reuse-window'])
+        self.assertEqual(Path(arguments[2]).resolve(), (Path(HOST.CYRUNE_REPO_ROOT) / 'Portal' / 'Portal-TODO.md').resolve())
+        self.assertNotIn('path', result)
+        with self.assertRaisesRegex(ValueError, 'Unsupported Nexus component document'):
+            HOST.open_nexus_todo('../Portal')
+
+    def test_nexus_remote_check_uses_only_current_branch_and_fixed_origin(self):
+        local_head = 'a' * 40
+        tracking_head = 'b' * 40
+        remote_head = 'b' * 40
+
+        def local_git(_path, arguments):
+            if arguments == ['branch', '--show-current']:
+                return 'migration/cyrune-monorepo\n'
+            if arguments == ['rev-parse', 'HEAD']:
+                return local_head + '\n'
+            if arguments == ['rev-parse', '--verify', 'refs/remotes/origin/migration/cyrune-monorepo']:
+                return tracking_head + '\n'
+            raise AssertionError(arguments)
+
+        with patch.object(HOST, '_run_git', side_effect=local_git), \
+                patch.object(HOST, '_run_git_remote', return_value=(
+                    remote_head + '\trefs/heads/migration/cyrune-monorepo\n'
+                )) as remote_git:
+            result = HOST.nexus_repository_remote_status()
+
+        remote_git.assert_called_once_with(
+            HOST.CYRUNE_REPO_ROOT,
+            ['ls-remote', 'origin', 'refs/heads/migration/cyrune-monorepo']
+        )
+        self.assertFalse(result['headMatchesRemote'])
+        self.assertTrue(result['trackingCurrent'])
+        self.assertEqual(result['remoteHead'], remote_head[:12])
+        self.assertNotIn('path', result)
+        self.assertNotIn('remoteUrl', result)
+
+        with patch.object(HOST, '_run_git', side_effect=local_git), \
+                patch.object(HOST, '_run_git_remote', return_value=''):
+            missing = HOST.nexus_repository_remote_status()
+        self.assertFalse(missing['branchAvailable'])
+        self.assertEqual(missing['remoteHead'], '')
+
+    def test_nexus_status_sanitizes_repository_and_reports_runtime_locations(self):
+        with TemporaryDirectory(dir=TEST_TEMP_ROOT) as directory:
+            portal = Path(directory) / 'portal.json'
+            portal.write_text('{"schemaVersion":2,"boards":[],"sets":[],"tags":[],"settings":{}}', encoding='utf-8')
+            arcade = Path(directory) / 'Arcade'
+            arcade.mkdir()
+            (arcade / 'state.json').write_text('{"favourites":[]}', encoding='utf-8')
+
+            def git_output(_path, args):
+                if args[:2] == ['status', '--porcelain=v2']:
+                    return '# branch.head migration/nexus\n# branch.ab +2 -1\n? draft.txt\n'
+                if args[:2] == ['log', '-1'] and '--' in args:
+                    return '1700000000\n'
+                if args[:2] == ['log', '-1']:
+                    return 'abcdef\x1fabc123\x1f1700000000\x1fNexus service\n'
+                if args[:2] == ['remote', 'get-url']:
+                    return 'git@github.com:example/cyrune.git\n'
+                raise AssertionError(args)
+
+            with patch.object(HOST, '_run_git', side_effect=git_output), \
+                    patch.object(HOST, 'load_config', return_value={'databasePath': str(portal)}), \
+                    patch.object(HOST, '_default_arcade_data_root', return_value=str(arcade)), \
+                    patch.object(HOST, 'emugui_service_status', return_value={'available': True, 'collectionCount': 3}), \
+                    patch.object(HOST, 'NEXUS_DATA_ROOT', str(Path(directory) / 'Nexus')), \
+                    patch.object(HOST, 'NEXUS_SETTINGS_PATH', str(Path(directory) / 'Nexus' / 'settings.json')), \
+                    patch.object(HOST, 'NEXUS_VALIDATION_PATH', str(Path(directory) / 'Nexus' / 'validation.json')):
+                snapshot = HOST.nexus_project_status()
+            self.assertEqual(snapshot['repository']['branch'], 'migration/nexus')
+            self.assertTrue(snapshot['repository']['available'])
+            self.assertEqual(snapshot['repository']['remoteUrl'], 'https://github.com/example/cyrune')
+            self.assertNotIn('path', snapshot['repository'])
+            self.assertEqual(snapshot['data']['portal']['location'], str(portal))
+            self.assertEqual(snapshot['data']['arcade']['service']['collectionCount'], 3)
+            self.assertNotIn('activeCollection', snapshot['data']['arcade']['service'])
+
+    def test_nexus_remote_and_validation_receipt_remove_secrets_and_unknown_fields(self):
+        self.assertEqual(
+            HOST._git_remote_link('https://user:token@example.com/owner/repo.git?private=1#fragment'),
+            'https://example.com/owner/repo'
+        )
+        with TemporaryDirectory(dir=TEST_TEMP_ROOT) as directory:
+            receipt_path = Path(directory) / 'validation.json'
+            receipt_path.write_text(json.dumps({
+                'schemaVersion': 1,
+                'timestamp': 1700000000000,
+                'commit': 'abcdef1234567',
+                'versions': {'Nexus': '0.1.1', 'Secret': 'C:\\private'},
+                'tests': {'Nexus': {'passed': 8, 'output': 'private'}, 'Tooling': {'passed': 3}, 'Secret': 1},
+                'checks': {'lint': 'passed', 'command': 'private'},
+                'path': 'C:\\private'
+            }), encoding='utf-8')
+            with patch.object(HOST, 'NEXUS_VALIDATION_PATH', str(receipt_path)):
+                sanitized = HOST._sanitized_validation_receipt()
+        self.assertEqual(sanitized['versions'], {'Nexus': '0.1.1'})
+        self.assertEqual(sanitized['tests'], {'Nexus': {'passed': 8}, 'Tooling': {'passed': 3}})
+        self.assertEqual(sanitized['checks'], {'lint': 'passed'})
+        self.assertNotIn('path', sanitized)
+
     def test_conditional_write_accepts_metadata_only_change(self):
         with TemporaryDirectory(dir=TEST_TEMP_ROOT) as directory:
             path = Path(directory) / 'hub.json'

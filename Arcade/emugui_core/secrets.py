@@ -31,7 +31,7 @@ class ScraperSecretService:
 
     def status(self) -> dict[str, object]:
         if not self._status:
-            return {"available": False, "provider": "", "error": "Open EmuGUI through the WebHub extension to manage credentials."}
+            return {"available": False, "provider": "", "error": "Open Cyrune Arcade through Cyrune Relay to manage credentials."}
         try:
             return dict(self._status())
         except Exception as exc:
@@ -44,7 +44,7 @@ class ScraperSecretService:
 
     def set_verified(self, provider_id: str, field: str, value: str) -> None:
         if not self._set or not self._get or not self._delete:
-            raise RuntimeError("Credential storage is unavailable; open EmuGUI through the WebHub extension")
+            raise RuntimeError("Credential storage is unavailable; open Cyrune Arcade through Cyrune Relay")
         key = self.key(provider_id, field)
         if value:
             self._set(key, value)
