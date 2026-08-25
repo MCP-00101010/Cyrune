@@ -11,9 +11,15 @@ Historical entries below are preserved from Portal releases whose release notes 
 - Added atomic JSON persistence, persisted-shape validation, concurrent state protection, failed collection-switch rollback, validated HTTPS scraper origins, bounded job history, and launch-profile forwarding.
 - Added a health-audit record and focused persistence, collection, job, metadata, and service-runtime regression coverage.
 
+### Fixed
+
+- **Scraped artwork on the external page** — screenshots and loading screens, including existing TheGamesDB URLs, now request bounded image data through authenticated Cyrune Relay. Local artwork continues to load through Cyrune Host.
+- **Direct Arcade launches** — fixed a stale profile-state reference that stopped Launch before the request reached Relay, and unified launches with the game-default emulator/profile resolver used for Portal shortcuts.
+- **Context-menu launch choices** — an explicitly selected emulator now remains selected when Arcade asks whether to reuse or start another emulator instance.
+
 ### Validation
 
-- All 62 Arcade tests pass; JavaScript and Python syntax checks pass.
+- All 64 Arcade tests pass; JavaScript and Python syntax checks pass. A Firefox 154 smoke test rendered existing remote screenshot and loading-screen metadata through Relay with non-zero image dimensions.
 
 
 ## [0.11.220] — 2026-08-25
@@ -546,4 +552,3 @@ Historical entries below are preserved from Portal releases whose release notes 
 - Empty search term now matches all items (so the tag picker can filter the full database without needing a text query).
 
 ---
-

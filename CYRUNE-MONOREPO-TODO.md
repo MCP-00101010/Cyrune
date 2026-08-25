@@ -2,7 +2,7 @@
 
 ## Status
 
-- **State:** Planned; permanent suite and repository name selected.
+- **State:** Active; phases 1–4 and the restored runtime baseline are complete. Phase 5 widget regrouping is next.
 - **Created:** 2026-08-24
 - **Revised:** 2026-08-25
 - **Objective:** Combine the existing products as Cyrune Portal, Arcade, Relay, Host, and Widgets in one repository while preserving history, runtime data, credentials, bindings, direct-file operation, release workflows, and rollback paths.
@@ -164,7 +164,7 @@ Environment/configuration overrides remain available for portable and developmen
 - [x] Record current Portal, Relay, Host, and Arcade versions.
 - [x] Tag the last pre-monorepo commits in both repositories.
 - [x] Create a Git bundle of the Arcade source repository because it has no remote.
-- [ ] Confirm the pushed Portal source remote contains the current branch and create an additional local bundle if desired.
+- [x] Confirm the pushed Portal source remote contains the current branch and create an additional verified local bundle.
 - [x] Record current commit IDs and branches.
 - [x] Create a dedicated Cyrune infrastructure branch in the new monorepo clone.
 
@@ -207,7 +207,7 @@ No runtime or ignored file is deleted until its purpose and references have been
 - [x] Prefer `git subtree` or an equivalent unrelated-history import over copying files without history.
 - [x] Move Portal product files beneath `Portal/` with `git mv`.
 - [x] Move Relay source to root `Relay/` without changing behaviour.
-- [ ] Leave Host separation to its dedicated phase so registry/install rollback remains simple.
+- [x] Leave Host separation to its dedicated phase so registry/install rollback remains simple.
 - [x] Create the documented widget group directories but move widget files only in the widget-layout phase.
 - [x] Add component ownership/path rules to root `AGENTS.md`.
 - [x] Add a root README explaining component boundaries and focused development commands.
@@ -252,8 +252,8 @@ No runtime or ignored file is deleted until its purpose and references have been
 - [x] Update Host loader paths only as required to reach the newly imported Arcade application.
 - [x] Update documentation links and setup commands.
 - [x] Update local page URLs used by integration tests.
-- [ ] Verify Portal opens directly from `Portal/index.html`.
-- [ ] Verify Arcade opens directly from `Arcade/web/index.html` through Relay.
+- [x] Verify Portal opens directly from `Portal/index.html`.
+- [x] Verify Arcade opens directly from `Arcade/web/index.html` through Relay.
 - [x] Verify no retired HTTP listener or frontend fallback reappears.
 - [x] Add a root validation command that runs all existing Portal, Arcade, Host, and Relay checks.
 - [x] Keep component-specific commands usable.
@@ -272,8 +272,8 @@ No runtime or ignored file is deleted until its purpose and references have been
 - [x] Update installers and launchers for the new source location and selected suite identifiers.
 - [x] Reinstall the native messaging manifest so Firefox/Zen registry entries point to the new launcher.
 - [x] Preserve accepted installed and temporary-development extension IDs.
-- [ ] Add only the path/config diagnostics needed to validate relocation; further native features stay in its component TODO.
-- [ ] Verify the persistent native process starts from the new path and existing launches/services still work.
+- [x] Add only the path/config diagnostics needed to validate relocation; further native features stay in its component TODO.
+- [x] Verify the persistent native process starts from the new path and existing launches/services still work.
 - [x] Verify extension lint no longer sees native files.
 
 ### Phase 4 exit gate
@@ -383,11 +383,11 @@ This phase is a path-only reorganisation of already shipped widgets.
 
 ### Data preservation
 
-- [ ] Existing 12,933-game Arcade library and all configured collections load unchanged.
-- [ ] Hub boards, tabs, columns, items, and managed backgrounds match.
-- [ ] Application/game keys and local bindings remain paired correctly.
+- [x] Existing 12,933-game Arcade library and all configured collections load unchanged.
+- [x] Hub boards, tabs, columns, items, and managed backgrounds match.
+- [x] Application/game keys and local bindings remain paired correctly.
 - [ ] Managed profile IDs and hashes match.
-- [ ] Favourites and recent history match.
+- [x] Favourites and recent history match.
 - [ ] Secure credentials remain retrievable and absent from portable/plaintext data.
 - [ ] Existing backups remain readable.
 
@@ -402,13 +402,13 @@ This phase is a path-only reorganisation of already shipped widgets.
 
 ### Automated checks
 
-- [ ] Complete Portal JavaScript suite.
-- [ ] Complete Arcade Python suite.
-- [ ] Complete Host Python suite.
+- [x] Complete Portal JavaScript suite.
+- [x] Complete Arcade Python suite.
+- [x] Complete Host Python suite.
 - [ ] Existing integration and migration fixtures.
-- [ ] JavaScript/Python syntax and static correctness checks.
-- [ ] JSON/manifest validation and version alignment.
-- [ ] `web-ext lint` with zero errors.
+- [x] JavaScript/Python syntax and static correctness checks.
+- [x] JSON/manifest validation and version alignment.
+- [x] `web-ext lint` with zero errors.
 - [ ] Relay archive content/hash checks.
 - [ ] Diff checks and secret scan that reports locations only, never values.
 

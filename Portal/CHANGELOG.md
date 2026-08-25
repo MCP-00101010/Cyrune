@@ -5,6 +5,16 @@ Format: `[version] — date` followed by Added / Changed / Fixed sections.
 
 ---
 
+## [0.11.221] — 2026-08-25
+
+### Changed
+
+- **Cyrune Relay compatibility** — advanced the Portal patch version alongside Relay 1.0.53, which restores Arcade's remote scraped artwork on direct `file://` pages.
+
+### Validation
+
+- All 341 Portal tests and the coordinated Relay, Arcade, and Host suites pass; Relay 1.0.53 passes `web-ext lint` with zero errors, notices, or warnings.
+
 ## [0.11.220] — 2026-08-25
 
 ### Changed

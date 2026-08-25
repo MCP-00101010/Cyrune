@@ -524,6 +524,58 @@ test('configured EmuGUI file page registers once and relays API and asset reques
   assert.equal(harness.nativeConnections[0].messages.some(message => message.type === 'EMUGUI_TRANSFER_CHUNK'), true);
 });
 
+test('configured EmuGUI page fetches remote artwork through the authenticated Relay', async () => {
+  const imageBytes = Uint8Array.from([0xff, 0xd8, 0xff, 0xd9]);
+  const requests = [];
+  const harness = await loadBackground({
+    usePersistentNative: true,
+    fetchImpl: async (url, options) => {
+      requests.push({ url: String(url), options });
+      return {
+        ok: true,
+        status: 200,
+        url: String(url),
+        headers: { get: name => name.toLowerCase() === 'content-type' ? 'image/jpeg' : String(imageBytes.byteLength) },
+        arrayBuffer: async () => imageBytes.buffer
+      };
+    }
+  });
+  const pageUrl = 'file:///F:/Projects/Coding/Cyrune/Arcade/web/index.html';
+  const sender = { tab: { id: 24, url: pageUrl } };
+  const registration = await new Promise(resolve => harness.listeners.message(
+    { type: 'MW_EMUGUI_REGISTER', pageUrl }, sender, resolve
+  ));
+  const assetUrl = 'https://cdn.thegamesdb.net/images/original/screenshots/17951-1.jpg';
+  const asset = await new Promise(resolve => harness.listeners.message({
+    type: 'MW_EMUGUI_ASSET', path: assetUrl, pageUrl,
+    emuguiSessionToken: registration.emuguiSessionToken
+  }, sender, resolve));
+
+  assert.equal(asset.ok, true);
+  assert.equal(asset.asset.dataUrl, `data:image/jpeg;base64,${Buffer.from(imageBytes).toString('base64')}`);
+  assert.equal(asset.asset.source, 'remote');
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].url, assetUrl);
+  assert.equal(requests[0].options.credentials, 'omit');
+  assert.equal(requests[0].options.redirect, 'follow');
+  assert.equal(harness.nativeConnections[0].messages.some(message => message.type === 'EMUGUI_ASSET'), false);
+});
+
+test('EmuGUI remote artwork relay rejects insecure and non-image responses', async () => {
+  const harness = await loadBackground({
+    fetchImpl: async url => ({
+      ok: true,
+      status: 200,
+      url: String(url),
+      headers: { get: name => name.toLowerCase() === 'content-type' ? 'text/html' : '12' },
+      arrayBuffer: async () => Buffer.from('<html></html>')
+    })
+  });
+
+  assert.match((await harness.context.loadEmuGuiPageAsset('http://example.test/image.jpg')).error, /Only HTTPS/);
+  assert.match((await harness.context.loadEmuGuiPageAsset('https://example.test/image.jpg')).error, /unsupported image type/);
+});
+
 test('unconfigured EmuGUI file page is denied before RPC reaches the native service', async () => {
   const harness = await loadBackground({ usePersistentNative: true, emuguiAuthorized: false });
   const pageUrl = 'file:///F:/Untrusted/web/index.html';

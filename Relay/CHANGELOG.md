@@ -4,6 +4,16 @@ Historical entries below are preserved from Portal releases whose release notes 
 
 ---
 
+## [1.0.53] — 2026-08-25
+
+### Fixed
+
+- **Arcade remote artwork on local pages** — authenticated Arcade pages now load HTTPS screenshots and loading screens through Relay instead of relying on Firefox to fetch third-party images directly from a `file://` document. Responses are restricted to supported image MIME types, omit credentials, time out after 30 seconds, and are capped at 4 MiB.
+
+### Validation
+
+- Added Relay coverage for successful remote image delivery plus rejection of insecure URLs and non-image responses. All 341 Portal tests, 6 Relay tests, 63 Arcade tests, and 42 Host tests plus 11 parameterised subtests pass; `web-ext lint` reports zero errors, notices, or warnings. A Firefox 154 smoke test rendered both scraped images as Relay-delivered data URLs with non-zero dimensions.
+
 ## [Unversioned] — 2026-08-25
 
 ### Changed

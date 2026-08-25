@@ -18,6 +18,8 @@ This log records repository-wide migration, tooling, and coordinated release cha
 - Moved existing tests beneath their owning Portal, Relay, and Host roots and repaired cross-component paths and local-page fixtures.
 - Archived the legacy combined TODO and completed Portal/Arcade integration plan, and retired the obsolete `PROJECT.md` after moving durable guidance into current documentation.
 - Separated Host source, installers, tests, and mutable configuration from Relay; installed the new Host launcher while preserving compatibility identifiers and opaque bindings.
+- Verified Portal and Arcade at their final Cyrune `file://` paths through the relocated Relay and Host.
+- Recovered Arcade's ignored runtime state after validation exposed an incomplete source-only import: 30 favourites, 30 recent entries, three collection records, two managed emulator profiles, and both managed profile files are present again. Existing external collection metadata remained intact.
 
 ### Validation
 
@@ -25,3 +27,5 @@ This log records repository-wide migration, tooling, and coordinated release cha
 - The pre-import Arcade health pass succeeds with 62 tests.
 - Before Host separation, the migrated baseline passed 339 Portal tests, 6 Relay tests, 42 Host tests plus 11 subtests, and 62 Arcade tests. JavaScript syntax and Relay manifest checks passed; `web-ext lint` reported zero errors with the two expected warnings caused by the then-embedded Host files.
 - After Host separation, framed Host and Arcade status requests pass, the migrated Git binding resolves the Cyrune branch, installer syntax checks pass, and `web-ext lint` reports zero errors, notices, or warnings.
+- The exact Portal URL loads all eight boards, and the exact Arcade URL loads 12,933 games, 30 favourites, eight scraped records, five screenshot references, two managed profiles, and Relay-delivered remote artwork in Firefox 154.
+- The restored baseline passes 341 Portal tests, 6 Relay tests, 42 Host tests plus 11 subtests, and 64 Arcade tests; all JavaScript syntax, manifest, and extension lint checks pass.

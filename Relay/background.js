@@ -38,6 +38,9 @@ const IMAGE_ASSET_EXTENSIONS = new Set(['avif', 'bmp', 'gif', 'jpg', 'jpeg', 'pn
 const NATIVE_REQUEST_TIMEOUT_MS = 15000;
 const EMUGUI_REQUEST_TIMEOUT_MS = 120000;
 const MAX_EMUGUI_TRANSFER_BYTES = 32 * 1024 * 1024;
+const MAX_EMUGUI_REMOTE_ASSET_BYTES = 4 * 1024 * 1024;
+const EMUGUI_REMOTE_ASSET_TIMEOUT_MS = 30000;
+const EMUGUI_REMOTE_ASSET_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/avif']);
 const DIRECTORY_APPROVAL_TIMEOUT_MS = 300000;
 const TRANSLATOR_ASSET_TIMEOUT_MS = 45000;
 const TRANSLATOR_ASSET_MAX_CHUNK_BYTES = 1024 * 1024;
@@ -1175,7 +1178,7 @@ async function fetchFeedText(options = {}) {
   }
 }
 
-function translatorBytesToBase64(bytes) {
+function bytesToBase64(bytes) {
   let binary = '';
   for (let offset = 0; offset < bytes.length; offset += 0x8000) {
     binary += String.fromCharCode(...bytes.subarray(offset, Math.min(bytes.length, offset + 0x8000)));
@@ -1215,7 +1218,7 @@ async function fetchTranslatorAssetChunk(options = {}) {
     const nextOffset = offset + buffer.byteLength;
     return {
       ok: true, assetId, offset, nextOffset, totalSize: asset.size, hash: asset.hash,
-      done: nextOffset >= asset.size, chunk: translatorBytesToBase64(new Uint8Array(buffer))
+      done: nextOffset >= asset.size, chunk: bytesToBase64(new Uint8Array(buffer))
     };
   } catch (error) {
     return { ok: false, error: error?.name === 'AbortError' ? 'Translation model download timed out' : (error?.message || 'Translation model download failed') };
@@ -1570,11 +1573,64 @@ async function runEmuGuiPageRpc(message) {
   return { ok: true, result: await readEmuGuiNativeTransfer(response.transfer) };
 }
 
+async function fetchEmuGuiRemoteAsset(url) {
+  let target;
+  try {
+    target = new URL(String(url || ''));
+  } catch {
+    return { ok: false, error: 'EmuGUI artwork URL is invalid' };
+  }
+  if (target.protocol !== 'https:') return { ok: false, error: 'Only HTTPS EmuGUI artwork URLs are supported' };
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), EMUGUI_REMOTE_ASSET_TIMEOUT_MS);
+  try {
+    const response = await fetch(target.href, {
+      method: 'GET',
+      credentials: 'omit',
+      redirect: 'follow',
+      cache: 'force-cache',
+      signal: controller.signal,
+      headers: { Accept: 'image/avif,image/webp,image/png,image/jpeg,image/gif;q=0.9,*/*;q=0.1' }
+    });
+    if (!response.ok) return { ok: false, error: `EmuGUI artwork returned ${response.status}` };
+    let finalUrl;
+    try { finalUrl = new URL(response.url || target.href); } catch { finalUrl = null; }
+    if (!finalUrl || finalUrl.protocol !== 'https:') return { ok: false, error: 'EmuGUI artwork redirected to an unsupported URL' };
+    const contentType = String(response.headers?.get?.('content-type') || '').split(';', 1)[0].trim().toLowerCase();
+    if (!EMUGUI_REMOTE_ASSET_TYPES.has(contentType)) return { ok: false, error: 'EmuGUI artwork returned an unsupported image type' };
+    const declaredLength = Number(response.headers?.get?.('content-length') || 0);
+    if (declaredLength > MAX_EMUGUI_REMOTE_ASSET_BYTES) return { ok: false, error: 'EmuGUI artwork exceeds the 4 MiB limit' };
+    const buffer = await response.arrayBuffer();
+    if (!buffer.byteLength || buffer.byteLength > MAX_EMUGUI_REMOTE_ASSET_BYTES) {
+      return { ok: false, error: 'EmuGUI artwork is empty or exceeds the 4 MiB limit' };
+    }
+    return {
+      ok: true,
+      asset: {
+        dataUrl: `data:${contentType};base64,${bytesToBase64(new Uint8Array(buffer))}`,
+        contentType,
+        bytes: buffer.byteLength,
+        source: 'remote'
+      }
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error?.name === 'AbortError' ? 'EmuGUI artwork request timed out' : (error?.message || 'EmuGUI artwork request failed')
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function loadEmuGuiPageAsset(path) {
+  const requestedPath = String(path || '').slice(0, 2048);
+  if (/^https?:\/\//i.test(requestedPath)) return fetchEmuGuiRemoteAsset(requestedPath);
   await ensureNativeStorageReady();
   if (!nativeAvailable) return { ok: false, error: 'Native host not available' };
   const response = await sendPersistentNativeMessage(
-    { type: 'EMUGUI_ASSET', path: String(path || '').slice(0, 2048) },
+    { type: 'EMUGUI_ASSET', path: requestedPath },
     EMUGUI_REQUEST_TIMEOUT_MS
   );
   if (response?.ok !== true) return response || { ok: false, error: 'EmuGUI artwork request failed' };

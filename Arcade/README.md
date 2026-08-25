@@ -6,7 +6,7 @@ Small local browser launcher and collection manager for emulator libraries.
 
 ## Run
 
-With Morpheus WebHub extension 1.0.52 or newer installed and its native host configured for this EmuGUI checkout, open:
+With Cyrune Relay 1.0.53 or newer installed and Cyrune Host configured for this Arcade checkout, open:
 
 ```text
 web/index.html

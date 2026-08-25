@@ -51,7 +51,7 @@ function waitForExtensionRelay() {
   extensionRelayPromise = new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       window.removeEventListener("message", onMessage);
-      reject(new Error("Morpheus WebHub extension 1.0.52 or newer is required to open EmuGUI."));
+      reject(new Error("Cyrune Relay 1.0.53 or newer is required to open Arcade."));
     }, 15000);
     const onMessage = (event) => {
       if (event.source !== window || event.data?._emugui !== true || event.data?._relayReady !== true) return;
@@ -71,7 +71,7 @@ async function requestWebHub(type, payload = {}) {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       pendingWebHubRequests.delete(requestId);
-      reject(new Error("Morpheus WebHub extension 1.0.52 or newer is required."));
+      reject(new Error("Cyrune Relay 1.0.53 or newer is required."));
     }, timeoutMs);
     pendingWebHubRequests.set(requestId, { resolve, reject, timer });
     window.postMessage({ _emuguiReq: true, requestId, type, ...payload }, "*");
@@ -2291,19 +2291,18 @@ function renderArtworkPanel(assets) {
 function assetDisplayUrl(value) {
   const text = String(value || "").trim();
   if (!text) return "";
-  if (text.startsWith("http://") || text.startsWith("https://")) return text;
-  return extensionAssetCache.get(text) || "";
+  return extensionAssetCache.get(text) || (/^https?:\/\//i.test(text) ? text : "");
 }
 
 async function prepareArtworkAssets(values) {
   const missing = [...new Set((values || []).map((value) => String(value || "").trim())
-    .filter((value) => value && !/^https?:\/\//i.test(value) && !extensionAssetCache.has(value)))];
+    .filter((value) => value && !extensionAssetCache.has(value)))];
   await Promise.all(missing.map(async value => {
     try {
       const response = await requestWebHub("MW_EMUGUI_ASSET", { path: value });
       extensionAssetCache.set(value, String(response.asset?.dataUrl || ""));
     } catch (_error) {
-      extensionAssetCache.set(value, "");
+      extensionAssetCache.set(value, /^https?:\/\//i.test(value) ? value : "");
     }
   }));
 }
@@ -2337,8 +2336,8 @@ function resolveLaunchMeta(game) {
   };
 }
 
-function resolveLaunchBinding(game) {
-  const emulatorId = game.default_emulator || els.emulator.value || "";
+function resolveLaunchBinding(game, emulatorOverride = "") {
+  const emulatorId = emulatorOverride || game.default_emulator || els.emulator.value || "";
   const pinnedProfile = game.emulator_profile
     ? state.emulatorProfiles.find((profile) => profile.id === game.emulator_profile && (!emulatorId || profile.emulator_id === emulatorId))
     : null;
@@ -2477,9 +2476,9 @@ async function launchSelected() {
   }
 }
 
-async function runLaunchChoice(choice) {
+async function runLaunchChoice(choice, emulator = "") {
   try {
-    const result = await launchGame(choice);
+    const result = await launchGame(choice, emulator);
     await refreshRecentAfterLaunch();
     await renderDetails(launchMessage(result));
   } catch (error) {
@@ -2487,19 +2486,15 @@ async function runLaunchChoice(choice) {
   }
 }
 
-async function launchGame(launchAction, emulator = els.emulator.value) {
-  const pinnedProfileId = String(state.selected?.emulator_profile || "");
-  const pinnedProfile = state.profiles.find((profile) => (
-    profile.id === pinnedProfileId && profile.emulator_id === emulator
-  ));
-  const selectedProfile = pinnedProfile || automaticProfileForGame(emulator, state.selected);
+async function launchGame(launchAction, emulator = "") {
+  const binding = resolveLaunchBinding(state.selected, emulator);
   return api("/api/launch", {
     method: "POST",
     body: JSON.stringify({
       game_id: state.selected.id,
-      emulator,
+      emulator: binding.emulatorId,
       launch_action: launchAction,
-      profile_id: selectedProfile?.id || "",
+      profile_id: binding.profileId,
     }),
   });
 }
@@ -2968,7 +2963,7 @@ async function handleContextAction(action, emulator) {
     if (error.payload?.needs_choice) {
       const choice = await showLaunchChoice(error.payload);
       if (choice) {
-        await runLaunchChoice(choice);
+        await runLaunchChoice(choice, emulator);
       }
       return;
     }
