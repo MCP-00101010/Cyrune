@@ -6,6 +6,7 @@ This log records repository-wide migration, tooling, and coordinated release cha
 
 ### Added
 
+- Added the Phase 8 non-interactive cutover audit, sanitized data/binding comparison, legacy-path and secret-location checks, cleanup classification, and coordinated rollback record.
 - Added deterministic Relay AMO packaging, exact archive allowlisting, SHA-256 sidecars, content-free reports, signed-XPI import validation, and independent component-version checks.
 - Added a versioned, copy-first runtime migration coordinator with atomic writes, reread/parse/hash verification, sanitized receipts, interrupted-copy recovery, explicit divergent-data replacement, and focused migration coverage.
 - Established the adjacent `Cyrune` monorepo and the `Portal`, `Arcade`, `Relay`, `Host`, and `Widgets` component roots.
@@ -15,6 +16,7 @@ This log records repository-wide migration, tooling, and coordinated release cha
 
 ### Changed
 
+- Retired Arcade's hard-coded Spectaculator diagnostic after the configurable ZX validation matrix and focused Windows-default association coverage superseded it; preserved a verified copy of the unreferenced legacy root background without deleting its source.
 - Restored Relay packaging beneath ignored `artifacts/Relay/<version>` while retaining the historic eight-file payload boundary and separating unsigned upload artifacts from Mozilla-signed packages.
 - Externalised and activated Portal and Arcade runtime data beneath `%LOCALAPPDATA%/Cyrune`, retaining verified recovery copies and leaving both legacy runtime sources untouched. Portal background references and Arcade managed-profile paths were the only transformed fields.
 - Completed the Phase 5 widget regrouping across all catalogue categories and shared core, and taught repository validation to discover colocated widget tests and source.
@@ -28,6 +30,7 @@ This log records repository-wide migration, tooling, and coordinated release cha
 
 ### Validation
 
+- A clean clone at a different space-and-Unicode absolute path passes the complete coordinated checks and reproduces the Relay 1.0.54 archive hash exactly. The final upgraded-checkout matrix passes with 68 Arcade tests; the active receipt, Portal structural counts, every Phase 6 binding, Arcade profile IDs/hashes, favourites, recent count, emulator/profile/game preflight, legacy-path scan, and location-only secret scan also pass without modifying active data.
 - The completed Phase 7 combined-checkout validation passes 88 Portal tests, 253 Widget tests, 8 Relay tests, 42 Host tests plus 11 parameterised subtests, 10 migration tests, 14 packaging tests, and 67 Arcade tests. JavaScript syntax, manifest parsing, independent Portal/Relay version checks, and `web-ext lint` all pass; the Relay archive also reproduces byte-for-byte from a clean checkout at a different space-and-Unicode path.
 - The activated Phase 6 runtime baseline passes 88 Portal tests, 253 Widget tests, 8 Relay tests, 42 Host tests plus 11 parameterised subtests, 10 migration tests, and 67 Arcade tests. JavaScript syntax, Relay manifest validation, and `web-ext lint` pass with zero errors, notices, or warnings.
 - The user confirmed both permanent direct-file applications open with their migrated databases and that Portal reports the external `%LOCALAPPDATA%\Cyrune` database location.

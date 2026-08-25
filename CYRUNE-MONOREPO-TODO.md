@@ -2,7 +2,7 @@
 
 ## Status
 
-- **State:** Active; phases 1–7 and the restored runtime baseline are complete. Runtime data is external and verified, Relay packaging is deterministic and bounded, and cutover monitoring remains.
+- **State:** Active; phases 1–7 and all non-interactive Phase 8 audits are complete. Runtime data is external and verified, Relay packaging is deterministic and bounded, and browser-lifecycle plus time-based monitoring gates remain.
 - **Created:** 2026-08-24
 - **Revised:** 2026-08-25
 - **Objective:** Combine the existing products as Cyrune Portal, Arcade, Relay, Host, and Widgets in one repository while preserving history, runtime data, credentials, bindings, direct-file operation, release workflows, and rollback paths.
@@ -183,15 +183,15 @@ Environment/configuration overrides remain available for portable and developmen
 No runtime or ignored file is deleted until its purpose and references have been checked.
 
 - [x] Portal source: exclude `.build/`, `.test-tmp/`, `dist/`, `.mypy_cache/`, `.pytest_cache/`, and other generated caches from the import snapshot.
-- [ ] Portal source: verify the single ignored root `backgrounds/` image is unreferenced before removing it; it is not byte-identical to any current managed background.
+- [x] Portal source: verify the single ignored root `backgrounds/` image is unreferenced before removing it; it is not byte-identical to any current managed background. A verified recovery copy now exists and the source remains untouched.
 - [x] Portal source: treat ignored `assets/backgrounds/` as managed runtime data and migrate it with the Portal database rather than importing it as source.
 - [x] Portal source: copy and verify tracked `extension/native/config.json` externally, then replace it in source with a sanitised `config.example.json` and ignore the live file.
 - [x] Portal source: keep tracked source assets such as the astronomy image and tracked vendor dependencies.
 - [x] Portal source: retire `PROJECT.md` during documentation cutover.
 - [x] Arcade source: exclude `__pycache__/`, `.pytest_cache/`, and ignored runtime logs from the import snapshot.
 - [x] Arcade source: migrate `data/` as runtime state rather than application source.
-- [ ] Arcade source: remove the hard-coded `test_spectaculator_launch.ps1` after confirming `tools/validate_zx_launch.py` covers its useful launch matrix.
-- [ ] Record each removed path and whether it was generated, runtime, obsolete, or archived.
+- [x] Arcade source: remove the hard-coded `test_spectaculator_launch.ps1` after confirming `tools/validate_zx_launch.py` plus focused default-association coverage supersede its useful launch matrix.
+- [x] Record each removed path and whether it was generated, runtime, obsolete, or archived.
 
 ### Phase 0 exit gate
 
@@ -371,24 +371,24 @@ This phase is a path-only reorganisation of already shipped widgets.
 ## Phase 8 — Cutover, Monitoring, and Archive
 
 - [ ] Run the complete cross-component validation matrix.
-- [ ] Compare application data counts, hashes, profile IDs, bindings, and representative UI/launch workflows against the pre-migration record.
-- [ ] Confirm no hard-coded old checkout dependency remains.
-- [ ] Document rollback for code, native registration, runtime pointers, and local-page links.
+- [x] Compare application data counts, hashes, profile IDs, bindings, and representative UI/launch workflows against the pre-migration record.
+- [x] Confirm no hard-coded old checkout dependency remains. One unused saved legacy Arcade bookmark remains user data, not a runtime pointer.
+- [x] Document rollback for code, native registration, runtime pointers, and local-page links.
 - [ ] Use the monorepo for normal development during an agreed monitoring period.
 - [ ] Keep old checkouts and runtime sources untouched during monitoring.
 - [ ] Archive old checkouts/runtime sources only after explicit confirmation; do not immediately delete them.
-- [ ] Rename the remote repository only after the combined repository works from its permanent path and selected identity.
+- [x] Confirm the configured `origin` already uses the final Cyrune repository identity; no remote rename is required.
 
 ## Validation Matrix
 
 ### Repository and paths
 
-- [ ] Fresh clone into a different absolute directory.
-- [ ] Directory names containing spaces and Unicode.
+- [x] Fresh clone into a different absolute directory.
+- [x] Directory names containing spaces and Unicode.
 - [x] Existing upgraded checkout.
 - [x] Old local-page bookmark recovery.
 - [x] Native-host reinstall after relocation.
-- [ ] No hard-coded legacy checkout path at runtime.
+- [x] No hard-coded legacy checkout path at runtime.
 
 ### Data preservation
 
@@ -414,12 +414,12 @@ This phase is a path-only reorganisation of already shipped widgets.
 - [x] Complete Portal JavaScript suite.
 - [x] Complete Arcade Python suite.
 - [x] Complete Host Python suite.
-- [ ] Existing integration and migration fixtures.
+- [x] Existing integration and migration fixtures.
 - [x] JavaScript/Python syntax and static correctness checks.
 - [x] JSON/manifest validation and version alignment.
 - [x] `web-ext lint` with zero errors.
 - [x] Relay archive content/hash checks.
-- [ ] Diff checks and secret scan that reports locations only, never values.
+- [x] Diff checks and secret scan that reports locations only, never values.
 
 ## Rollback Rules
 

@@ -8,6 +8,7 @@ Historical entries below are preserved from Portal releases whose release notes 
 
 ### Changed
 
+- Retired the hard-coded standalone Spectaculator launch diagnostic after confirming the configurable ZX validation matrix covers direct, current-instance/SpecStub, new-instance, managed-profile, and representative 48K/128K cases; focused tests retain the Windows-default association route.
 - Externalised configuration, favourites/recent state, managed profiles, logs, and cache beneath `%LOCALAPPDATA%/Cyrune/Arcade`; `CYRUNE_ARCADE_DATA` retains a portable/development override.
 - Added atomic JSON persistence, persisted-shape validation, concurrent state protection, failed collection-switch rollback, validated HTTPS scraper origins, bounded job history, and launch-profile forwarding.
 - Added a health-audit record and focused persistence, collection, job, metadata, and service-runtime regression coverage.
@@ -20,6 +21,7 @@ Historical entries below are preserved from Portal releases whose release notes 
 
 ### Validation
 
+- All 68 Arcade tests pass, including the 12-test focused launch suite, and the non-launching active-data preflight confirms all seven representative emulator/profile/game resources across 12,933 games are available.
 - The external runtime cutover preserves three collections, 30 favourites, 30 recent entries, two emulator profiles and their copied files, configured scraper state, and Credential Manager-backed secrets with no plaintext secret fields. All 67 Arcade tests pass.
 - All 64 pre-Phase-6 Arcade tests pass; JavaScript and Python syntax checks pass. A Firefox 154 smoke test rendered existing remote screenshot and loading-screen metadata through Relay with non-zero image dimensions.
 

@@ -105,6 +105,17 @@ def test_eightyone_launch_prepares_profile_and_uses_argument_array(tmp_path):
     assert ("focus", "eightyone", 42) in calls
 
 
+def test_default_adapter_uses_the_windows_file_association(tmp_path):
+    service, calls, game_path, *_ = make_service(tmp_path)
+
+    result = service.launch_game("jetpac", "default")
+
+    assert result == {"ok": True}
+    assert ("default", str(game_path)) in calls
+    assert ("recent", "jetpac") in calls
+    assert not any(call[0] == "launch" for call in calls)
+
+
 def test_running_eightyone_requests_a_new_instance_choice(tmp_path):
     service, calls, *_ = make_service(tmp_path, running_hwnd=99)
 
