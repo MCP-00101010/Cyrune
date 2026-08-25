@@ -161,7 +161,7 @@ def test_independent_component_versions_are_validated_without_forcing_equality(t
 
 
 def test_current_component_versions_and_changelogs_align():
-    assert VERSIONS.validate(REPO) == {"Portal": "0.11.224", "Relay": "1.0.60", "Nexus": "0.1.6"}
+    assert VERSIONS.validate(REPO) == {"Portal": "0.11.225", "Relay": "1.0.60", "Nexus": "0.1.7"}
 
 
 def test_current_relay_source_builds_and_round_trips_exactly(tmp_path):

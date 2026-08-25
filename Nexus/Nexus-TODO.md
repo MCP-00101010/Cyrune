@@ -4,7 +4,6 @@ This file owns project-status aggregation, shared Cyrune settings, Nexus present
 
 ## Foundation Follow-ups
 
-- Add schema migrations and typed per-component setting overrides to the versioned settings snapshot.
 - Add component metadata manifests for Portal, Widgets, Arcade, Relay, and Host; validate runtime versions against their manifests where applicable.
 
 ## Status Dashboard
@@ -13,8 +12,8 @@ This file owns project-status aggregation, shared Cyrune settings, Nexus present
 
 ## Shared Variables
 
-- Support search, categories, inherited/default indicators, per-component overrides, reset, import/export, migrations, and sanitized change history.
-- Keep precise location and automatic geolocation opt-in; distinguish country/region, city, and coordinates in both schema and UI.
+- Add settings search, import/export, and a sanitized human-readable change-history view. Categories, inherited/default indicators, sparse component overrides, scoped reset, and schema migration are implemented.
+- Keep automatic geolocation as a separate explicit opt-in flow. Country/region, city, and permission-gated manual coordinates are implemented; do not infer coordinates or expose them outside the fixed Portal & Widgets profile.
 
 ## Component Documents
 
@@ -33,4 +32,4 @@ This file owns project-status aggregation, shared Cyrune settings, Nexus present
 - Add keyboard, screen-reader, contrast, reduced-motion, narrow-layout, corrupt-cache, and partial-service coverage.
 - Add migration, interrupted-write, corrupt-authoritative-state, and expanded redaction tests around the implemented Relay/Host contract.
 - Verify direct-file startup, stale cached snapshots, offline behaviour, and recovery guidance in Firefox.
-- Monitor Nexus 0.1.6's authoritative settings/status/document/editor/remote-check and independent health service during normal Cyrune use before expanding its mutation surface.
+- Monitor Nexus 0.1.7's schema-2 settings, overrides, Widget consumers, status/document/editor/remote-check, and independent health service during normal Cyrune use before expanding its mutation surface.

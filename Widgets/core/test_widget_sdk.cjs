@@ -188,6 +188,23 @@ test('widgets read shared settings and optional network obeys the Nexus privacy 
   );
 });
 
+test('shared settings resolve only when inheritance is explicitly enabled and retain source metadata', () => {
+  const context = makeContext();
+  vm.runInContext(`globalThis.CyruneSettings = { get: () => ({
+    values: { units: { system: 'imperial' } }, sources: { 'units.system': 'component' }
+  }) }`, context);
+  const result = vm.runInContext(`({
+    local: WidgetSDK.settings.resolve('units.system', 'metric', { inherit: false }),
+    inherited: WidgetSDK.settings.resolve('units.system', 'metric', { inherit: true }),
+    missing: WidgetSDK.settings.resolve('region.city', 'Local city', { inherit: true })
+  })`, context);
+  assert.deepEqual(JSON.parse(JSON.stringify(result)), {
+    local: { value: 'metric', source: 'local' },
+    inherited: { value: 'imperial', source: 'component' },
+    missing: { value: 'Local city', source: 'local' }
+  });
+});
+
 test('cache data stays outside portable widget state and respects descriptor quotas', () => {
   const context = makeContext();
   const result = vm.runInContext(`(() => {

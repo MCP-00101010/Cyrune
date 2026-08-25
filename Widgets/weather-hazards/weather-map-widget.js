@@ -33,12 +33,13 @@ function _weatherMapStyleUrl(value) {
 }
 
 function _weatherMapBaseLocationSignature(widget) {
-  if (widget?.config?.latitude === '' || widget?.config?.latitude == null
-      || widget?.config?.longitude === '' || widget?.config?.longitude == null) return '';
-  const latitude = Number(widget?.config?.latitude);
-  const longitude = Number(widget?.config?.longitude);
+  const config = _weatherEffectiveConfig(widget);
+  if (config.latitude === '' || config.latitude == null
+      || config.longitude === '' || config.longitude == null) return '';
+  const latitude = Number(config.latitude);
+  const longitude = Number(config.longitude);
   if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return '';
-  return `${latitude.toFixed(4)}:${longitude.toFixed(4)}:${_normalizeWeatherMapOriginZoom(widget?.config?.originZoom).toFixed(2)}`;
+  return `${latitude.toFixed(4)}:${longitude.toFixed(4)}:${_normalizeWeatherMapOriginZoom(config.originZoom).toFixed(2)}`;
 }
 
 function _weatherMapViewKey(widgetId) {
@@ -84,15 +85,13 @@ function _weatherMapCenter(widget) {
       && Number.isFinite(longitude) && longitude >= -180 && longitude <= 180) {
     return { latitude, longitude };
   }
-  return {
-    latitude: Number(widget?.config?.latitude),
-    longitude: Number(widget?.config?.longitude)
-  };
+  const config = _weatherEffectiveConfig(widget);
+  return { latitude: Number(config.latitude), longitude: Number(config.longitude) };
 }
 
 function _weatherMapLocationLabel(widget) {
   return _readWeatherMapView(widget)?.forecastCenter?.label
-    || widget?.config?.locationName
+    || _weatherEffectiveConfig(widget).locationName
     || 'Regional weather';
 }
 
@@ -107,7 +106,7 @@ function _persistWeatherMapRuntime(widget, runtime) {
 }
 
 function _weatherMapSignature(widget) {
-  const c = widget?.config || {};
+  const c = _weatherEffectiveConfig(widget);
   if (c.latitude === '' || c.latitude == null || c.longitude === '' || c.longitude == null) return '';
   const { latitude, longitude } = _weatherMapCenter(widget);
   if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) return '';
@@ -282,7 +281,7 @@ function _buildWeatherMapGrid(widget) {
 }
 
 function _weatherMapForecastUrl(widget) {
-  const units = _normalizeWeatherUnits(widget.config.units);
+  const units = _normalizeWeatherUnits(_weatherEffectiveConfig(widget).units);
   const grid = _buildWeatherMapGrid(widget);
   const url = new URL('https://api.open-meteo.com/v1/forecast');
   url.searchParams.set('latitude', grid.points.map(point => point.latitude.toFixed(4)).join(','));
@@ -425,7 +424,7 @@ function _weatherMapLegend(layer, units) {
 }
 
 function _renderWeatherMapLegends(widget, instance, runtime) {
-  const units = _normalizeWeatherUnits(widget.config.units);
+  const units = _normalizeWeatherUnits(_weatherEffectiveConfig(widget).units);
   const activeLayers = _weatherMapActiveLayers(runtime);
   const visibleLayers = activeLayers.filter(layer => layer !== 'wind');
   const signature = `${units}:${visibleLayers.join(',')}:${activeLayers.length}`;
@@ -510,7 +509,7 @@ function _syncWeatherMapRainAnimation(instance, runtime) {
 function _applyWeatherMapLayers(widget, instance, cache, runtime) {
   const map = instance?.map;
   if (!map?.isStyleLoaded()) return;
-  const units = _normalizeWeatherUnits(widget.config.units);
+  const units = _normalizeWeatherUnits(_weatherEffectiveConfig(widget).units);
   const data = _weatherMapFeatureCollection(cache, runtime.hourIndex);
   const sourceId = `weather-map-grid-${widget.id}`;
   const activeLayers = _weatherMapActiveLayers(runtime);
@@ -607,6 +606,8 @@ WIDGET_REGISTRY['weatherMap'] = {
     longitude: '',
     timezone: 'auto',
     units: 'metric',
+    inheritCyruneLocation: false,
+    inheritCyruneUnits: false,
     mapStyle: 'dark',
     originZoom: 7
   },
@@ -652,7 +653,7 @@ WIDGET_REGISTRY['weatherMap'] = {
 
   render(widget, el, context) {
     _destroyWeatherMap(widget.id);
-    const c = widget.config || {};
+    const c = _weatherEffectiveConfig(widget);
     const signature = _weatherMapSignature(widget);
 
     _setWidgetRefresher(widget.id, context, () => {
@@ -1053,6 +1054,10 @@ WIDGET_REGISTRY['weatherMap'] = {
         </div>
       </div>
       <div class="settings-row">
+        <span>Use Cyrune location</span>
+        <label class="settings-toggle"><input type="checkbox" data-cfg="inheritCyruneLocation" ${c.inheritCyruneLocation === true ? 'checked' : ''}/><span class="toggle-track"></span></label>
+      </div>
+      <div class="settings-row">
         <span>Current map centre</span>
         <span class="settings-muted weather-map-current-centre"></span>
       </div>
@@ -1083,6 +1088,10 @@ WIDGET_REGISTRY['weatherMap'] = {
         </div>
       </div>
       <div class="settings-row">
+        <span>Use Cyrune units</span>
+        <label class="settings-toggle"><input type="checkbox" data-cfg="inheritCyruneUnits" ${c.inheritCyruneUnits === true ? 'checked' : ''}/><span class="toggle-track"></span></label>
+      </div>
+      <div class="settings-row">
         <span>Basemap</span>
         <div class="board-fit-radios weather-option-radios">
           <label class="board-fit-label"><input type="radio" name="weatherMapStyle" data-cfg="mapStyle" value="dark" ${_normalizeWeatherMapStyle(c.mapStyle) === 'dark' ? 'checked' : ''}/><span>Dark</span></label>
@@ -1102,7 +1111,10 @@ WIDGET_REGISTRY['weatherMap'] = {
     const originZoomConfig = container.querySelector('[data-cfg="originZoom"]');
     const previewCanvas = container.querySelector('.weather-map-origin-preview-canvas');
     const previewMessage = container.querySelector('.weather-map-origin-preview-message');
-    selected.textContent = c.locationName ? `Origin: ${c.locationName}` : 'No origin location selected.';
+    const effective = _weatherEffectiveConfig(widget);
+    selected.textContent = c.inheritCyruneLocation === true && effective.cyruneLocationSource
+      ? `Using Cyrune ${effective.cyruneLocationSource} location: ${effective.locationName || `${effective.latitude}, ${effective.longitude}`}`
+      : (c.locationName ? `Origin: ${c.locationName}` : 'No origin location selected.');
 
     let previewMap = null;
     let previewMarker = null;

@@ -63,6 +63,7 @@ test('Calendar migrates legacy Proton sources without persisting sharing URLs', 
   assert.equal(definition.category, 'Personal & Productivity');
   assert.deepEqual(JSON.parse(JSON.stringify(definition.allowedIn)), ['column']);
   assert.deepEqual(JSON.parse(JSON.stringify(definition.defaultConfig.calendars)), []);
+  assert.equal(definition.defaultConfig.inheritCyruneWeekStart, false);
 
   context.widget = {
     id: 'calendar-1',
@@ -279,6 +280,7 @@ test('calendar assets expose secure settings and responsive agenda/month views',
   assert.match(calendarSource, /hiddenSourceIds/);
   assert.match(calendarSource, /credentials secured locally/);
   assert.match(calendarSource, /beforeSettingsCommit/);
+  assert.match(calendarSource, /Use Cyrune week start/);
   assert.match(styles, /\.widget-calendar-header\s*\{[^}]*padding-right:\s*52px/s);
   assert.match(styles, /\.widget-calendar-month-grid/);
   assert.match(styles, /\.widget-calendar-content\.is-agenda/);

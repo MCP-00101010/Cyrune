@@ -4,7 +4,7 @@ Portal widgets are grouped by their existing catalogue category. Each widget’s
 
 Category names and persisted widget type IDs remain unchanged by this layout.
 
-Portal supplies the fixed `portal-widgets` Nexus profile to Widget SDK 2. Widgets read or subscribe through `WidgetSDK.settings` rather than contacting Relay directly, and all managed optional network requests obey the shared Nexus privacy gate.
+Portal supplies the fixed `portal-widgets` Nexus profile to Widget SDK 3. Widgets read, subscribe, or explicitly resolve inherited values through `WidgetSDK.settings` rather than contacting Relay directly, and all managed optional network requests obey the shared Nexus privacy gate. Effective preference precedence is schema default → global → component override → local Widget setting; inheritance remains opt-in where an existing local setting already exists.
 
 ## Architecture and Guidance
 

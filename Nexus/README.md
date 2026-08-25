@@ -8,7 +8,8 @@ Open `index.html` directly in Firefox. Relay 1.0.60 authenticates that exact loc
 
 - Overview cards for every component, the shared service boundary, runtime data, repository state, and recent project activity.
 - Component pages with version/status summaries and side-by-side previews for each component TODO and changelog. TODO actions open the exact allowlisted file in Visual Studio Code; changelogs remain read-only without a redundant open-file link.
-- An interactive Variables screen covering region, units, languages, formatting, behaviour, accessibility, and privacy/network preferences, persisted atomically by Host with revision-conflict protection.
+- An interactive Variables screen covering region, units, languages, formatting, behaviour, accessibility, and privacy/network preferences, persisted atomically by Host with revision-conflict protection. Global, Portal & Widgets, and Arcade scopes show effective sources and sparse component overrides.
+- Settings schema 2 migration, permission-gated precise coordinates, and fixed profile-schema source metadata. Widget SDK 3 consumers can opt into shared location, units, or week-start values without changing existing local defaults.
 - Live sanitized status for component versions and update ages, Relay and Host availability, runtime-data files, local repository state, and available validation receipts.
 - Independent component and runtime-data health states with schema/backup summaries, sample ages, stable diagnostic codes, and actionable recovery guidance; one failed settings or data section does not hide healthy diagnostics elsewhere.
 - An explicit **Check origin** action that compares the current branch with fixed `origin` without fetching or mutating the checkout; cached ahead/behind counts are clearly distinguished from the live comparison.

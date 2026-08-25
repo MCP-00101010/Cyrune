@@ -19,13 +19,16 @@
   let serviceAuthenticated = false;
   let remoteCheck = null;
   let remoteCheckPending = false;
+  let settingsScope = 'global';
 
   function loadPreview() {
-    try {
-      return model.normalizeSettings(JSON.parse(localStorage.getItem(model.PREVIEW_STORAGE_KEY) || 'null'));
-    } catch (_error) {
-      return model.normalizeSettings(null);
+    for (const key of [model.PREVIEW_STORAGE_KEY, ...(model.LEGACY_PREVIEW_STORAGE_KEYS || [])]) {
+      try {
+        const stored = localStorage.getItem(key);
+        if (stored) return model.normalizeSettings(JSON.parse(stored));
+      } catch (_error) { /* try the next compatible preview */ }
     }
+    return model.normalizeSettings(null);
   }
 
   function cacheSettings(value) {
@@ -144,16 +147,36 @@
     window.setTimeout(() => { if (notice.isConnected) notice.remove(); }, 5000);
   }
 
-  function selectMarkup(name, label, value, options, hint) {
-    return `<label class="field"><span>${model.escapeHtml(label)}</span><select name="${model.escapeHtml(name)}">${options.map(option => `<option value="${model.escapeHtml(option[0])}"${option[0] === value ? ' selected' : ''}>${model.escapeHtml(option[1])}</option>`).join('')}</select>${hint ? `<small>${model.escapeHtml(hint)}</small>` : ''}</label>`;
+  function settingControlMeta(name) {
+    if (settingsScope !== 'global' && !model.COMPONENT_SETTING_PATHS[settingsScope]?.includes(name)) return null;
+    const source = model.settingSource(settings, settingsScope, name);
+    const overridden = source === 'component';
+    return {
+      source,
+      overridden,
+      disabled: settingsScope !== 'global' && !overridden,
+      badge: source === 'component' ? 'Override' : (source === 'default' ? 'Default' : 'Global'),
+      override: settingsScope === 'global' ? '' : `<label class="override-control"><input type="checkbox" data-override-path="${model.escapeHtml(name)}"${overridden ? ' checked' : ''}>Override for ${settingsScope === 'arcade' ? 'Arcade' : 'Portal & Widgets'}</label>`
+    };
   }
 
-  function inputMarkup(name, label, value, placeholder, maxLength) {
-    return `<label class="field"><span>${model.escapeHtml(label)}</span><input name="${model.escapeHtml(name)}" value="${model.escapeHtml(value)}" placeholder="${model.escapeHtml(placeholder || '')}" maxlength="${maxLength || 80}"></label>`;
+  function selectMarkup(name, label, value, options, hint) {
+    const meta = settingControlMeta(name);
+    if (!meta) return '';
+    return `<div class="field"><span class="field-label"><span>${model.escapeHtml(label)}</span><small class="value-source source-${meta.source}">${meta.badge}</small></span><select name="${model.escapeHtml(name)}" data-setting-control="${model.escapeHtml(name)}"${meta.disabled ? ' disabled' : ''}>${options.map(option => `<option value="${model.escapeHtml(option[0])}"${option[0] === value ? ' selected' : ''}>${model.escapeHtml(option[1])}</option>`).join('')}</select>${hint ? `<small>${model.escapeHtml(hint)}</small>` : ''}${meta.override}</div>`;
+  }
+
+  function inputMarkup(name, label, value, placeholder, maxLength, type = 'text') {
+    const meta = settingControlMeta(name);
+    if (!meta) return '';
+    const numeric = type === 'number' ? ' type="number" step="any"' : '';
+    return `<div class="field"><span class="field-label"><span>${model.escapeHtml(label)}</span><small class="value-source source-${meta.source}">${meta.badge}</small></span><input${numeric} name="${model.escapeHtml(name)}" data-setting-control="${model.escapeHtml(name)}" value="${model.escapeHtml(value ?? '')}" placeholder="${model.escapeHtml(placeholder || '')}" maxlength="${maxLength || 80}"${meta.disabled ? ' disabled' : ''}>${meta.override}</div>`;
   }
 
   function toggleMarkup(name, title, detail, checked) {
-    return `<label class="toggle-row"><span><strong>${model.escapeHtml(title)}</strong><small>${model.escapeHtml(detail)}</small></span><input type="checkbox" name="${model.escapeHtml(name)}"${checked ? ' checked' : ''}><i aria-hidden="true"></i></label>`;
+    const meta = settingControlMeta(name);
+    if (!meta) return '';
+    return `<div class="toggle-frame"><label class="toggle-row"><span><strong>${model.escapeHtml(title)}</strong><small>${model.escapeHtml(detail)}</small></span><input type="checkbox" name="${model.escapeHtml(name)}" data-setting-control="${model.escapeHtml(name)}"${checked ? ' checked' : ''}${meta.disabled ? ' disabled' : ''}><i aria-hidden="true"></i></label><span class="toggle-source"><small class="value-source source-${meta.source}">${meta.badge}</small>${meta.override}</span></div>`;
   }
 
   function renderOverview() {
@@ -227,24 +250,36 @@
   function renderVariables() {
     viewTitle.textContent = 'Variables';
     viewEyebrow.textContent = 'Shared Cyrune preferences';
+    const displayed = model.effectiveSettings(settings, settingsScope);
+    const scopeLabel = settingsScope === 'global' ? 'Global defaults' : (settingsScope === 'arcade' ? 'Arcade' : 'Portal & Widgets');
     viewRoot.innerHTML = `
-      <section class="page-intro"><div><span class="section-kicker">Settings schema ${model.SETTINGS_SCHEMA_VERSION}</span><h2>One set of preferences. Every component.</h2><p>${settingsAuthority === 'authoritative' ? 'Apply writes revision-aware authoritative settings through Relay to atomic Host persistence.' : 'Relay or Host is unavailable. Changes can be retained as a browser-local fallback and applied authoritatively after reconnection.'}</p></div><span class="draft-badge ${settingsAuthority === 'authoritative' ? 'is-authoritative' : ''}">${settingsAuthority === 'authoritative' ? 'Authoritative' : 'Local fallback'} · revision ${settings.revision}</span></section>
+      <section class="page-intro"><div><span class="section-kicker">Settings schema ${model.SETTINGS_SCHEMA_VERSION}</span><h2>One set of preferences. Every component.</h2><p>${settingsAuthority === 'authoritative' ? 'Global values flow into fixed component profiles; sparse overrides change only the selected component.' : 'Relay or Host is unavailable. Changes can be retained as a browser-local fallback and applied authoritatively after reconnection.'}</p></div><span class="draft-badge ${settingsAuthority === 'authoritative' ? 'is-authoritative' : ''}">${settingsAuthority === 'authoritative' ? 'Authoritative' : 'Local fallback'} · revision ${settings.revision}</span></section>
+      <section class="settings-scope" aria-label="Settings scope"><div><span class="section-kicker">Effective settings</span><strong>${scopeLabel}</strong><small>Default → global → component → local Widget setting</small></div><div class="scope-tabs"><button type="button" data-settings-scope="global" class="${settingsScope === 'global' ? 'is-active' : ''}">Global</button><button type="button" data-settings-scope="portal-widgets" class="${settingsScope === 'portal-widgets' ? 'is-active' : ''}">Portal & Widgets</button><button type="button" data-settings-scope="arcade" class="${settingsScope === 'arcade' ? 'is-active' : ''}">Arcade</button></div></section>
       <form id="variables-form" class="settings-layout">
         <aside class="settings-index" aria-label="Variable groups"><a href="#variables-region">Region</a><a href="#variables-units">Units</a><a href="#variables-language">Language</a><a href="#variables-formatting">Formatting</a><a href="#variables-behaviour">Behaviour</a><a href="#variables-accessibility">Accessibility</a><a href="#variables-privacy">Privacy</a></aside>
         <div class="settings-sections">
-          <section class="settings-section" id="variables-region"><div class="settings-heading"><span>01</span><div><h2>Region & location</h2><p>Broad regional defaults are separate from sensitive location access.</p></div></div><div class="field-grid">${inputMarkup('region.country', 'Country / region code', settings.region.country, 'GB', 2)}${inputMarkup('region.city', 'City (optional)', settings.region.city, 'London', 80)}${inputMarkup('region.timeZone', 'Time zone', settings.region.timeZone, 'Europe/London', 80)}${selectMarkup('region.locationMode', 'Location mode', settings.region.locationMode, [['manual', 'Manual only'], ['approximate', 'Approximate (opt-in)'], ['precise', 'Precise (opt-in)']], 'Automatic modes also require the privacy permission below.')}</div></section>
-          <section class="settings-section" id="variables-units"><div class="settings-heading"><span>02</span><div><h2>Units</h2><p>Choose a system, then override individual measurements when needed.</p></div></div><div class="field-grid">${selectMarkup('units.system', 'Unit system', settings.units.system, [['metric', 'Metric'], ['imperial', 'Imperial'], ['custom', 'Custom']])}${selectMarkup('units.temperature', 'Temperature', settings.units.temperature, [['celsius', 'Celsius (°C)'], ['fahrenheit', 'Fahrenheit (°F)']])}${selectMarkup('units.distance', 'Distance', settings.units.distance, [['kilometres', 'Kilometres'], ['miles', 'Miles']])}${selectMarkup('units.speed', 'Speed', settings.units.speed, [['kilometres-per-hour', 'Kilometres per hour'], ['miles-per-hour', 'Miles per hour']])}${selectMarkup('units.mass', 'Mass', settings.units.mass, [['kilograms', 'Kilograms'], ['pounds', 'Pounds']])}${selectMarkup('units.volume', 'Volume', settings.units.volume, [['litres', 'Litres'], ['gallons-uk', 'UK gallons'], ['gallons-us', 'US gallons']])}${selectMarkup('units.pressure', 'Pressure', settings.units.pressure, [['hectopascals', 'Hectopascals'], ['inches-of-mercury', 'Inches of mercury']])}</div></section>
-          <section class="settings-section" id="variables-language"><div class="settings-heading"><span>03</span><div><h2>Language</h2><p>BCP 47 language tags keep interface and content preferences portable.</p></div></div><div class="field-grid">${inputMarkup('language.primary', 'Primary language', settings.language.primary, 'en-GB', 35)}${inputMarkup('language.secondary', 'Secondary language', settings.language.secondary, 'de-DE', 35)}${inputMarkup('language.interface', 'Interface language', settings.language.interface, 'en-GB', 35)}${inputMarkup('language.content', 'Content language', settings.language.content, 'en-GB', 35)}</div></section>
-          <section class="settings-section" id="variables-formatting"><div class="settings-heading"><span>04</span><div><h2>Formatting</h2><p>Consistent dates, time, currency and calendar behaviour across Cyrune.</p></div></div><div class="field-grid">${selectMarkup('formatting.date', 'Date order', settings.formatting.date, [['day-month-year', 'Day / month / year'], ['month-day-year', 'Month / day / year'], ['year-month-day', 'Year / month / day'], ['locale', 'Language default']])}${selectMarkup('formatting.clock', 'Clock', settings.formatting.clock, [['24-hour', '24-hour'], ['12-hour', '12-hour'], ['locale', 'Language default']])}${inputMarkup('formatting.currency', 'Currency code', settings.formatting.currency, 'GBP', 3)}${selectMarkup('formatting.weekStart', 'First day of week', settings.formatting.weekStart, [['monday', 'Monday'], ['sunday', 'Sunday'], ['saturday', 'Saturday'], ['locale', 'Language default']])}</div></section>
-          <section class="settings-section" id="variables-behaviour"><div class="settings-heading"><span>05</span><div><h2>Behaviour</h2><p>Portable interaction defaults that components may adopt consistently.</p></div></div>${selectMarkup('behaviour.externalLinks', 'External links', settings.behaviour.externalLinks, [['new-tab', 'Open in a new tab'], ['current-tab', 'Open in the current tab'], ['component-default', 'Use component default']])}<div class="toggle-stack">${toggleMarkup('behaviour.confirmPrivilegedActions', 'Confirm privileged actions', 'Ask before launches, external writes, or other device-affecting operations.', settings.behaviour.confirmPrivilegedActions)}${toggleMarkup('behaviour.restoreLastView', 'Restore the last view', 'Let components reopen their most recently used local view.', settings.behaviour.restoreLastView)}</div></section>
-          <section class="settings-section" id="variables-accessibility"><div class="settings-heading"><span>06</span><div><h2>Accessibility</h2><p>Shared comfort preferences; components still retain accessible fallbacks.</p></div></div>${selectMarkup('accessibility.scale', 'Interface scale', settings.accessibility.scale, [['90', '90%'], ['100', '100%'], ['110', '110%'], ['125', '125%']])}<div class="toggle-stack">${toggleMarkup('accessibility.reducedMotion', 'Reduce motion', 'Minimise non-essential transitions and animated movement.', settings.accessibility.reducedMotion)}${toggleMarkup('accessibility.highContrast', 'Increase contrast', 'Prefer stronger borders and clearer surface separation.', settings.accessibility.highContrast)}</div></section>
-          <section class="settings-section" id="variables-privacy"><div class="settings-heading"><span>07</span><div><h2>Privacy & network</h2><p>Optional online and location capabilities are explicit and revocable.</p></div></div><div class="toggle-stack">${toggleMarkup('privacy.allowOptionalNetwork', 'Allow optional online lookups', 'Components may use their declared bounded providers.', settings.privacy.allowOptionalNetwork)}${toggleMarkup('privacy.allowApproximateLocation', 'Allow approximate location', 'Permit coarse automatic regional location when requested.', settings.privacy.allowApproximateLocation)}${toggleMarkup('privacy.allowPreciseLocation', 'Allow precise location', 'Permit exact coordinates only for components that declare the capability.', settings.privacy.allowPreciseLocation)}</div></section>
+          <section class="settings-section" id="variables-region"><div class="settings-heading"><span>01</span><div><h2>Region & location</h2><p>Precise coordinates are exposed only to the Portal & Widgets profile when the global permission is enabled.</p></div></div><div class="field-grid">${inputMarkup('region.country', 'Country / region code', displayed.region.country, 'GB', 2)}${inputMarkup('region.city', 'City (optional)', displayed.region.city, 'London', 80)}${inputMarkup('region.timeZone', 'Time zone', displayed.region.timeZone, 'Europe/London', 80)}${selectMarkup('region.locationMode', 'Location mode', displayed.region.locationMode, [['manual', 'Manual only'], ['approximate', 'Approximate (opt-in)'], ['precise', 'Precise coordinates (opt-in)']], 'Automatic modes also require the global privacy permission below.')}${inputMarkup('region.latitude', 'Latitude', displayed.region.latitude, '51.5074', 24, 'number')}${inputMarkup('region.longitude', 'Longitude', displayed.region.longitude, '-0.1278', 24, 'number')}</div></section>
+          <section class="settings-section" id="variables-units"><div class="settings-heading"><span>02</span><div><h2>Units</h2><p>Choose a system, then override individual measurements when needed.</p></div></div><div class="field-grid">${selectMarkup('units.system', 'Unit system', displayed.units.system, [['metric', 'Metric'], ['imperial', 'Imperial'], ['custom', 'Custom']])}${selectMarkup('units.temperature', 'Temperature', displayed.units.temperature, [['celsius', 'Celsius (°C)'], ['fahrenheit', 'Fahrenheit (°F)']])}${selectMarkup('units.distance', 'Distance', displayed.units.distance, [['kilometres', 'Kilometres'], ['miles', 'Miles']])}${selectMarkup('units.speed', 'Speed', displayed.units.speed, [['kilometres-per-hour', 'Kilometres per hour'], ['miles-per-hour', 'Miles per hour']])}${selectMarkup('units.mass', 'Mass', displayed.units.mass, [['kilograms', 'Kilograms'], ['pounds', 'Pounds']])}${selectMarkup('units.volume', 'Volume', displayed.units.volume, [['litres', 'Litres'], ['gallons-uk', 'UK gallons'], ['gallons-us', 'US gallons']])}${selectMarkup('units.pressure', 'Pressure', displayed.units.pressure, [['hectopascals', 'Hectopascals'], ['inches-of-mercury', 'Inches of mercury']])}</div></section>
+          <section class="settings-section" id="variables-language"><div class="settings-heading"><span>03</span><div><h2>Language</h2><p>BCP 47 language tags keep interface and content preferences portable.</p></div></div><div class="field-grid">${inputMarkup('language.primary', 'Primary language', displayed.language.primary, 'en-GB', 35)}${inputMarkup('language.secondary', 'Secondary language', displayed.language.secondary, 'de-DE', 35)}${inputMarkup('language.interface', 'Interface language', displayed.language.interface, 'en-GB', 35)}${inputMarkup('language.content', 'Content language', displayed.language.content, 'en-GB', 35)}</div></section>
+          <section class="settings-section" id="variables-formatting"><div class="settings-heading"><span>04</span><div><h2>Formatting</h2><p>Consistent dates, time, currency and calendar behaviour across Cyrune.</p></div></div><div class="field-grid">${selectMarkup('formatting.date', 'Date order', displayed.formatting.date, [['day-month-year', 'Day / month / year'], ['month-day-year', 'Month / day / year'], ['year-month-day', 'Year / month / day'], ['locale', 'Language default']])}${selectMarkup('formatting.clock', 'Clock', displayed.formatting.clock, [['24-hour', '24-hour'], ['12-hour', '12-hour'], ['locale', 'Language default']])}${inputMarkup('formatting.currency', 'Currency code', displayed.formatting.currency, 'GBP', 3)}${selectMarkup('formatting.weekStart', 'First day of week', displayed.formatting.weekStart, [['monday', 'Monday'], ['sunday', 'Sunday'], ['saturday', 'Saturday'], ['locale', 'Language default']])}</div></section>
+          <section class="settings-section" id="variables-behaviour"><div class="settings-heading"><span>05</span><div><h2>Behaviour</h2><p>Portable interaction defaults that components may adopt consistently.</p></div></div>${selectMarkup('behaviour.externalLinks', 'External links', displayed.behaviour.externalLinks, [['new-tab', 'Open in a new tab'], ['current-tab', 'Open in the current tab'], ['component-default', 'Use component default']])}<div class="toggle-stack">${toggleMarkup('behaviour.confirmPrivilegedActions', 'Confirm privileged actions', 'Ask before launches, external writes, or other device-affecting operations.', displayed.behaviour.confirmPrivilegedActions)}${toggleMarkup('behaviour.restoreLastView', 'Restore the last view', 'Let components reopen their most recently used local view.', displayed.behaviour.restoreLastView)}</div></section>
+          <section class="settings-section" id="variables-accessibility"><div class="settings-heading"><span>06</span><div><h2>Accessibility</h2><p>Shared comfort preferences; components still retain accessible fallbacks.</p></div></div>${selectMarkup('accessibility.scale', 'Interface scale', displayed.accessibility.scale, [['90', '90%'], ['100', '100%'], ['110', '110%'], ['125', '125%']])}<div class="toggle-stack">${toggleMarkup('accessibility.reducedMotion', 'Reduce motion', 'Minimise non-essential transitions and animated movement.', displayed.accessibility.reducedMotion)}${toggleMarkup('accessibility.highContrast', 'Increase contrast', 'Prefer stronger borders and clearer surface separation.', displayed.accessibility.highContrast)}</div></section>
+          <section class="settings-section" id="variables-privacy"><div class="settings-heading"><span>07</span><div><h2>Privacy & network</h2><p>Location permissions are global ceilings; a component override may only narrow optional network access.</p></div></div><div class="toggle-stack">${toggleMarkup('privacy.allowOptionalNetwork', 'Allow optional online lookups', 'Components may use their declared bounded providers.', displayed.privacy.allowOptionalNetwork)}${toggleMarkup('privacy.allowApproximateLocation', 'Allow approximate location', 'Permit coarse automatic regional location when requested.', displayed.privacy.allowApproximateLocation)}${toggleMarkup('privacy.allowPreciseLocation', 'Allow precise location', 'Permit stored coordinates only for components that declare the capability.', displayed.privacy.allowPreciseLocation)}</div></section>
         </div>
-        <footer class="settings-actions"><span><strong>${settingsAuthority === 'authoritative' ? 'Host-backed settings' : 'Disconnected fallback'}</strong><small>${settingsAuthority === 'authoritative' ? `Revision ${settings.revision} · ${formatAge(settings.updatedAt)}` : (serviceError || 'Authoritative persistence is not connected.')}</small></span><button type="button" class="button button-secondary" id="reset-variables">Reset defaults</button><button type="submit" class="button button-primary">${settingsAuthority === 'authoritative' ? 'Apply settings' : 'Save local fallback'}</button></footer>
+        <footer class="settings-actions"><span><strong>${settingsAuthority === 'authoritative' ? 'Host-backed settings' : 'Disconnected fallback'}</strong><small>${scopeLabel} · ${settingsAuthority === 'authoritative' ? `revision ${settings.revision} · ${formatAge(settings.updatedAt)}` : (serviceError || 'Authoritative persistence is not connected.')}</small></span><button type="button" class="button button-secondary" id="reset-variables">${settingsScope === 'global' ? 'Reset global defaults' : 'Clear component overrides'}</button><button type="submit" class="button button-primary">${settingsAuthority === 'authoritative' ? 'Apply settings' : 'Save local fallback'}</button></footer>
       </form>`;
     document.getElementById('variables-form').addEventListener('submit', saveVariables);
     document.getElementById('reset-variables').addEventListener('click', resetVariables);
-    document.querySelector('select[name="units.system"]').addEventListener('change', applyUnitPreset);
+    document.querySelector('select[name="units.system"]')?.addEventListener('change', applyUnitPreset);
+    document.querySelectorAll('[data-settings-scope]').forEach(button => button.addEventListener('click', () => {
+      settingsScope = button.dataset.settingsScope;
+      renderVariables();
+    }));
+    document.querySelectorAll('[data-override-path]').forEach(input => input.addEventListener('change', () => {
+      const control = [...document.querySelectorAll('[data-setting-control]')]
+        .find(candidate => candidate.dataset.settingControl === input.dataset.overridePath);
+      if (control) control.disabled = !input.checked;
+    }));
   }
 
   function applyUnitPreset(event) {
@@ -265,8 +300,26 @@
   async function saveVariables(event) {
     event.preventDefault();
     const draft = model.clone(settings);
-    new FormData(event.currentTarget).forEach((value, name) => setPath(draft, name, value));
-    event.currentTarget.querySelectorAll('input[type="checkbox"]').forEach(input => setPath(draft, input.name, input.checked));
+    const controls = [...event.currentTarget.querySelectorAll('[data-setting-control]')];
+    const readControl = control => {
+      if (control.type === 'checkbox') return control.checked;
+      if (control.dataset.settingControl === 'region.latitude' || control.dataset.settingControl === 'region.longitude') {
+        return control.value.trim() === '' ? null : Number(control.value);
+      }
+      return control.value;
+    };
+    if (settingsScope === 'global') {
+      controls.forEach(control => setPath(draft, control.dataset.settingControl, readControl(control)));
+    } else {
+      draft.overrides ||= {};
+      draft.overrides[settingsScope] = {};
+      const selected = new Set([...event.currentTarget.querySelectorAll('[data-override-path]:checked')]
+        .map(input => input.dataset.overridePath));
+      controls.forEach(control => {
+        const path = control.dataset.settingControl;
+        if (selected.has(path)) model.setPath(draft.overrides[settingsScope], path, readControl(control));
+      });
+    }
     await persistVariables(model.normalizeSettings(draft));
   }
 
@@ -301,8 +354,20 @@
   }
 
   async function resetVariables() {
-    const defaults = model.normalizeSettings({ revision: settings.revision, updatedAt: settings.updatedAt });
-    await persistVariables(defaults);
+    if (settingsScope === 'global') {
+      const defaults = model.normalizeSettings({
+        revision: settings.revision,
+        updatedAt: settings.updatedAt,
+        schemaVersion: model.SETTINGS_SCHEMA_VERSION,
+        overrides: settings.overrides
+      });
+      await persistVariables(defaults);
+      return;
+    }
+    const draft = model.clone(settings);
+    draft.overrides ||= {};
+    draft.overrides[settingsScope] = {};
+    await persistVariables(model.normalizeSettings(draft));
   }
 
   function renderActivity() {

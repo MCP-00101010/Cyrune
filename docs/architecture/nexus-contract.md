@@ -19,12 +19,12 @@ Nexus file page
 Portal or Arcade file page
   -> its own exact authenticated Relay role
     -> one fixed Host-owned component settings profile
-      -> typed subset plus revision (no caller-selected paths or keys)
+      -> typed effective subset, value sources, and revision (no caller-selected paths or keys)
 ```
 
 Nexus never receives a general filesystem path, shell, Git command, database query, credential, process, or native-operation interface. Relay binds every page request to the exact registered Nexus URL, tab, role, and opaque session. Host independently validates operation names, component IDs, document types, bounds, revisions, and approved roots.
 
-The initial status product is read-only. Shared settings are the first Nexus-owned mutation surface and use revision-aware atomic persistence, validation, retained backups, and bounded change history. Schema migrations and component overrides remain future contract additions.
+The status product is read-only. Shared settings are the first Nexus-owned mutation surface and use revision-aware atomic persistence, validation, retained backups, bounded change history, schema migration, and fixed sparse component overrides.
 
 ## Implemented Operations
 
@@ -32,13 +32,13 @@ The page-to-Relay message allowlist is `MW_NEXUS_PING`, `MW_NEXUS_GET_SETTINGS`,
 
 `MW_NEXUS_SAVE_SETTINGS` includes the complete candidate snapshot and `expectedRevision`. A successful response includes the saved snapshot and changed-key metadata. A stale write returns `conflict: true` with the current authoritative snapshot so the page can reload instead of overwriting it. Relay broadcasts only the new numeric revision to authenticated Nexus, Portal, and Arcade pages.
 
-Portal uses `MW_GET_CYRUNE_SETTINGS`, which Relay maps to the fixed Host `portal-widgets` profile. Arcade uses `MW_EMUGUI_GET_CYRUNE_SETTINGS`, mapped to `arcade`. Host owns both allowlists and returns profile schema version, settings schema version, component ID, revision, update time, and the typed subset. Neither page supplies a component ID, path, key, or query. The shared browser client validates the expected component and profile schema, strips unknown data, clones values at its API boundary, and refuses to replace a newer revision with an older response.
+Portal uses `MW_GET_CYRUNE_SETTINGS`, which Relay maps to the fixed Host `portal-widgets` profile. Arcade uses `MW_EMUGUI_GET_CYRUNE_SETTINGS`, mapped to `arcade`. Host owns both allowlists and returns profile schema version, settings schema version, component ID, revision, update time, the typed effective subset, and a flat source map whose values are only `global` or `component`. Neither page supplies a component ID, path, key, or query. The shared browser client accepts profile schemas 1 and 2 during rolling reloads, normalizes to profile schema 2, validates the expected component, strips unknown data, clones values at its API boundary, and refuses to replace a newer revision with an older response.
 
 ## Runtime Data
 
 Authoritative Nexus data belongs beneath `%LOCALAPPDATA%\Cyrune\Nexus` on Windows. Current and planned logical areas are:
 
-- typed global settings and future component overrides;
+- typed global settings and sparse fixed component overrides;
 - settings schema and migration state;
 - bounded settings change history;
 - the last sanitized project snapshot;
@@ -51,7 +51,13 @@ The Nexus page is the settings editor, not the runtime server. Relay and Host ma
 
 ## Shared Settings
 
-Settings are typed, namespaced, versioned, validated, documented, and migrated. An arbitrary key/value store is prohibited. Stable keys follow this shape:
+Settings are typed, namespaced, versioned, validated, documented, and migrated. An arbitrary key/value store is prohibited. Settings schema 2 follows this precedence:
+
+```text
+schema default -> global value -> fixed component override -> local Widget setting
+```
+
+Component overrides are sparse and may contain only Host-declared paths for `portal-widgets` or `arcade`. Location permission switches are global ceilings and cannot be overridden. Optional-network overrides may narrow a component from allowed to denied but cannot relax a global denial. Stable logical keys follow this shape:
 
 ```text
 global.region.country
@@ -63,8 +69,8 @@ global.language.secondary
 global.formatting.clock
 global.accessibility.reducedMotion
 global.privacy.allowOptionalNetwork
-portal.links.externalHandling
-arcade.metadata.allowOnlineLookup
+overrides.portal-widgets.units.system
+overrides.arcade.formatting.weekStart
 ```
 
 The first schema covers:
@@ -77,11 +83,11 @@ The first schema covers:
 - interface scale, reduced motion, and contrast preferences;
 - external-link, optional-network, approximate-location, and precise-location permissions.
 
-Location is manual by default. Approximate or precise automatic location requires an explicit global opt-in and a declared component capability. Settings responses expose only the value needed by that component; they do not make location or other sensitive fields universally available by accident.
+Location is manual by default. Approximate or precise automatic location requires an explicit global opt-in and a declared component capability. Stored latitude and longitude must be supplied as a complete bounded pair and require the precise-location permission. Settings responses expose only the value needed by that component; they do not make location or other sensitive fields universally available by accident.
 
-The implemented `portal-widgets` profile contains regional city/location mode, units, languages, formatting, behaviour, accessibility, optional-network permission, and both location permission flags because Portal hosts declared location-aware widgets. The `arcade` profile contains country/time zone, units, languages, formatting, behaviour, accessibility, and optional-network permission; it deliberately excludes city, location mode, and approximate/precise location permissions. Future additions require a versioned profile change and consumer coverage rather than a generic settings read.
+The implemented `portal-widgets` profile contains regional city/location mode, units, languages, formatting, behaviour, accessibility, optional-network permission, and both location permission flags because Portal hosts declared location-aware widgets. It includes coordinates only when the global precise-location permission is enabled and a complete valid pair exists. The `arcade` profile contains country/time zone, units, languages, formatting, behaviour, accessibility, and optional-network permission; it deliberately excludes city, location mode, coordinates, and approximate/precise location permissions. Future additions require a versioned profile change and consumer coverage rather than a generic settings read.
 
-Portal applies interface language, scale, reduced motion, and contrast to its document and exposes the profile to hosted Widgets through `WidgetSDK.settings`. The SDK's managed network gateway rejects optional requests when `allowOptionalNetwork` is false. Arcade applies the same presentation subset to its own document. Component startup remains non-blocking and uses documented defaults when Relay or Host is unavailable.
+Portal applies interface language, scale, reduced motion, and contrast to its document and exposes the profile to hosted Widgets through `WidgetSDK.settings`. Widget SDK 3 resolves an explicitly inherited path with its effective value and `local`, `global`, or `component` source. Weather, Weather Map, and Calendar keep inheritance disabled by default; Astronomy uses the permitted shared location only after its existing Weather-widget lookup and before requiring a separately configured location. The SDK's managed network gateway rejects optional requests when `allowOptionalNetwork` is false. Arcade applies the same presentation subset to its own document. Component startup remains non-blocking and uses documented defaults when Relay or Host is unavailable.
 
 Each authoritative snapshot includes a schema version, monotonic revision, updated timestamp, and typed setting sections. Writes compare the expected revision and reject stale callers. Unknown sections or keys, wrong types, excessive or control-character strings, unsupported enum values, invalid region/language/currency identifiers, and automatic location without the matching permission are rejected rather than preserved invisibly.
 

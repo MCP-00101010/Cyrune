@@ -25,9 +25,13 @@ Network capabilities list exact hostnames. Use `user-configured` only when the U
 - `WidgetSDK.nativeHost.invoke(widgetType, method, ...args)` and `supports(...)` gate fixed-purpose native operations behind the descriptor capability and native availability.
 - `WidgetSDK.credentials.status/get/set/remove(...)` provides the secure-credential boundary without exposing the bridge to widget implementations.
 - `WidgetSDK.settings.validateDraft(descriptor, widget)` validates configuration before persistence.
+- `WidgetSDK.settings.shared()` and `subscribeShared(listener)` expose the fixed Portal & Widgets profile without granting Relay access.
+- `WidgetSDK.settings.resolve(path, localValue, { inherit })` returns `{ value, source }`. It uses the profile only when `inherit` is exactly true and otherwise returns the local value with source `local`; inherited sources are `global` or `component`.
 - `WidgetSDK.runtime.teardown(widget)` cancels schedules and requests, then invokes cleanup exactly once.
 
 View preferences and small samples belong in `WidgetSDK.cache`; downloaded binary resources belong in `WidgetSDK.assets`; portable configuration belongs in `widget.config`; user content belongs in `widget.data`. Never place credentials, filesystem paths, browser tab IDs, or cache payloads in shared widget state.
+
+When a Widget already has a local preference, add a persisted opt-in switch before adopting the shared equivalent. Default that switch to false for existing behaviour unless an explicit migration says otherwise. Precise location is absent from the profile unless Nexus permission and Host projection both allow it; Widgets must fall back to their local configuration rather than inferring or requesting broader location authority.
 
 Meaningful UI state is restorable by default. A widget should save selected tabs, filters, pages/items, expanded or collapsed details and attribution, map/globe cameras, focus modes, and meaningful scroll positions as bounded per-instance `view` data in `WidgetSDK.cache`. Restore it after widget and Portal reloads, keep it out of portable configuration and content, and remove it from the widget's `dispose` hook. State that is intentionally transient should be documented and covered by a test. Universal Search's unfinished query and keyboard-highlighted result are deliberate transient exceptions; completed recent searches may still be remembered locally when enabled.
 

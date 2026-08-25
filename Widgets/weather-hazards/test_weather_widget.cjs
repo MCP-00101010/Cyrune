@@ -54,9 +54,27 @@ test('weather widget is registered as a column widget with basic defaults', () =
       timezone: 'auto',
       days: 5,
       units: 'metric',
+      inheritCyruneLocation: false,
+      inheritCyruneUnits: false,
       forecastLayout: 'vertical',
       showHourly24: false
     }
+  });
+});
+
+test('weather inheritance is opt-in and resolves permitted Cyrune location and units', () => {
+  const { context } = loadWidgets();
+  vm.runInContext(`globalThis.CyruneSettings = { get: () => ({
+    values: { region: { city: 'Edinburgh', timeZone: 'Europe/London', latitude: 55.9533, longitude: -3.1883 }, units: { system: 'imperial', temperature: 'fahrenheit' } },
+    sources: { 'region.latitude': 'component', 'region.longitude': 'component', 'region.city': 'component', 'region.timeZone': 'global', 'units.system': 'global' }
+  }) }`, context);
+  const effective = vm.runInContext(`_weatherEffectiveConfig({ config: {
+    locationName: 'Local', latitude: 1, longitude: 2, timezone: 'auto', units: 'metric',
+    inheritCyruneLocation: true, inheritCyruneUnits: true
+  } })`, context);
+  assert.deepEqual(JSON.parse(JSON.stringify(effective)), {
+    locationName: 'Edinburgh', latitude: 55.9533, longitude: -3.1883, timezone: 'Europe/London', units: 'imperial',
+    inheritCyruneLocation: true, inheritCyruneUnits: true, cyruneUnitsSource: 'global', cyruneLocationSource: 'component'
   });
 });
 
@@ -316,6 +334,8 @@ test('weather map widget is registered with regional map defaults', () => {
       longitude: '',
       timezone: 'auto',
       units: 'metric',
+      inheritCyruneLocation: false,
+      inheritCyruneUnits: false,
       mapStyle: 'dark',
       originZoom: 7
     }

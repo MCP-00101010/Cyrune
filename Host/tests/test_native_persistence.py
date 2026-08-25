@@ -74,6 +74,60 @@ class NativePersistenceTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'Unsupported Cyrune settings consumer'):
             HOST.nexus_component_settings('../portal')
 
+    def test_nexus_schema_one_migrates_to_schema_two_without_component_overrides(self):
+        candidate = json.loads(json.dumps(HOST.NEXUS_DEFAULT_SETTINGS))
+        candidate['schemaVersion'] = 1
+        candidate.pop('overrides')
+        candidate['revision'] = 9
+        candidate['updatedAt'] = 1700000000000
+        candidate['region']['city'] = 'Bristol'
+        migrated = HOST.validate_nexus_settings(candidate)
+        self.assertEqual(migrated['schemaVersion'], 2)
+        self.assertEqual(migrated['region']['city'], 'Bristol')
+        self.assertEqual(migrated['overrides'], {'portal-widgets': {}, 'arcade': {}})
+
+    def test_nexus_component_overrides_are_sparse_typed_and_source_annotated(self):
+        settings = json.loads(json.dumps(HOST.NEXUS_DEFAULT_SETTINGS))
+        settings['region']['city'] = 'London'
+        settings['overrides']['portal-widgets'] = {
+            'region': {'city': 'Edinburgh'},
+            'units': {'system': 'imperial', 'temperature': 'fahrenheit'}
+        }
+        validated = HOST.validate_nexus_settings(settings)
+        with patch.object(HOST, 'load_nexus_settings', return_value=validated):
+            portal = HOST.nexus_component_settings('portal-widgets')
+            arcade = HOST.nexus_component_settings('arcade')
+        self.assertEqual(portal['profileSchemaVersion'], 2)
+        self.assertEqual(portal['values']['region']['city'], 'Edinburgh')
+        self.assertEqual(portal['sources']['region.city'], 'component')
+        self.assertEqual(portal['sources']['region.timeZone'], 'global')
+        self.assertNotIn('city', arcade['values']['region'])
+
+    def test_nexus_precise_coordinates_are_permission_gated_and_portal_only(self):
+        settings = json.loads(json.dumps(HOST.NEXUS_DEFAULT_SETTINGS))
+        settings['privacy']['allowPreciseLocation'] = True
+        settings['region'].update({'locationMode': 'precise', 'latitude': 51.5074, 'longitude': -0.1278})
+        validated = HOST.validate_nexus_settings(settings)
+        with patch.object(HOST, 'load_nexus_settings', return_value=validated):
+            portal = HOST.nexus_component_settings('portal-widgets')
+            arcade = HOST.nexus_component_settings('arcade')
+        self.assertEqual(portal['values']['region']['latitude'], 51.5074)
+        self.assertNotIn('latitude', arcade['values']['region'])
+
+        settings['privacy']['allowPreciseLocation'] = False
+        with self.assertRaisesRegex(ValueError, 'precise location mode requires'):
+            HOST.validate_nexus_settings(settings)
+
+    def test_nexus_overrides_reject_unknown_paths_and_permission_relaxation(self):
+        settings = json.loads(json.dumps(HOST.NEXUS_DEFAULT_SETTINGS))
+        settings['overrides']['arcade'] = {'region': {'city': 'Leeds'}}
+        with self.assertRaisesRegex(ValueError, 'Unsupported Nexus settings override'):
+            HOST.validate_nexus_settings(settings)
+        settings['overrides']['arcade'] = {'privacy': {'allowOptionalNetwork': True}}
+        settings['privacy']['allowOptionalNetwork'] = False
+        with self.assertRaisesRegex(ValueError, 'cannot relax'):
+            HOST.validate_nexus_settings(settings)
+
     def test_nexus_page_and_documents_are_exactly_allowlisted(self):
         expected = (Path(HOST.CYRUNE_REPO_ROOT) / 'Nexus' / 'index.html').resolve().as_uri()
         self.assertTrue(HOST.authorize_nexus_page(expected))

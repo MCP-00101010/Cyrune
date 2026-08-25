@@ -8,6 +8,7 @@ Historical entries below are preserved from Portal releases whose release notes 
 
 ### Added
 
+- Added Nexus settings schema 2 with schema-1 migration, sparse typed `portal-widgets` and `arcade` overrides, fixed source annotations, and permission-gated precise coordinates exposed only to the Portal & Widgets profile.
 - Added fixed typed Nexus settings profiles for `portal-widgets` and `arcade`. Host chooses each profile's exact key set, rejects unknown component IDs, and never accepts a path or arbitrary key list from browser pages.
 - Added sanitized, independently sampled health adapters for Portal database/schema/backups, Arcade service/state, Nexus settings/backups, and Host availability, using only fixed diagnostic codes and recovery guidance.
 - Added a fixed-purpose Nexus origin check that derives the current branch locally, disables interactive Git credential prompts, calls only timeout-bounded `git ls-remote` against fixed `origin`, and returns sanitized short commit comparisons without fetching or changing repository state.

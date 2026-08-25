@@ -1,10 +1,11 @@
 (function cyruneComponentSettingsClientScope(root) {
   'use strict';
 
-  const PROFILE_SCHEMA_VERSION = 1;
+  const PROFILE_SCHEMA_VERSION = 2;
+  const SUPPORTED_PROFILE_SCHEMA_VERSIONS = new Set([1, PROFILE_SCHEMA_VERSION]);
   const COMPONENTS = new Set(['portal-widgets', 'arcade']);
   const DEFAULTS = Object.freeze({
-    region: { country: 'GB', city: '', timeZone: 'Europe/London', locationMode: 'manual' },
+    region: { country: 'GB', city: '', timeZone: 'Europe/London', locationMode: 'manual', latitude: null, longitude: null },
     units: { system: 'metric', temperature: 'celsius', distance: 'kilometres', speed: 'kilometres-per-hour', mass: 'kilograms', volume: 'litres', pressure: 'hectopascals' },
     language: { primary: 'en-GB', secondary: '', interface: 'en-GB', content: 'en-GB' },
     formatting: { date: 'day-month-year', clock: '24-hour', currency: 'GBP', weekStart: 'monday' },
@@ -34,6 +35,13 @@
 
   function normalizedValue(section, key, supplied, fallback) {
     const path = `${section}.${key}`;
+    if (path === 'region.latitude' || path === 'region.longitude') {
+      if (supplied === null) return null;
+      const value = typeof supplied === 'number' && Number.isFinite(supplied) ? supplied : NaN;
+      const minimum = key === 'latitude' ? -90 : -180;
+      const maximum = key === 'latitude' ? 90 : 180;
+      return Number.isFinite(value) && value >= minimum && value <= maximum ? value : fallback;
+    }
     if (typeof fallback === 'boolean') return typeof supplied === 'boolean' ? supplied : fallback;
     if (ENUMS[path]) return ENUMS[path].includes(supplied) ? supplied : fallback;
     if (typeof supplied !== 'string') return fallback;
@@ -44,7 +52,7 @@
 
   function normalizeProfile(raw, expectedComponent) {
     const profile = raw && typeof raw === 'object' ? raw : {};
-    if (profile.profileSchemaVersion !== PROFILE_SCHEMA_VERSION) throw new Error('Unsupported Cyrune component settings profile');
+    if (!SUPPORTED_PROFILE_SCHEMA_VERSIONS.has(profile.profileSchemaVersion)) throw new Error('Unsupported Cyrune component settings profile');
     if (!COMPONENTS.has(expectedComponent) || profile.component !== expectedComponent) throw new Error('Cyrune component settings role mismatch');
     const revision = Number(profile.revision);
     const updatedAt = Number(profile.updatedAt);
@@ -53,6 +61,7 @@
     }
     const suppliedValues = profile.values && typeof profile.values === 'object' ? profile.values : {};
     const values = {};
+    const sources = {};
     for (const [section, defaults] of Object.entries(DEFAULTS)) {
       const supplied = suppliedValues[section];
       if (!supplied || typeof supplied !== 'object') continue;
@@ -60,7 +69,17 @@
       for (const [key, fallback] of Object.entries(defaults)) {
         if (!Object.prototype.hasOwnProperty.call(supplied, key)) continue;
         values[section][key] = normalizedValue(section, key, supplied[key], fallback);
+        const path = `${section}.${key}`;
+        sources[path] = profile.profileSchemaVersion === PROFILE_SCHEMA_VERSION && profile.sources?.[path] === 'component'
+          ? 'component'
+          : 'global';
       }
+    }
+    if (values.region && (values.region.latitude === null || values.region.longitude === null)) {
+      delete values.region.latitude;
+      delete values.region.longitude;
+      delete sources['region.latitude'];
+      delete sources['region.longitude'];
     }
     return {
       profileSchemaVersion: PROFILE_SCHEMA_VERSION,
@@ -68,7 +87,8 @@
       component: expectedComponent,
       revision,
       updatedAt,
-      values
+      values,
+      sources
     };
   }
 
@@ -109,6 +129,7 @@
 
   root.CyruneComponentSettingsClient = Object.freeze({
     PROFILE_SCHEMA_VERSION,
+    SUPPORTED_PROFILE_SCHEMA_VERSIONS,
     create,
     normalizeProfile
   });

@@ -5,6 +5,21 @@ Format: `[version] — date` followed by Added / Changed / Fixed sections.
 
 ---
 
+## [0.11.225] — 2026-08-25
+
+### Added
+
+- **Effective shared settings** — hosted Widgets can explicitly inherit Nexus values through Widget SDK 3 while retaining local configuration as the final precedence layer.
+- **Location and unit adoption** — Weather and Weather Map can opt into the permitted Cyrune location and preferred units; Astronomy falls back to that location when no Weather widget is configured, and Calendar can opt into the shared week start.
+
+### Changed
+
+- Existing Widget instances retain their previous behaviour because new Weather, Weather Map, and Calendar inheritance switches default to off. Open Widgets rerender when an authoritative settings revision arrives.
+
+### Validation
+
+- Focused SDK, Weather, Weather Map, Astronomy, Calendar, component-profile, and Host settings tests cover opt-in precedence, source metadata, schema migration, privacy gating, and live revision adoption. The coordinated repository validator covers the complete release.
+
 ## [0.11.224] — 2026-08-25
 
 ### Added

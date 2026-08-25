@@ -6,13 +6,22 @@ Historical entries below are preserved from Portal releases whose release notes 
 
 ## [Unversioned] — 2026-08-25
 
+### Added
+
+- Widget SDK 3 adds `settings.resolve(path, localValue, { inherit })`, returning the effective value and its `local`, `global`, or `component` source without allowing Widgets to select a broader Host profile.
+- Weather and Weather Map now offer separate opt-in switches for the permitted Cyrune location and shared units. Astronomy uses the same location as a fallback when no configured Weather widget is available, and Calendar can opt into the shared week start.
+
+### Changed
+
+- Existing Widget configuration remains local by default. New inheritance switches are disabled unless the user enables them, and rendered Widgets refresh when Portal applies a newer Nexus profile.
+
 ### Fixed
 
 - Kept RSS article lists visually anchored during feed refreshes and stable across tab changes by updating the existing view in place and reserving scrollbar space. Remote images now enter the article layout only after loading successfully, so failed images create neither a transient frame nor an empty placeholder.
 
 ### Changed
 
-- Widget SDK 2 exposes the Portal-hosted typed Nexus settings profile through `settings.shared()` and `settings.subscribeShared()`. Its managed network gateway refuses optional requests when the authoritative Nexus privacy setting disables them.
+- Widget SDK 2 introduced the Portal-hosted typed Nexus settings profile through `settings.shared()` and `settings.subscribeShared()`. Its managed network gateway refuses optional requests when the authoritative Nexus privacy setting disables them.
 - Updated notification defaults, SDK examples, provider identification, export filenames, and Relay guidance to use the Cyrune Portal, Widgets, and Relay names.
 - Renamed the active backlog and release log to `Widgets-TODO.md` and `Widgets-CHANGELOG.md` for unambiguous editor tabs.
 - Began the path-only category regrouping with Git Workspace under `coding-development/`, colocating its JavaScript, CSS, and focused test without changing its widget ID or behaviour.

@@ -12,21 +12,22 @@ function makeClientApi() {
   return context.CyruneComponentSettingsClient;
 }
 
-function profile(component = 'portal-widgets', revision = 2) {
+function profile(component = 'portal-widgets', revision = 2, profileSchemaVersion = 2) {
   return {
-    profileSchemaVersion: 1,
-    settingsSchemaVersion: 1,
+    profileSchemaVersion,
+    settingsSchemaVersion: 2,
     component,
     revision,
     updatedAt: 1234,
     values: {
-      region: { country: 'GB', city: 'London', timeZone: 'Europe/London', locationMode: 'manual', secret: 'drop-me' },
+      region: { country: 'GB', city: 'London', timeZone: 'Europe/London', locationMode: 'precise', latitude: 51.5, longitude: -0.1, secret: 'drop-me' },
       units: { system: 'metric', temperature: 'celsius' },
       language: { interface: 'en-GB' },
       accessibility: { scale: '110', reducedMotion: true, highContrast: false },
       privacy: { allowOptionalNetwork: false },
       unknown: { value: true },
     },
+    sources: { 'region.city': 'component', 'units.system': 'global' },
   };
 }
 
@@ -36,6 +37,9 @@ test('component settings client normalizes and clones a fixed profile', () => {
   assert.equal(normalized.values.region.city, 'London');
   assert.equal(normalized.values.accessibility.scale, '110');
   assert.equal(normalized.values.privacy.allowOptionalNetwork, false);
+  assert.equal(normalized.values.region.latitude, 51.5);
+  assert.equal(normalized.sources['region.city'], 'component');
+  assert.equal(normalized.sources['units.system'], 'global');
   assert.equal(normalized.values.region.secret, undefined);
   assert.equal(normalized.values.unknown, undefined);
   normalized.values.region.city = 'Changed';
@@ -46,7 +50,17 @@ test('component settings client rejects unknown or mismatched component roles', 
   const api = makeClientApi();
   assert.throws(() => api.normalizeProfile(profile('arcade'), 'portal-widgets'), /role mismatch/);
   assert.throws(() => api.normalizeProfile(profile('portal-widgets'), 'unknown'), /role mismatch/);
-  assert.throws(() => api.normalizeProfile({ ...profile(), profileSchemaVersion: 2 }, 'portal-widgets'), /Unsupported/);
+  assert.equal(api.normalizeProfile(profile('portal-widgets', 2, 1), 'portal-widgets').profileSchemaVersion, 2);
+  assert.throws(() => api.normalizeProfile({ ...profile(), profileSchemaVersion: 3 }, 'portal-widgets'), /Unsupported/);
+});
+
+test('component settings client omits incomplete or invalid coordinate pairs', () => {
+  const api = makeClientApi();
+  const raw = profile();
+  raw.values.region.longitude = 220;
+  const normalized = api.normalizeProfile(raw, 'portal-widgets');
+  assert.equal(normalized.values.region.latitude, undefined);
+  assert.equal(normalized.values.region.longitude, undefined);
 });
 
 test('component settings client retains newer revisions and publishes safe copies', async () => {

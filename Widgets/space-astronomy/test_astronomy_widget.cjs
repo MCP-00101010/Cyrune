@@ -77,7 +77,21 @@ test('astronomy location can inherit the first configured Weather widget', () =>
     longitude: -0.1278,
     locationName: 'London, England, United Kingdom',
     timezone: 'Europe/London',
-    inherited: true
+    inherited: 'weather'
+  });
+});
+
+test('astronomy falls back to the permitted Cyrune location when no Weather widget is configured', () => {
+  const context = loadAstronomyWidgets();
+  context.WidgetSDK = { settings: { resolve(path) {
+    const values = { 'region.latitude': 53.4808, 'region.longitude': -2.2426, 'region.city': 'Manchester', 'region.timeZone': 'Europe/London' };
+    return { value: values[path], source: path === 'region.latitude' ? 'component' : 'global' };
+  } } };
+  context.state = { boards: [] };
+  context.widget = { id: 'astronomy-one', config: { useWeatherLocation: true } };
+  const location = vm.runInContext('_astronomyLocation(widget)', context);
+  assert.deepEqual(JSON.parse(JSON.stringify(location)), {
+    latitude: 53.4808, longitude: -2.2426, locationName: 'Manchester', timezone: 'Europe/London', inherited: 'nexus'
   });
 });
 

@@ -1,7 +1,7 @@
 // Widget and Integration SDK. Loaded after the legacy built-in catalogue so it
 // can normalize those descriptors without changing their classic-script order.
 
-const WIDGET_SDK_VERSION = 2;
+const WIDGET_SDK_VERSION = 3;
 const WIDGET_LOCAL_OPT_IN_KEY = 'morpheus-widget-sdk-local-opt-in';
 const WIDGET_SDK_CACHE_PREFIX = 'morpheus-widget-sdk-cache:v1:';
 const WIDGET_SDK_DEFAULT_CACHE_QUOTA = 256 * 1024;
@@ -736,6 +736,16 @@ async function _widgetSdkNotificationPublish(event, options = {}) {
   return event;
 }
 
+function _widgetSdkResolveSharedSetting(path, localValue, options = {}) {
+  if (options.inherit !== true || typeof path !== 'string' || !path.includes('.')) {
+    return { value: localValue, source: 'local' };
+  }
+  const profile = globalThis.CyruneSettings?.get?.();
+  const value = path.split('.').reduce((current, key) => current && typeof current === 'object' ? current[key] : undefined, profile?.values);
+  if (value === undefined) return { value: localValue, source: 'local' };
+  return { value, source: profile?.sources?.[path] === 'component' ? 'component' : 'global' };
+}
+
 const WidgetSDK = Object.freeze({
   version: WIDGET_SDK_VERSION,
   capabilities: Object.freeze({ names: WIDGET_SDK_CAPABILITIES, available: _widgetSdkCapabilityAvailable, missing: _widgetSdkMissingCapabilities }),
@@ -744,7 +754,8 @@ const WidgetSDK = Object.freeze({
   settings: Object.freeze({
     validateDraft: _widgetSdkValidateSettingsDraft,
     shared: () => globalThis.CyruneSettings?.get?.() || null,
-    subscribeShared: listener => globalThis.CyruneSettings?.subscribe?.(listener) || (() => {})
+    subscribeShared: listener => globalThis.CyruneSettings?.subscribe?.(listener) || (() => {}),
+    resolve: _widgetSdkResolveSharedSetting
   }),
   state: Object.freeze({ migrate: _widgetSdkMigrateState }),
   cache: Object.freeze({ get: _widgetSdkCacheGet, set: _widgetSdkCacheSet, remove: _widgetSdkCacheRemove, migrateLegacy: _widgetSdkCacheMigrateLegacy }),

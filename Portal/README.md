@@ -13,7 +13,7 @@ Open `index.html` directly through a browser with local-file access enabled for 
 
 Portal scripts run in a deliberate classic-script order for direct-file compatibility. Keep top-level declarations unique. `state-schema.js` owns persisted structural repair, `state.js` owns normalized state and persistence, `render.js`/`render-items.js` own composition, and `app.js` owns startup and UI orchestration.
 
-Portal and its hosted Widgets consume the fixed `portal-widgets` Nexus settings profile through Relay and Host. The typed client applies shared language and accessibility presentation and exposes unit/privacy values to the Widget SDK; it continues with safe defaults when the service is unavailable and refreshes after revision broadcasts.
+Portal and its hosted Widgets consume the fixed `portal-widgets` Nexus settings profile through Relay and Host. The typed client accepts rolling profile schemas 1 and 2, applies shared language and accessibility presentation, and exposes effective values plus global/component sources to Widget SDK 3. Widget-local preferences remain authoritative unless their inheritance switch is enabled. Portal continues with safe defaults when the service is unavailable and refreshes rendered Widgets after revision broadcasts.
 
 ## Platform Limits
 

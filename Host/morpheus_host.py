@@ -16,6 +16,7 @@ import urllib.request
 import urllib.parse
 import urllib.error
 import hashlib
+import math
 import tempfile
 import stat
 import re
@@ -62,7 +63,7 @@ NEXUS_DATA_ROOT = default_nexus_data_root()
 NEXUS_SETTINGS_PATH = os.path.join(NEXUS_DATA_ROOT, 'settings.json')
 NEXUS_HISTORY_PATH = os.path.join(NEXUS_DATA_ROOT, 'settings-history.json')
 NEXUS_VALIDATION_PATH = os.path.join(NEXUS_DATA_ROOT, 'validation.json')
-NEXUS_SETTINGS_SCHEMA_VERSION = 1
+NEXUS_SETTINGS_SCHEMA_VERSION = 2
 MAX_NEXUS_SETTINGS_BYTES = 64 * 1024
 MAX_NEXUS_DOCUMENT_BYTES = 512 * 1024
 MAX_NEXUS_HISTORY = 100
@@ -1133,7 +1134,8 @@ NEXUS_DEFAULT_SETTINGS = {
     'schemaVersion': NEXUS_SETTINGS_SCHEMA_VERSION,
     'revision': 0,
     'updatedAt': 0,
-    'region': {'country': 'GB', 'city': '', 'timeZone': 'Europe/London', 'locationMode': 'manual'},
+    'region': {'country': 'GB', 'city': '', 'timeZone': 'Europe/London', 'locationMode': 'manual',
+               'latitude': None, 'longitude': None},
     'units': {'system': 'metric', 'temperature': 'celsius', 'distance': 'kilometres',
               'speed': 'kilometres-per-hour', 'mass': 'kilograms', 'volume': 'litres',
               'pressure': 'hectopascals'},
@@ -1141,7 +1143,8 @@ NEXUS_DEFAULT_SETTINGS = {
     'formatting': {'date': 'day-month-year', 'clock': '24-hour', 'currency': 'GBP', 'weekStart': 'monday'},
     'behaviour': {'externalLinks': 'new-tab', 'confirmPrivilegedActions': True, 'restoreLastView': True},
     'accessibility': {'scale': '100', 'reducedMotion': False, 'highContrast': False},
-    'privacy': {'allowOptionalNetwork': True, 'allowApproximateLocation': False, 'allowPreciseLocation': False}
+    'privacy': {'allowOptionalNetwork': True, 'allowApproximateLocation': False, 'allowPreciseLocation': False},
+    'overrides': {'portal-widgets': {}, 'arcade': {}}
 }
 
 NEXUS_SETTING_ENUMS = {
@@ -1173,9 +1176,15 @@ NEXUS_SETTING_BOOLEANS = {
     'privacy.allowPreciseLocation'
 }
 
+NEXUS_SETTING_NUMBERS = {
+    'region.latitude': (-90.0, 90.0),
+    'region.longitude': (-180.0, 180.0)
+}
+
 NEXUS_COMPONENT_SETTING_PATHS = {
     'portal-widgets': (
         'region.country', 'region.city', 'region.timeZone', 'region.locationMode',
+        'region.latitude', 'region.longitude',
         'units.system', 'units.temperature', 'units.distance', 'units.speed', 'units.mass',
         'units.volume', 'units.pressure',
         'language.primary', 'language.secondary', 'language.interface', 'language.content',
@@ -1194,6 +1203,11 @@ NEXUS_COMPONENT_SETTING_PATHS = {
         'accessibility.scale', 'accessibility.reducedMotion', 'accessibility.highContrast',
         'privacy.allowOptionalNetwork'
     )
+}
+
+NEXUS_COMPONENT_OVERRIDE_PATHS = {
+    component: frozenset(paths) - {'privacy.allowApproximateLocation', 'privacy.allowPreciseLocation'}
+    for component, paths in NEXUS_COMPONENT_SETTING_PATHS.items()
 }
 
 NEXUS_DOCUMENTS = {
@@ -1223,6 +1237,57 @@ def _setting_leaf_paths(value, prefix=''):
     return paths
 
 
+def _validate_nexus_setting_value(path, value):
+    if path in NEXUS_SETTING_BOOLEANS:
+        if not isinstance(value, bool):
+            raise ValueError(f'Nexus setting {path} must be true or false')
+    elif path in NEXUS_SETTING_ENUMS:
+        if value not in NEXUS_SETTING_ENUMS[path]:
+            raise ValueError(f'Nexus setting {path} has an unsupported value')
+    elif path in NEXUS_SETTING_NUMBERS:
+        if value is not None:
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+                raise ValueError(f'Nexus setting {path} must be a finite coordinate or null')
+            lower, upper = NEXUS_SETTING_NUMBERS[path]
+            if value < lower or value > upper:
+                raise ValueError(f'Nexus setting {path} is outside its supported range')
+            value = float(value)
+    elif path in NEXUS_SETTING_STRING_LIMITS:
+        if not isinstance(value, str) or len(value) > NEXUS_SETTING_STRING_LIMITS[path] or any(ord(ch) < 32 for ch in value):
+            raise ValueError(f'Nexus setting {path} is invalid')
+    if path == 'region.country':
+        if not re.fullmatch(r'[A-Za-z]{2}', value):
+            raise ValueError('Nexus region country must be a two-letter code')
+        value = value.upper()
+    if path.startswith('language.'):
+        language_pattern = re.compile(r'^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$')
+        if value or path != 'language.secondary':
+            if not language_pattern.fullmatch(value):
+                raise ValueError(f'Nexus language {path.split(".", 1)[1]} must be a BCP 47 language tag')
+    if path == 'formatting.currency':
+        if not re.fullmatch(r'[A-Za-z]{3}', value):
+            raise ValueError('Nexus currency must be a three-letter code')
+        value = value.upper()
+    if path == 'region.timeZone' and not re.fullmatch(r'(?:UTC|[A-Za-z0-9._+-]+(?:/[A-Za-z0-9._+-]+)+)', value):
+        raise ValueError('Nexus time zone must be UTC or an IANA time-zone name')
+    return value
+
+
+def _validate_nexus_location(settings, label='Nexus'):
+    region = settings['region']
+    privacy = settings['privacy']
+    if region['locationMode'] == 'approximate' and not privacy['allowApproximateLocation']:
+        raise ValueError(f'{label} approximate location mode requires its privacy permission')
+    if region['locationMode'] == 'precise' and not privacy['allowPreciseLocation']:
+        raise ValueError(f'{label} precise location mode requires its privacy permission')
+    has_latitude = region['latitude'] is not None
+    has_longitude = region['longitude'] is not None
+    if has_latitude != has_longitude:
+        raise ValueError(f'{label} precise coordinates require both latitude and longitude')
+    if has_latitude and not privacy['allowPreciseLocation']:
+        raise ValueError(f'{label} precise coordinates require their privacy permission')
+
+
 def validate_nexus_settings(candidate):
     if not isinstance(candidate, dict):
         raise ValueError('Nexus settings must be an object')
@@ -1236,12 +1301,12 @@ def validate_nexus_settings(candidate):
     unknown_top = set(candidate) - allowed_top
     if unknown_top:
         raise ValueError(f'Unknown Nexus settings section: {sorted(unknown_top)[0]}')
-    schema_version = candidate.get('schemaVersion', NEXUS_SETTINGS_SCHEMA_VERSION)
-    if schema_version != NEXUS_SETTINGS_SCHEMA_VERSION:
+    schema_version = candidate.get('schemaVersion', 1)
+    if schema_version not in {1, NEXUS_SETTINGS_SCHEMA_VERSION}:
         raise ValueError('Unsupported Nexus settings schema version')
     output = _clone_json(NEXUS_DEFAULT_SETTINGS)
     for section, defaults in NEXUS_DEFAULT_SETTINGS.items():
-        if not isinstance(defaults, dict):
+        if not isinstance(defaults, dict) or section == 'overrides':
             continue
         supplied = candidate.get(section, {})
         if not isinstance(supplied, dict):
@@ -1252,34 +1317,35 @@ def validate_nexus_settings(candidate):
         for key, default in defaults.items():
             path = f'{section}.{key}'
             value = supplied.get(key, default)
-            if path in NEXUS_SETTING_BOOLEANS:
-                if not isinstance(value, bool):
-                    raise ValueError(f'Nexus setting {path} must be true or false')
-            elif path in NEXUS_SETTING_ENUMS:
-                if value not in NEXUS_SETTING_ENUMS[path]:
-                    raise ValueError(f'Nexus setting {path} has an unsupported value')
-            elif path in NEXUS_SETTING_STRING_LIMITS:
-                if not isinstance(value, str) or len(value) > NEXUS_SETTING_STRING_LIMITS[path] or any(ord(ch) < 32 for ch in value):
-                    raise ValueError(f'Nexus setting {path} is invalid')
-            output[section][key] = value
-    if not re.fullmatch(r'[A-Za-z]{2}', output['region']['country']):
-        raise ValueError('Nexus region country must be a two-letter code')
-    output['region']['country'] = output['region']['country'].upper()
-    language_pattern = re.compile(r'^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$')
-    for key in ('primary', 'interface', 'content'):
-        if not language_pattern.fullmatch(output['language'][key]):
-            raise ValueError(f'Nexus language {key} must be a BCP 47 language tag')
-    if output['language']['secondary'] and not language_pattern.fullmatch(output['language']['secondary']):
-        raise ValueError('Nexus secondary language must be a BCP 47 language tag')
-    if not re.fullmatch(r'[A-Za-z]{3}', output['formatting']['currency']):
-        raise ValueError('Nexus currency must be a three-letter code')
-    output['formatting']['currency'] = output['formatting']['currency'].upper()
-    if not re.fullmatch(r'(?:UTC|[A-Za-z0-9._+-]+(?:/[A-Za-z0-9._+-]+)+)', output['region']['timeZone']):
-        raise ValueError('Nexus time zone must be UTC or an IANA time-zone name')
-    if output['region']['locationMode'] == 'approximate' and not output['privacy']['allowApproximateLocation']:
-        raise ValueError('Approximate location mode requires its privacy permission')
-    if output['region']['locationMode'] == 'precise' and not output['privacy']['allowPreciseLocation']:
-        raise ValueError('Precise location mode requires its privacy permission')
+            output[section][key] = _validate_nexus_setting_value(path, value)
+    _validate_nexus_location(output)
+
+    supplied_overrides = candidate.get('overrides', {}) if schema_version == NEXUS_SETTINGS_SCHEMA_VERSION else {}
+    if not isinstance(supplied_overrides, dict):
+        raise ValueError('Nexus component overrides must be an object')
+    unknown_components = set(supplied_overrides) - set(NEXUS_COMPONENT_OVERRIDE_PATHS)
+    if unknown_components:
+        raise ValueError(f'Unsupported Nexus settings override component: {sorted(unknown_components)[0]}')
+    for component, supplied_sections in supplied_overrides.items():
+        if not isinstance(supplied_sections, dict):
+            raise ValueError(f'Nexus settings overrides for {component} must be an object')
+        normalized = {}
+        for section, supplied_values in supplied_sections.items():
+            if section not in NEXUS_DEFAULT_SETTINGS or section == 'overrides' or not isinstance(supplied_values, dict):
+                raise ValueError(f'Unsupported Nexus settings override section: {component}.{section}')
+            for key, value in supplied_values.items():
+                path = f'{section}.{key}'
+                if path not in NEXUS_COMPONENT_OVERRIDE_PATHS[component]:
+                    raise ValueError(f'Unsupported Nexus settings override: {component}.{path}')
+                normalized.setdefault(section, {})[key] = _validate_nexus_setting_value(path, value)
+        effective = {key: _clone_json(value) for key, value in output.items()
+                     if isinstance(value, dict) and key != 'overrides'}
+        for section, values in normalized.items():
+            effective[section].update(values)
+        if effective['privacy']['allowOptionalNetwork'] and not output['privacy']['allowOptionalNetwork']:
+            raise ValueError('A component override cannot relax the global optional-network permission')
+        _validate_nexus_location(effective, f'Nexus {component} override')
+        output['overrides'][component] = normalized
     return output
 
 
@@ -1310,16 +1376,32 @@ def nexus_component_settings(component):
         raise ValueError('Unsupported Cyrune settings consumer')
     settings = load_nexus_settings()
     values = {}
+    sources = {}
+    overrides = settings.get('overrides', {}).get(component_id, {})
     for path in paths:
         section, key = path.split('.', 1)
-        values.setdefault(section, {})[key] = _clone_json(settings[section][key])
+        overridden = key in overrides.get(section, {})
+        value = overrides.get(section, {}).get(key, settings[section][key])
+        if path == 'privacy.allowOptionalNetwork':
+            value = bool(settings['privacy']['allowOptionalNetwork'] and value)
+        values.setdefault(section, {})[key] = _clone_json(value)
+        sources[path] = 'component' if overridden else 'global'
+    if component_id == 'portal-widgets' and (
+            not settings['privacy']['allowPreciseLocation']
+            or values.get('region', {}).get('latitude') is None
+            or values.get('region', {}).get('longitude') is None):
+        values.get('region', {}).pop('latitude', None)
+        values.get('region', {}).pop('longitude', None)
+        sources.pop('region.latitude', None)
+        sources.pop('region.longitude', None)
     return {
-        'profileSchemaVersion': 1,
+        'profileSchemaVersion': 2,
         'settingsSchemaVersion': settings['schemaVersion'],
         'component': component_id,
         'revision': settings['revision'],
         'updatedAt': settings['updatedAt'],
-        'values': values
+        'values': values,
+        'sources': sources
     }
 
 

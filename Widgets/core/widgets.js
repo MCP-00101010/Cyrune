@@ -37,6 +37,14 @@ function _refreshWidget(widgetId, context) {
   if (typeof refresh === 'function') refresh();
 }
 
+if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+  window.addEventListener('cyrune:settings-applied', () => {
+    [..._widgetRefreshers.values()].forEach(refresh => {
+      if (typeof refresh === 'function') refresh();
+    });
+  });
+}
+
 function _widgetRenderSignature(widget) {
   try { return JSON.stringify([widget?.title || '', widget?.config || {}, widget?.data || {}]); }
   catch { return `${widget?.widgetType || ''}:${widget?.id || ''}`; }

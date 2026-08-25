@@ -11,7 +11,7 @@ Future network- and native-dependent widgets must use the shared SDK, cache, sch
 ## Shared Widget Capabilities
 
 - Add reusable widget presets with explicit rules for portable settings, local preferences, credentials, caches, runtime state, scoped export, conflicts, unavailable capabilities, and Undo.
-- Add shared Home/Work and similar profiles for location, team, timezone, units, and other cross-widget values, while excluding credentials and machine-local paths.
+- Add named Home/Work and similar profiles for location, team, timezone, units, and other cross-widget values on top of the implemented global/component Nexus inheritance, while excluding credentials and machine-local paths.
 - Keep all existing widget cache ownership, quota, expiry, instance cleanup, privacy, meaningful-view-state, localStorage, and IndexedDB guarantees through the required-Relay cutover.
 
 ## Planned Widgets and Modes

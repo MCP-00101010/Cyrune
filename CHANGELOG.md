@@ -6,6 +6,7 @@ This log records repository-wide migration, tooling, and coordinated release cha
 
 ### Added
 
+- Added Nexus 0.1.7 settings schema 2, Portal 0.11.225, and Widget SDK 3: fixed sparse component overrides, effective-value source indicators, permission-gated coordinates, rolling profile compatibility, and opt-in Weather, Weather Map, Astronomy, and Calendar consumers now implement default → global → component → local Widget precedence.
 - Added typed, role-bound Nexus settings consumers across Host, Relay 1.0.60, Portal 0.11.224, Widgets SDK 2, and Arcade: fixed component profiles, live revision broadcasts, accessibility/language/unit application, and an authoritative optional-network gate work while the Nexus page is closed.
 - Added Nexus 0.1.6 snapshot-schema health adapters across Host and Nexus: independently sampled Portal, Arcade, Nexus settings, Host, Relay, and source-only Widget states now provide sanitized schema/backup summaries and fixed actionable recovery guidance without allowing one failure to suppress healthy sections.
 - Added the Nexus 0.1.5 and Relay 1.0.59 explicit origin check: the authenticated page can request a fixed, non-interactive comparison of the current branch with live `origin`, while Host returns only sanitized commit state and never fetches or mutates the checkout.

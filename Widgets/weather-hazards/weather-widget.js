@@ -22,8 +22,38 @@ function _normalizeWeatherLayout(value) {
   return value === 'horizontal' ? 'horizontal' : 'vertical';
 }
 
+function _weatherSharedResolution(path, localValue, inherit) {
+  if (typeof WidgetSDK === 'undefined' || typeof WidgetSDK.settings?.resolve !== 'function') {
+    return { value: localValue, source: 'local' };
+  }
+  return WidgetSDK.settings.resolve(path, localValue, { inherit });
+}
+
+function _weatherEffectiveConfig(widget) {
+  const local = widget?.config || {};
+  const effective = { ...local };
+  if (local.inheritCyruneUnits === true) {
+    const system = _weatherSharedResolution('units.system', local.units, true);
+    const temperature = _weatherSharedResolution('units.temperature', '', true);
+    effective.units = system.value === 'imperial' || temperature.value === 'fahrenheit' ? 'imperial' : 'metric';
+    effective.cyruneUnitsSource = system.source;
+  }
+  if (local.inheritCyruneLocation === true) {
+    const latitude = _weatherSharedResolution('region.latitude', local.latitude, true);
+    const longitude = _weatherSharedResolution('region.longitude', local.longitude, true);
+    if (latitude.source !== 'local' && longitude.source !== 'local') {
+      effective.latitude = latitude.value;
+      effective.longitude = longitude.value;
+      effective.locationName = _weatherSharedResolution('region.city', local.locationName, true).value || local.locationName;
+      effective.timezone = _weatherSharedResolution('region.timeZone', local.timezone, true).value || local.timezone;
+      effective.cyruneLocationSource = latitude.source === 'component' || longitude.source === 'component' ? 'component' : 'global';
+    }
+  }
+  return effective;
+}
+
 function _weatherSignature(widget) {
-  const c = widget?.config || {};
+  const c = _weatherEffectiveConfig(widget);
   if (c.latitude === '' || c.latitude == null || c.longitude === '' || c.longitude == null) return '';
   const latitude = Number(c.latitude);
   const longitude = Number(c.longitude);
@@ -122,7 +152,7 @@ function _weatherCodeDetails(code, isDay = true) {
 }
 
 function _weatherForecastUrl(widget) {
-  const c = widget.config;
+  const c = _weatherEffectiveConfig(widget);
   const units = _normalizeWeatherUnits(c.units);
   const url = new URL('https://api.open-meteo.com/v1/forecast');
   url.searchParams.set('latitude', String(c.latitude));
@@ -302,6 +332,8 @@ WIDGET_REGISTRY['weather'] = {
     timezone: 'auto',
     days: 5,
     units: 'metric',
+    inheritCyruneLocation: false,
+    inheritCyruneUnits: false,
     forecastLayout: 'vertical',
     showHourly24: false
   },
@@ -315,6 +347,8 @@ WIDGET_REGISTRY['weather'] = {
       timezone: { type: 'string' },
       days: { type: 'number' },
       units: { type: 'string', enum: ['metric', 'imperial'] },
+      inheritCyruneLocation: { type: 'boolean' },
+      inheritCyruneUnits: { type: 'boolean' },
       forecastLayout: { type: 'string', enum: ['vertical', 'horizontal'] },
       showHourly24: { type: 'boolean' }
     },
@@ -335,7 +369,7 @@ WIDGET_REGISTRY['weather'] = {
   },
 
   render(widget, el, context) {
-    const c = widget.config || {};
+    const c = _weatherEffectiveConfig(widget);
     const signature = _weatherSignature(widget);
 
     _setWidgetRefresher(widget.id, context, () => {
@@ -540,6 +574,10 @@ WIDGET_REGISTRY['weather'] = {
         </div>
       </div>
       <div class="settings-row">
+        <span>Use Cyrune location</span>
+        <label class="settings-toggle"><input type="checkbox" data-cfg="inheritCyruneLocation" ${c.inheritCyruneLocation === true ? 'checked' : ''}/><span class="toggle-track"></span></label>
+      </div>
+      <div class="settings-row">
         <span>Forecast length</span>
         <select class="settings-select weather-days-select" data-cfg="days">${dayOptions}</select>
       </div>
@@ -549,6 +587,10 @@ WIDGET_REGISTRY['weather'] = {
           <label class="board-fit-label"><input type="radio" name="weatherUnits" data-cfg="units" value="metric" ${_normalizeWeatherUnits(c.units) === 'metric' ? 'checked' : ''}/><span>Metric</span></label>
           <label class="board-fit-label"><input type="radio" name="weatherUnits" data-cfg="units" value="imperial" ${_normalizeWeatherUnits(c.units) === 'imperial' ? 'checked' : ''}/><span>Imperial</span></label>
         </div>
+      </div>
+      <div class="settings-row">
+        <span>Use Cyrune units</span>
+        <label class="settings-toggle"><input type="checkbox" data-cfg="inheritCyruneUnits" ${c.inheritCyruneUnits === true ? 'checked' : ''}/><span class="toggle-track"></span></label>
       </div>
       <div class="settings-row">
         <span>Forecast display</span>
@@ -566,7 +608,10 @@ WIDGET_REGISTRY['weather'] = {
     const searchBtn = container.querySelector('.weather-location-search-btn');
     const selected = container.querySelector('.weather-location-selected');
     const results = container.querySelector('.weather-location-results');
-    selected.textContent = c.locationName ? `Selected: ${c.locationName}` : 'No location selected.';
+    const effective = _weatherEffectiveConfig(widget);
+    selected.textContent = c.inheritCyruneLocation === true && effective.cyruneLocationSource
+      ? `Using Cyrune ${effective.cyruneLocationSource} location: ${effective.locationName || `${effective.latitude}, ${effective.longitude}`}`
+      : (c.locationName ? `Selected: ${c.locationName}` : 'No location selected.');
 
     _bindOpenMeteoLocationSearch({
       widgetType: 'weather',

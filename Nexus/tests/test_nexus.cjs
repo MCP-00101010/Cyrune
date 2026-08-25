@@ -44,6 +44,46 @@ test('imperial unit presets apply coherent defaults while preserving overrides',
   assert.equal(custom.units.volume, 'gallons-us');
 });
 
+test('schema one settings migrate to schema two with empty component overrides', () => {
+  const migrated = model.normalizeSettings({ schemaVersion: 1, revision: 4, region: { city: 'Leeds' } });
+  assert.equal(migrated.schemaVersion, 2);
+  assert.equal(migrated.revision, 4);
+  assert.equal(migrated.region.city, 'Leeds');
+  assert.deepEqual(migrated.overrides, { 'portal-widgets': {}, arcade: {} });
+});
+
+test('component settings resolve sparse overrides and expose their source', () => {
+  const settings = model.normalizeSettings({
+    schemaVersion: 2,
+    region: { city: 'London' },
+    units: { system: 'metric' },
+    overrides: { 'portal-widgets': { region: { city: 'Edinburgh' }, units: { system: 'imperial' } } }
+  });
+  const effective = model.effectiveSettings(settings, 'portal-widgets');
+  assert.equal(effective.region.city, 'Edinburgh');
+  assert.equal(effective.units.system, 'imperial');
+  assert.equal(model.settingSource(settings, 'portal-widgets', 'region.city'), 'component');
+  assert.equal(model.settingSource(settings, 'portal-widgets', 'region.timeZone'), 'default');
+  const networkCeiling = model.normalizeSettings({
+    schemaVersion: 2,
+    privacy: { allowOptionalNetwork: false },
+    overrides: { arcade: { privacy: { allowOptionalNetwork: true } } }
+  });
+  assert.equal(model.effectiveSettings(networkCeiling, 'arcade').privacy.allowOptionalNetwork, false);
+  assert.equal(networkCeiling.overrides.arcade.privacy.allowOptionalNetwork, false);
+});
+
+test('coordinates survive only with an explicit precise-location permission', () => {
+  const denied = model.normalizeSettings({ region: { latitude: 51.5, longitude: -0.1 } });
+  assert.equal(denied.region.latitude, null);
+  const allowed = model.normalizeSettings({
+    region: { locationMode: 'precise', latitude: 51.5, longitude: -0.1 },
+    privacy: { allowPreciseLocation: true }
+  });
+  assert.equal(allowed.region.latitude, 51.5);
+  assert.equal(allowed.region.longitude, -0.1);
+});
+
 test('safe document URLs reject script, data, and Windows paths', () => {
   assert.equal(model.safeDocumentUrl('javascript:alert(1)'), '');
   assert.equal(model.safeDocumentUrl('data:text/html,test'), '');
@@ -101,6 +141,17 @@ test('health adapters render fixed states and preserve partial service results',
   assert.match(app, /Runtime recovery guidance|runtime recovery guidance/i);
   assert.match(styles, /status-attention/);
   assert.match(styles, /health-guidance/);
+});
+
+test('Variables exposes global and component scopes with explicit override controls', () => {
+  const app = fs.readFileSync(path.join(nexusRoot, 'source', 'app.js'), 'utf8');
+  const styles = fs.readFileSync(path.join(nexusRoot, 'source', 'styles.css'), 'utf8');
+  assert.match(app, /data-settings-scope="portal-widgets"/);
+  assert.match(app, /data-settings-scope="arcade"/);
+  assert.match(app, /data-override-path/);
+  assert.match(app, /Default → global → component → local Widget setting/);
+  assert.match(styles, /\.value-source/);
+  assert.match(styles, /\.override-control/);
 });
 
 test('TODO actions use the fixed VS Code operation while changelogs have no open link', () => {

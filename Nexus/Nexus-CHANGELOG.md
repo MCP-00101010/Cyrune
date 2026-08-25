@@ -1,5 +1,22 @@
 # Cyrune Nexus Changelog
 
+## [0.1.7] — 2026-08-25
+
+### Added
+
+- Added global, Portal & Widgets, and Arcade scopes to Variables. Component values show whether they come from the global setting or a sparse component override, and each override can be enabled or cleared independently.
+- Added permission-gated manual latitude and longitude settings for the `portal-widgets` profile. Arcade remains unable to receive city, location mode, coordinates, or location permissions.
+- Added Widget SDK 3 effective-setting resolution and real opt-in consumers in Weather, Weather Map, Astronomy, and Calendar with local Widget configuration retaining highest precedence.
+
+### Changed
+
+- Migrated authoritative and disconnected-preview settings from schema 1 to schema 2 while preserving revisioned global values. Profile schema 2 adds fixed per-value source metadata; the shared client accepts profile schemas 1 and 2 during rolling reloads.
+- Global optional-network and location permissions remain ceilings: component overrides can narrow optional networking but cannot grant unavailable location or network authority.
+
+### Validation
+
+- Focused Nexus, component-client, Host, Widget SDK, Weather, Weather Map, Astronomy, and Calendar suites cover schema migration, sparse overrides, effective/source resolution, coordinate redaction, permission ceilings, compatibility defaults, and live settings adoption. The coordinated repository validator covers the full monorepo release.
+
 ## [0.1.6] — 2026-08-25
 
 ### Added

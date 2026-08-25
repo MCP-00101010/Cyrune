@@ -39,7 +39,8 @@ function _findWeatherWidgetLocation(excludeWidgetId = '') {
     visited.add(value);
     if (value.id !== excludeWidgetId && value.type === 'widget'
         && (value.widgetType === 'weather' || value.widgetType === 'weatherMap')) {
-      const location = _astronomyCoordinates(value.config);
+      const effectiveConfig = typeof _weatherEffectiveConfig === 'function' ? _weatherEffectiveConfig(value) : value.config;
+      const location = _astronomyCoordinates(effectiveConfig);
       if (location) return location;
     }
     if (Array.isArray(value)) {
@@ -63,10 +64,23 @@ function _astronomyLocation(widget) {
   const config = widget?.config || {};
   if (config.useWeatherLocation !== false) {
     const weatherLocation = _findWeatherWidgetLocation(widget?.id || '');
-    if (weatherLocation) return { ...weatherLocation, inherited: true };
+    if (weatherLocation) return { ...weatherLocation, inherited: 'weather' };
+    if (typeof WidgetSDK !== 'undefined' && typeof WidgetSDK.settings?.resolve === 'function') {
+      const latitude = WidgetSDK.settings.resolve('region.latitude', null, { inherit: true });
+      const longitude = WidgetSDK.settings.resolve('region.longitude', null, { inherit: true });
+      if (latitude.source !== 'local' && longitude.source !== 'local') {
+        const sharedLocation = _astronomyCoordinates({
+          latitude: latitude.value,
+          longitude: longitude.value,
+          locationName: WidgetSDK.settings.resolve('region.city', '', { inherit: true }).value || '',
+          timezone: WidgetSDK.settings.resolve('region.timeZone', '', { inherit: true }).value || ''
+        });
+        if (sharedLocation) return { ...sharedLocation, inherited: 'nexus' };
+      }
+    }
   }
   const configured = _astronomyCoordinates(config);
-  return configured ? { ...configured, inherited: false } : null;
+  return configured ? { ...configured, inherited: '' } : null;
 }
 
 function _normalizeAstronomyEventDays(value) {
@@ -410,7 +424,7 @@ WIDGET_REGISTRY['astronomy'] = {
       const placeholder = document.createElement('div');
       placeholder.className = 'widget-weather-placeholder';
       placeholder.textContent = widget.config?.useWeatherLocation !== false
-        ? 'Add a configured Weather widget, or choose a separate sky location in this widget’s settings.'
+        ? 'Add a configured Weather widget, allow a precise Cyrune location, or choose a separate sky location in this widget’s settings.'
         : 'Choose a sky location in the widget settings.';
       el.appendChild(placeholder);
       return;
@@ -443,7 +457,8 @@ WIDGET_REGISTRY['astronomy'] = {
     const locationLine = document.createElement('div');
     locationLine.className = 'widget-astronomy-location';
     locationLine.textContent = location.locationName || `${location.latitude.toFixed(3)}, ${location.longitude.toFixed(3)}`;
-    if (location.inherited) locationLine.title = 'Using the first configured Weather widget location';
+    if (location.inherited === 'weather') locationLine.title = 'Using the first configured Weather widget location';
+    if (location.inherited === 'nexus') locationLine.title = 'Using the permitted Cyrune location';
     el.appendChild(locationLine);
 
     const moon = document.createElement('section');

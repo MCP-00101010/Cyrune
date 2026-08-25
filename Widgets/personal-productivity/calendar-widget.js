@@ -1001,7 +1001,11 @@ function _calendarOpenDayAgenda(widget, runtime, dayStart) {
 function _calendarRenderMonth(widget, container, runtime, view, rerender) {
   const anchor = new Date(view.anchor);
   const monthStart = new Date(anchor.getFullYear(), anchor.getMonth(), 1);
-  const mondayFirst = widget.config?.weekStarts !== 'sunday';
+  const sharedWeekStart = typeof WidgetSDK !== 'undefined' && typeof WidgetSDK.settings?.resolve === 'function'
+    ? WidgetSDK.settings.resolve('formatting.weekStart', widget.config?.weekStarts, { inherit: widget.config?.inheritCyruneWeekStart === true })
+    : { value: widget.config?.weekStarts };
+  const weekStarts = ['monday', 'sunday'].includes(sharedWeekStart.value) ? sharedWeekStart.value : widget.config?.weekStarts;
+  const mondayFirst = weekStarts !== 'sunday';
   const firstOffset = mondayFirst ? (monthStart.getDay() + 6) % 7 : monthStart.getDay();
   const gridStart = new Date(monthStart.getFullYear(), monthStart.getMonth(), 1 - firstOffset).getTime();
   const weekdayFormatter = new Intl.DateTimeFormat(undefined, { weekday: 'short' });
@@ -1097,6 +1101,7 @@ function _calendarRenderSettings(widget, container) {
     <div class="settings-row"><span>Week starts</span><select class="settings-select" data-cfg="weekStarts">
       <option value="monday" ${config.weekStarts !== 'sunday' ? 'selected' : ''}>Monday</option><option value="sunday" ${config.weekStarts === 'sunday' ? 'selected' : ''}>Sunday</option>
     </select></div>
+    <div class="settings-row"><span>Use Cyrune week start</span><label class="settings-toggle"><input type="checkbox" data-cfg="inheritCyruneWeekStart" ${config.inheritCyruneWeekStart === true ? 'checked' : ''}/><span class="toggle-track"></span></label></div>
     <div class="settings-row"><span>Automatic refresh</span><select class="settings-select" data-cfg="refreshMinutes">
       ${[[30, '30 minutes'], [60, 'Hourly'], [180, 'Every 3 hours'], [360, 'Every 6 hours']].map(([minutes, label]) => `<option value="${minutes}" ${_calendarNormalizeRefreshMinutes(config.refreshMinutes) === minutes ? 'selected' : ''}>${label}</option>`).join('')}
     </select></div>
@@ -1278,6 +1283,7 @@ WIDGET_REGISTRY['protonCalendar'] = {
     defaultView: 'agenda',
     agendaDays: 14,
     weekStarts: 'monday',
+    inheritCyruneWeekStart: false,
     refreshMinutes: 60
   },
   defaultData: {},

@@ -5,12 +5,13 @@
 }(typeof globalThis !== 'undefined' ? globalThis : this, function createNexusModel() {
   'use strict';
 
-  const NEXUS_VERSION = '0.1.6';
-  const SETTINGS_SCHEMA_VERSION = 1;
-  const PREVIEW_STORAGE_KEY = 'cyrune.nexus.settings.preview.v1';
+  const NEXUS_VERSION = '0.1.7';
+  const SETTINGS_SCHEMA_VERSION = 2;
+  const PREVIEW_STORAGE_KEY = 'cyrune.nexus.settings.preview.v2';
+  const LEGACY_PREVIEW_STORAGE_KEYS = Object.freeze(['cyrune.nexus.settings.preview.v1']);
 
   const COMPONENTS = Object.freeze([
-    { id: 'portal', name: 'Portal', version: '0.11.224', accent: 'violet', summary: 'Dashboard, boards, items, shared persistence client and widget host.', todo: '../Portal/Portal-TODO.md', changelog: '../Portal/Portal-CHANGELOG.md' },
+    { id: 'portal', name: 'Portal', version: '0.11.225', accent: 'violet', summary: 'Dashboard, boards, items, shared persistence client and widget host.', todo: '../Portal/Portal-TODO.md', changelog: '../Portal/Portal-CHANGELOG.md' },
     { id: 'widgets', name: 'Widgets', version: 'Unversioned', accent: 'cyan', summary: 'Widget catalogue, SDK, providers and browser-local runtime state.', todo: '../Widgets/Widgets-TODO.md', changelog: '../Widgets/Widgets-CHANGELOG.md' },
     { id: 'arcade', name: 'Arcade', version: 'Unversioned', accent: 'orange', summary: 'Game libraries, metadata, collections, profiles and launch decisions.', todo: '../Arcade/Arcade-TODO.md', changelog: '../Arcade/Arcade-CHANGELOG.md' },
     { id: 'relay', name: 'Relay', version: '1.0.60', accent: 'blue', summary: 'Authenticated browser bridge, exact client roles and durable routing.', todo: '../Relay/Relay-TODO.md', changelog: '../Relay/Relay-CHANGELOG.md' },
@@ -22,13 +23,33 @@
     schemaVersion: SETTINGS_SCHEMA_VERSION,
     revision: 0,
     updatedAt: 0,
-    region: { country: 'GB', city: '', timeZone: 'Europe/London', locationMode: 'manual' },
+    region: { country: 'GB', city: '', timeZone: 'Europe/London', locationMode: 'manual', latitude: null, longitude: null },
     units: { system: 'metric', temperature: 'celsius', distance: 'kilometres', speed: 'kilometres-per-hour', mass: 'kilograms', volume: 'litres', pressure: 'hectopascals' },
     language: { primary: 'en-GB', secondary: '', interface: 'en-GB', content: 'en-GB' },
     formatting: { date: 'day-month-year', clock: '24-hour', currency: 'GBP', weekStart: 'monday' },
     behaviour: { externalLinks: 'new-tab', confirmPrivilegedActions: true, restoreLastView: true },
     accessibility: { scale: '100', reducedMotion: false, highContrast: false },
-    privacy: { allowOptionalNetwork: true, allowApproximateLocation: false, allowPreciseLocation: false }
+    privacy: { allowOptionalNetwork: true, allowApproximateLocation: false, allowPreciseLocation: false },
+    overrides: { 'portal-widgets': {}, arcade: {} }
+  });
+
+  const COMPONENT_SETTING_PATHS = Object.freeze({
+    'portal-widgets': Object.freeze([
+      'region.country', 'region.city', 'region.timeZone', 'region.locationMode', 'region.latitude', 'region.longitude',
+      'units.system', 'units.temperature', 'units.distance', 'units.speed', 'units.mass', 'units.volume', 'units.pressure',
+      'language.primary', 'language.secondary', 'language.interface', 'language.content',
+      'formatting.date', 'formatting.clock', 'formatting.currency', 'formatting.weekStart',
+      'behaviour.externalLinks', 'behaviour.confirmPrivilegedActions', 'behaviour.restoreLastView',
+      'accessibility.scale', 'accessibility.reducedMotion', 'accessibility.highContrast', 'privacy.allowOptionalNetwork'
+    ]),
+    arcade: Object.freeze([
+      'region.country', 'region.timeZone',
+      'units.system', 'units.temperature', 'units.distance', 'units.speed', 'units.mass', 'units.volume', 'units.pressure',
+      'language.primary', 'language.secondary', 'language.interface', 'language.content',
+      'formatting.date', 'formatting.clock', 'formatting.currency', 'formatting.weekStart',
+      'behaviour.externalLinks', 'behaviour.confirmPrivilegedActions', 'behaviour.restoreLastView',
+      'accessibility.scale', 'accessibility.reducedMotion', 'accessibility.highContrast', 'privacy.allowOptionalNetwork'
+    ])
   });
 
   function clone(value) {
@@ -44,6 +65,22 @@
     return (normalized || fallback).slice(0, maxLength);
   }
 
+  function coordinate(value, minimum, maximum) {
+    if (value === '' || value === null || value === undefined) return null;
+    const parsed = Number(value);
+    return Number.isFinite(parsed) && parsed >= minimum && parsed <= maximum ? parsed : null;
+  }
+
+  function getPath(target, path) {
+    return path.split('.').reduce((value, key) => value && typeof value === 'object' ? value[key] : undefined, target);
+  }
+
+  function setPath(target, path, value) {
+    const [section, key] = path.split('.');
+    if (!target[section] || typeof target[section] !== 'object') target[section] = {};
+    target[section][key] = clone(value);
+  }
+
   function normalizeSettings(candidate) {
     const source = candidate && typeof candidate === 'object' ? candidate : {};
     const output = clone(DEFAULT_SETTINGS);
@@ -54,6 +91,8 @@
     output.region.city = text(region.city, '', 80);
     output.region.timeZone = text(region.timeZone, output.region.timeZone, 80);
     output.region.locationMode = pick(region.locationMode, ['manual', 'approximate', 'precise'], 'manual');
+    output.region.latitude = coordinate(region.latitude, -90, 90);
+    output.region.longitude = coordinate(region.longitude, -180, 180);
 
     const units = source.units || {};
     output.units.system = pick(units.system, ['metric', 'imperial', 'custom'], 'metric');
@@ -95,7 +134,60 @@
     output.privacy.allowPreciseLocation = privacy.allowPreciseLocation === true;
     if (!output.privacy.allowPreciseLocation && output.region.locationMode === 'precise') output.region.locationMode = 'manual';
     if (!output.privacy.allowApproximateLocation && output.region.locationMode === 'approximate') output.region.locationMode = 'manual';
+    if (!output.privacy.allowPreciseLocation || output.region.latitude === null || output.region.longitude === null) {
+      output.region.latitude = null;
+      output.region.longitude = null;
+    }
+
+    const suppliedOverrides = source.schemaVersion === SETTINGS_SCHEMA_VERSION && source.overrides && typeof source.overrides === 'object'
+      ? source.overrides : {};
+    for (const [component, allowedPaths] of Object.entries(COMPONENT_SETTING_PATHS)) {
+      const supplied = suppliedOverrides[component];
+      if (!supplied || typeof supplied !== 'object') continue;
+      const candidate = clone(output);
+      delete candidate.overrides;
+      const requestedPaths = [];
+      for (const path of allowedPaths) {
+        const value = getPath(supplied, path);
+        if (value === undefined) continue;
+        setPath(candidate, path, value);
+        requestedPaths.push(path);
+      }
+      const normalizedCandidate = normalizeSettings({ ...candidate, schemaVersion: 1 });
+      for (const path of requestedPaths) {
+        const value = path === 'privacy.allowOptionalNetwork' && output.privacy.allowOptionalNetwork === false
+          ? false
+          : getPath(normalizedCandidate, path);
+        setPath(output.overrides[component], path, value);
+      }
+    }
     return output;
+  }
+
+  function hasOverride(settings, component, path) {
+    return getPath(settings?.overrides?.[component], path) !== undefined;
+  }
+
+  function effectiveSettings(settings, component = 'global') {
+    const normalized = normalizeSettings(settings);
+    const effective = clone(normalized);
+    delete effective.overrides;
+    if (!COMPONENT_SETTING_PATHS[component]) return effective;
+    for (const path of COMPONENT_SETTING_PATHS[component]) {
+      const value = getPath(normalized.overrides[component], path);
+      if (value !== undefined) setPath(effective, path, value);
+    }
+    if (!normalized.privacy.allowOptionalNetwork) effective.privacy.allowOptionalNetwork = false;
+    if (!normalized.privacy.allowPreciseLocation) {
+      effective.region.latitude = null;
+      effective.region.longitude = null;
+    }
+    return effective;
+  }
+
+  function settingSource(settings, component, path) {
+    if (component !== 'global' && hasOverride(settings, component, path)) return 'component';
+    return getPath(normalizeSettings(settings), path) === getPath(DEFAULT_SETTINGS, path) ? 'default' : 'global';
   }
 
   function escapeHtml(value) {
@@ -151,10 +243,17 @@
     NEXUS_VERSION,
     SETTINGS_SCHEMA_VERSION,
     PREVIEW_STORAGE_KEY,
+    LEGACY_PREVIEW_STORAGE_KEYS,
     COMPONENTS,
+    COMPONENT_SETTING_PATHS,
     DEFAULT_SETTINGS,
     clone,
     normalizeSettings,
+    getPath,
+    setPath,
+    hasOverride,
+    effectiveSettings,
+    settingSource,
     escapeHtml,
     safeDocumentUrl,
     renderMarkdown,
