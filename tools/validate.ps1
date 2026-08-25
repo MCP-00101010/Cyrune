@@ -27,6 +27,7 @@ try {
     }
     Invoke-Checked 'Relay tests' { node --test 'Relay/tests/*.cjs' }
     Invoke-Checked 'Host tests' { python -m pytest -q Host/tests }
+    Invoke-Checked 'Migration tests' { python -m pytest -q tests/migration }
 
     Push-Location (Join-Path $repoRoot 'Arcade')
     try {

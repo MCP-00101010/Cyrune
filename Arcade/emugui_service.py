@@ -56,6 +56,19 @@ from emugui_core.secrets import SCRAPER_SECRET_FIELDS, ScraperSecretService
 from emugui_core.service import ReadOnlyEmuGuiService, ServiceContractError
 
 LAUNCHER = Path(__file__).resolve().parent
+
+
+def default_runtime_data_root() -> Path:
+    override = str(os.environ.get("CYRUNE_ARCADE_DATA", "") or "").strip()
+    if override:
+        return Path(os.path.expandvars(override)).expanduser().resolve()
+    if sys.platform == "win32":
+        base = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
+    else:
+        base = os.environ.get("XDG_DATA_HOME") or str(Path.home() / ".local" / "share")
+    return Path(base).expanduser() / "Cyrune" / "Arcade"
+
+
 DEFAULT_COLLECTION_ROOT = Path(
     os.environ.get(
         "MORPHEUS_EMUGUI_COLLECTION",
@@ -69,10 +82,10 @@ COLLECTIONS_BASE = Path(
 COLLECTION = DESASTERON_COLLECTION
 REPORTS = COLLECTION / "_reports"
 WEB = LAUNCHER / "web"
-DATA = LAUNCHER / "data"
+DATA = default_runtime_data_root()
 EMULATOR_PROFILE_DIR = DATA / "emulator-profiles"
 STATE_FILE = DATA / "state.json"
-LOG_FILE = DATA / "launcher.log"
+LOG_FILE = DATA / "logs" / "launcher.log"
 CONFIG_FILE = DATA / "config.json"
 METADATA_FILE = COLLECTION / "collection-metadata.json"
 DEFAULT_EMULATORS = load_emulator_defaults(LAUNCHER / "defaults" / "emulators.json")
@@ -3094,7 +3107,7 @@ def log(message: str) -> None:
     timestamp = dt.datetime.now().isoformat(timespec="seconds")
     line = f"[{timestamp}] {message}\n"
     try:
-        DATA.mkdir(parents=True, exist_ok=True)
+        LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
         with LOG_FILE.open("a", encoding="utf-8") as f:
             f.write(line)
     except OSError:

@@ -6,6 +6,7 @@ This log records repository-wide migration, tooling, and coordinated release cha
 
 ### Added
 
+- Added a versioned, copy-first runtime migration coordinator with atomic writes, reread/parse/hash verification, sanitized receipts, interrupted-copy recovery, explicit divergent-data replacement, and focused migration coverage.
 - Established the adjacent `Cyrune` monorepo and the `Portal`, `Arcade`, `Relay`, `Host`, and `Widgets` component roots.
 - Imported the complete Arcade Git history without squashing it.
 - Added verified pre-migration Git bundles, source tags, a hash-only recovery inventory, and an isolated migration branch.
@@ -13,6 +14,7 @@ This log records repository-wide migration, tooling, and coordinated release cha
 
 ### Changed
 
+- Externalised and activated Portal and Arcade runtime data beneath `%LOCALAPPDATA%/Cyrune`, retaining verified recovery copies and leaving both legacy runtime sources untouched. Portal background references and Arcade managed-profile paths were the only transformed fields.
 - Completed the Phase 5 widget regrouping across all catalogue categories and shared core, and taught repository validation to discover colocated widget tests and source.
 - Moved the existing dashboard source to `Portal/` and the WebExtension source to `Relay/` through history-preserving renames.
 - Renamed and narrowed the migration plan to repository/infrastructure work.
@@ -24,6 +26,8 @@ This log records repository-wide migration, tooling, and coordinated release cha
 
 ### Validation
 
+- The activated Phase 6 runtime baseline passes 88 Portal tests, 253 Widget tests, 8 Relay tests, 42 Host tests plus 11 parameterised subtests, 10 migration tests, and 67 Arcade tests. JavaScript syntax, Relay manifest validation, and `web-ext lint` pass with zero errors, notices, or warnings.
+- The user confirmed both permanent direct-file applications open with their migrated databases and that Portal reports the external `%LOCALAPPDATA%\Cyrune` database location.
 - Both recovery bundles pass `git bundle verify`; source commits, runtime counts, selected runtime fingerprints, Host registration, and binding counts are recorded without private contents.
 - The pre-import Arcade health pass succeeds with 62 tests.
 - Before Host separation, the migrated baseline passed 339 Portal tests, 6 Relay tests, 42 Host tests plus 11 subtests, and 62 Arcade tests. JavaScript syntax and Relay manifest checks passed; `web-ext lint` reported zero errors with the two expected warnings caused by the then-embedded Host files.

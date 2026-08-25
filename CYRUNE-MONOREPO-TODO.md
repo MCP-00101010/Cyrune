@@ -2,7 +2,7 @@
 
 ## Status
 
-- **State:** Active; phases 1–5 and the restored runtime baseline are complete. Host relocation and the verified monorepo development baseline are complete; runtime-data externalisation, packaging recovery, clean-checkout validation, and monitoring remain.
+- **State:** Active; phases 1–5 and the restored runtime baseline are complete. Phase 6 runtime data is externally stored and activated with verified recovery copies; browser reload/bookmark checks, packaging recovery, clean-checkout validation, and monitoring remain.
 - **Created:** 2026-08-24
 - **Revised:** 2026-08-25
 - **Objective:** Combine the existing products as Cyrune Portal, Arcade, Relay, Host, and Widgets in one repository while preserving history, runtime data, credentials, bindings, direct-file operation, release workflows, and rollback paths.
@@ -176,7 +176,7 @@ Environment/configuration overrides remain available for portable and developmen
 - [x] Confirm scraper credentials remain in Windows Credential Manager and absent from JSON.
 - [x] Record binding/approval counts without exporting their targets.
 - [ ] List user bookmarks or shortcuts pointing to the old local page URLs.
-- [ ] Create verified backups for every runtime source before cleanup or copying.
+- [x] Create verified backups for every runtime source before cleanup or copying.
 
 ### Pre-import cleanup audit
 
@@ -313,25 +313,25 @@ This phase is a path-only reorganisation of already shipped widgets.
 
 ### Migration rules
 
-- [ ] Implement one versioned migration coordinator and receipt format.
-- [ ] Copy before switching pointers; do not delete or overwrite a source before destination write, reread, parse, and hash verification.
-- [ ] Preserve timestamps where practical and use atomic replacement at destinations.
-- [ ] Make retries idempotent and distinguish missing, identical, corrupt, divergent, interrupted, and already-migrated states.
-- [ ] Require explicit choice before replacing divergent data.
-- [ ] Keep receipts free of database contents, secrets, and credential locations.
+- [x] Implement one versioned migration coordinator and receipt format.
+- [x] Copy before switching pointers; do not delete or overwrite a source before destination write, reread, parse, and hash verification.
+- [x] Preserve timestamps where practical and use atomic replacement at destinations.
+- [x] Make retries idempotent and distinguish missing, identical, corrupt, divergent, interrupted, and already-migrated states.
+- [x] Require explicit choice before replacing divergent data.
+- [x] Keep receipts free of database contents, secrets, and credential locations.
 
 ### Portal
 
-- [ ] Copy the authoritative Portal database, useful backups, and managed backgrounds to the external Portal data root.
-- [ ] Update native configuration only after every destination rereads successfully.
-- [ ] Verify revision/hash metadata and opaque application/game keys.
-- [ ] Leave intentionally browser-local widget/UI caches and IndexedDB assets unchanged.
+- [x] Copy the authoritative Portal database, useful backups, and managed backgrounds to the external Portal data root.
+- [x] Update native configuration only after every destination rereads successfully.
+- [x] Verify revision/hash metadata and opaque application/game keys.
+- [x] Leave intentionally browser-local widget/UI caches and IndexedDB assets unchanged.
 
 ### Arcade
 
-- [ ] Copy configuration, state, managed profiles, and intended cache/log state to the external Arcade data root.
-- [ ] Change defaults to external runtime data while retaining documented overrides.
-- [ ] Verify collections, favourites, recent history, emulator definitions, profile IDs/hashes, scraper settings, and secure credentials.
+- [x] Copy configuration, state, managed profiles, and intended cache/log state to the external Arcade data root.
+- [x] Change defaults to external runtime data while retaining documented overrides.
+- [x] Verify collections, favourites, recent history, emulator definitions, profile IDs/hashes, scraper settings, and secure credentials.
 
 ### Host
 
@@ -395,10 +395,10 @@ This phase is a path-only reorganisation of already shipped widgets.
 - [x] Existing 12,933-game Arcade library and all configured collections load unchanged.
 - [x] Hub boards, tabs, columns, items, and managed backgrounds match.
 - [x] Application/game keys and local bindings remain paired correctly.
-- [ ] Managed profile IDs and hashes match.
+- [x] Managed profile IDs and hashes match.
 - [x] Favourites and recent history match.
-- [ ] Secure credentials remain retrievable and absent from portable/plaintext data.
-- [ ] Existing backups remain readable.
+- [x] Secure credentials remain retrievable and absent from portable/plaintext data.
+- [x] Existing backups remain readable.
 
 ### Runtime lifecycle
 

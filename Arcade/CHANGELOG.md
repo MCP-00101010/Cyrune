@@ -8,6 +8,7 @@ Historical entries below are preserved from Portal releases whose release notes 
 
 ### Changed
 
+- Externalised configuration, favourites/recent state, managed profiles, logs, and cache beneath `%LOCALAPPDATA%/Cyrune/Arcade`; `CYRUNE_ARCADE_DATA` retains a portable/development override.
 - Added atomic JSON persistence, persisted-shape validation, concurrent state protection, failed collection-switch rollback, validated HTTPS scraper origins, bounded job history, and launch-profile forwarding.
 - Added a health-audit record and focused persistence, collection, job, metadata, and service-runtime regression coverage.
 
@@ -19,7 +20,8 @@ Historical entries below are preserved from Portal releases whose release notes 
 
 ### Validation
 
-- All 64 Arcade tests pass; JavaScript and Python syntax checks pass. A Firefox 154 smoke test rendered existing remote screenshot and loading-screen metadata through Relay with non-zero image dimensions.
+- The external runtime cutover preserves three collections, 30 favourites, 30 recent entries, two emulator profiles and their copied files, configured scraper state, and Credential Manager-backed secrets with no plaintext secret fields. All 67 Arcade tests pass.
+- All 64 pre-Phase-6 Arcade tests pass; JavaScript and Python syntax checks pass. A Firefox 154 smoke test rendered existing remote screenshot and loading-screen metadata through Relay with non-zero image dimensions.
 
 
 ## [0.11.220] — 2026-08-25

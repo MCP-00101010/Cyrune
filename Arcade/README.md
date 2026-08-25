@@ -27,7 +27,7 @@ Firefox/Zen must allow the Morpheus WebHub extension to access local files. The 
 - `emugui_core/profiles.py` owns emulator-profile import, refresh, editing, deletion, and launch-profile selection independently of either browser transport.
 - `emugui_core/launching.py` owns game/POK launch orchestration, managed-profile preparation, safe argument-array process startup, running-instance choices, and the Windows adapters for EightyOne and Spectaculator/SpecStub.
 - `web/` contains the canonical local-file browser frontend, which uses extension RPC exclusively.
-- `data/state.json` stores favourites and recent plays.
+- `%LOCALAPPDATA%/Cyrune/Arcade/state.json` stores favourites and recent plays on Windows. The default is `${XDG_DATA_HOME:-~/.local/share}/Cyrune/Arcade` elsewhere; set `CYRUNE_ARCADE_DATA` for a portable or development override.
 - The default collection is `E:\Emulation\Software Library\Sinclair\ZX Spectrum\Desasteron Spectrum Collection`.
 - Override the default collection with `MORPHEUS_EMUGUI_COLLECTION`.
 - Override the sibling collection search root with `MORPHEUS_EMUGUI_COLLECTIONS_BASE`.

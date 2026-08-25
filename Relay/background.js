@@ -514,18 +514,24 @@ function assetExtensionFromUrl(url, fallback = 'webp') {
 }
 
 function createAssetWriteSession({ kind = 'background', collectionName = '', itemName = '', extension = 'webp' } = {}) {
-  const hubRoot = deriveHubRootPath();
-  if (!hubRoot) throw new Error('Hub root path is unavailable');
+  const databasePath = normalizeDatabasePath(saveFilePath);
+  const assetRoot = databasePath ? dirname(databasePath) : deriveHubRootPath();
+  if (!assetRoot) throw new Error('Portal data root is unavailable');
   const safeKind = slugifyAssetSegment(kind, 'asset');
   const safeCollection = slugifyAssetSegment(collectionName, 'collection');
   const safeItem = slugifyAssetSegment(itemName, 'background');
   const safeExt = slugifyAssetSegment(extension, 'webp').replace(/-/g, '') || 'webp';
   const suffix = `${new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14)}-${Math.random().toString(36).slice(2, 8)}`;
   const fileName = `${safeItem}-${safeKind}-${suffix}.${safeExt}`;
-  const relativePath = ['assets', `${safeKind}s`, safeCollection, fileName].join('/');
-  const finalPath = joinPath(hubRoot, ...relativePath.split('/'));
+  const relativePath = [
+    ...(databasePath ? [] : ['assets']),
+    `${safeKind}s`,
+    safeCollection,
+    fileName
+  ].join('/');
+  const finalPath = joinPath(assetRoot, ...relativePath.split('/'));
   const tempPath = `${finalPath}.tmp-${suffix}`;
-  const publicPath = fileUrlToPath(hubPageUrl) ? relativePath : pathToFileUrl(finalPath);
+  const publicPath = databasePath || !fileUrlToPath(hubPageUrl) ? pathToFileUrl(finalPath) : relativePath;
   const sessionId = `asset-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
   return { sessionId, finalPath, tempPath, publicPath, relativePath };
 }
