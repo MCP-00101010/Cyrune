@@ -9,10 +9,11 @@ Historical entries below are preserved from Portal releases whose release notes 
 ### Changed
 
 - **External Portal assets** — managed backgrounds now follow the configured shared database into `%LOCALAPPDATA%/Cyrune/Portal/backgrounds` and are stored as absolute `file://` references. Source-relative `assets/backgrounds` remains the fallback only when no shared database is configured.
+- **Deterministic packaging** — the relocated AMO workflow now emits an exact eight-file unsigned archive, SHA-256 sidecar, and sanitized report beneath `artifacts/Relay/<version>/unsigned`; Mozilla-signed XPIs have a separate validated import path beneath `signed`.
 
 ### Validation
 
-- Added Relay path/version regression coverage and included Phase 6 migration tests in coordinated validation. `web-ext lint` reports zero errors, notices, or warnings.
+- Added Relay path/version regression coverage, deterministic package/archive tests, and independent component-version validation. `web-ext lint` reports zero errors, notices, or warnings.
 
 ## [1.0.53] — 2026-08-25
 

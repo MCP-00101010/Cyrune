@@ -6,6 +6,7 @@ This log records repository-wide migration, tooling, and coordinated release cha
 
 ### Added
 
+- Added deterministic Relay AMO packaging, exact archive allowlisting, SHA-256 sidecars, content-free reports, signed-XPI import validation, and independent component-version checks.
 - Added a versioned, copy-first runtime migration coordinator with atomic writes, reread/parse/hash verification, sanitized receipts, interrupted-copy recovery, explicit divergent-data replacement, and focused migration coverage.
 - Established the adjacent `Cyrune` monorepo and the `Portal`, `Arcade`, `Relay`, `Host`, and `Widgets` component roots.
 - Imported the complete Arcade Git history without squashing it.
@@ -14,6 +15,7 @@ This log records repository-wide migration, tooling, and coordinated release cha
 
 ### Changed
 
+- Restored Relay packaging beneath ignored `artifacts/Relay/<version>` while retaining the historic eight-file payload boundary and separating unsigned upload artifacts from Mozilla-signed packages.
 - Externalised and activated Portal and Arcade runtime data beneath `%LOCALAPPDATA%/Cyrune`, retaining verified recovery copies and leaving both legacy runtime sources untouched. Portal background references and Arcade managed-profile paths were the only transformed fields.
 - Completed the Phase 5 widget regrouping across all catalogue categories and shared core, and taught repository validation to discover colocated widget tests and source.
 - Moved the existing dashboard source to `Portal/` and the WebExtension source to `Relay/` through history-preserving renames.
@@ -26,8 +28,10 @@ This log records repository-wide migration, tooling, and coordinated release cha
 
 ### Validation
 
+- The completed Phase 7 combined-checkout validation passes 88 Portal tests, 253 Widget tests, 8 Relay tests, 42 Host tests plus 11 parameterised subtests, 10 migration tests, 14 packaging tests, and 67 Arcade tests. JavaScript syntax, manifest parsing, independent Portal/Relay version checks, and `web-ext lint` all pass; the Relay archive also reproduces byte-for-byte from a clean checkout at a different space-and-Unicode path.
 - The activated Phase 6 runtime baseline passes 88 Portal tests, 253 Widget tests, 8 Relay tests, 42 Host tests plus 11 parameterised subtests, 10 migration tests, and 67 Arcade tests. JavaScript syntax, Relay manifest validation, and `web-ext lint` pass with zero errors, notices, or warnings.
 - The user confirmed both permanent direct-file applications open with their migrated databases and that Portal reports the external `%LOCALAPPDATA%\Cyrune` database location.
+- The user confirmed a newly saved background is written beneath the external Portal data root and all legacy WebHub/EmuGUI bookmarks in use now point at Cyrune, completing the Phase 6 browser and local-link gate.
 - Both recovery bundles pass `git bundle verify`; source commits, runtime counts, selected runtime fingerprints, Host registration, and binding counts are recorded without private contents.
 - The pre-import Arcade health pass succeeds with 62 tests.
 - Before Host separation, the migrated baseline passed 339 Portal tests, 6 Relay tests, 42 Host tests plus 11 subtests, and 62 Arcade tests. JavaScript syntax and Relay manifest checks passed; `web-ext lint` reported zero errors with the two expected warnings caused by the then-embedded Host files.

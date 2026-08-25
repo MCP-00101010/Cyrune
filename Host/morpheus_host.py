@@ -658,6 +658,14 @@ def get_file_info(path, include_hash=False):
         }
 
 
+def file_chunk_read_version(info):
+    version = info.get('version') if isinstance(info, dict) else None
+    content_hash = info.get('contentHash') if isinstance(info, dict) else None
+    if not version or not content_hash:
+        return None
+    return f'{version}:{content_hash}'
+
+
 def resolve_theme_path(themes_dir, theme_id):
     directory = os.path.abspath(str(themes_dir or '').strip())
     identifier = str(theme_id or '').strip()
@@ -672,20 +680,21 @@ def resolve_theme_path(themes_dir, theme_id):
 def read_file_chunk(path, offset=0, length=512 * 1024, expected_version=None):
     offset = max(0, int(offset or 0))
     length = max(1, min(768 * 1024, int(length or 512 * 1024)))
-    before = get_file_info(path, include_hash=offset == 0)
+    before = get_file_info(path, include_hash=True)
     if not before['exists']:
         return {
             'chunk': '', 'offset': offset, 'nextOffset': offset,
             'totalSize': 0, 'done': True, 'fileInfo': before,
             'readVersion': None
         }
-    if expected_version and before.get('version') != expected_version:
+    read_version = file_chunk_read_version(before)
+    if expected_version and read_version != expected_version:
         raise RuntimeError('Shared database changed during chunked read; retry required')
     with open(path, 'rb') as source:
         source.seek(offset)
         data = source.read(length)
-    after = get_file_info(path)
-    if before.get('version') != after.get('version'):
+    after = get_file_info(path, include_hash=True)
+    if read_version != file_chunk_read_version(after):
         raise RuntimeError('Shared database changed during chunked read; retry required')
     next_offset = offset + len(data)
     total_size = before.get('size') or 0
@@ -696,7 +705,7 @@ def read_file_chunk(path, offset=0, length=512 * 1024, expected_version=None):
         'totalSize': total_size,
         'done': next_offset >= total_size,
         'fileInfo': before,
-        'readVersion': before.get('version')
+        'readVersion': read_version
     }
 
 

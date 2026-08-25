@@ -95,8 +95,13 @@ class NativePersistenceTests(unittest.TestCase):
         with TemporaryDirectory(dir=TEST_TEMP_ROOT) as directory:
             path = Path(directory) / 'hub.json'
             path.write_text('x' * 2048, encoding='utf-8')
+            fixed_ns = 1_700_000_000_000_000_000
+            os.utime(path, ns=(fixed_ns, fixed_ns))
             first = HOST.read_file_chunk(path, 0, 256)
+            self.assertIn(first['fileInfo']['contentHash'], first['readVersion'])
             HOST.atomic_write_text(path, 'y' * 2048)
+            os.utime(path, ns=(fixed_ns, fixed_ns))
+            self.assertEqual(HOST.get_file_info(path)['version'], first['fileInfo']['version'])
             with self.assertRaisesRegex(RuntimeError, 'changed during chunked read'):
                 HOST.read_file_chunk(path, 256, 256, first['readVersion'])
 

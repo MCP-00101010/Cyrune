@@ -1,5 +1,6 @@
 param(
-    [switch]$SkipLint,
+    [Parameter(Mandatory = $true)]
+    [string]$SourcePath,
     [string]$ArtifactsRoot = ''
 )
 
@@ -12,14 +13,7 @@ if (-not $ArtifactsRoot) {
     $ArtifactsRoot = Join-Path $repoRoot 'artifacts'
 }
 
-if (-not $SkipLint) {
-    & npx --yes web-ext lint --source-dir $relayRoot
-    if ($LASTEXITCODE -ne 0) {
-        throw "web-ext lint failed with exit code $LASTEXITCODE"
-    }
-}
-
-& python $packageTool build --source $relayRoot --artifacts $ArtifactsRoot
+& python $packageTool import-signed $SourcePath --artifacts $ArtifactsRoot
 if ($LASTEXITCODE -ne 0) {
-    throw "Relay packaging failed with exit code $LASTEXITCODE"
+    throw "Signed Relay package import failed with exit code $LASTEXITCODE"
 }

@@ -2,7 +2,7 @@
 
 ## Status
 
-- **State:** Active; phases 1–5 and the restored runtime baseline are complete. Phase 6 runtime data is externally stored and activated with verified recovery copies; browser reload/bookmark checks, packaging recovery, clean-checkout validation, and monitoring remain.
+- **State:** Active; phases 1–7 and the restored runtime baseline are complete. Runtime data is external and verified, Relay packaging is deterministic and bounded, and cutover monitoring remains.
 - **Created:** 2026-08-24
 - **Revised:** 2026-08-25
 - **Objective:** Combine the existing products as Cyrune Portal, Arcade, Relay, Host, and Widgets in one repository while preserving history, runtime data, credentials, bindings, direct-file operation, release workflows, and rollback paths.
@@ -175,7 +175,7 @@ Environment/configuration overrides remain available for portable and developmen
 - [x] Record only hashes, sizes, and locations for Portal data/backups, Host configuration, Arcade configuration/state, and managed profiles.
 - [x] Confirm scraper credentials remain in Windows Credential Manager and absent from JSON.
 - [x] Record binding/approval counts without exporting their targets.
-- [ ] List user bookmarks or shortcuts pointing to the old local page URLs.
+- [x] List user bookmarks or shortcuts pointing to the old local page URLs.
 - [x] Create verified backups for every runtime source before cleanup or copying.
 
 ### Pre-import cleanup audit
@@ -342,9 +342,9 @@ This phase is a path-only reorganisation of already shipped widgets.
 
 ### Local page links
 
-- [ ] Update the user’s Portal and Arcade bookmarks/shortcuts.
+- [x] Update the user’s Portal and Arcade bookmarks/shortcuts.
 - [x] Update exact-page authorization and Portal’s Arcade URL construction.
-- [ ] Provide temporary redirect/recovery pages at old locations during validation if needed.
+- [x] Confirm temporary redirect/recovery pages are not needed after the user updated every legacy bookmark in use.
 
 ### Phase 6 exit gate
 
@@ -354,14 +354,14 @@ This phase is a path-only reorganisation of already shipped widgets.
 
 ## Phase 7 — Restore Packaging and Repository Automation
 
-- [ ] Keep unpackaged Relay source solely in `Relay/`.
-- [ ] Write generated artifacts beneath `artifacts/Relay/<version>/` and ignore them.
-- [ ] Update the existing extension build/lint/package workflow for relocated paths.
-- [ ] Ensure archives exclude native host code, installers, tests, local configuration, databases, backups, and credentials.
-- [ ] Preserve the distinction between unsigned AMO upload archives and Mozilla-signed packages.
-- [ ] Update version-alignment validation for independent component versions.
+- [x] Keep unpackaged Relay source solely in `Relay/`.
+- [x] Write generated artifacts beneath `artifacts/Relay/<version>/` and ignore them.
+- [x] Update the existing extension build/lint/package workflow for relocated paths.
+- [x] Ensure archives exclude native host code, installers, tests, local configuration, databases, backups, and credentials.
+- [x] Preserve the distinction between unsigned AMO upload archives and Mozilla-signed packages.
+- [x] Update version-alignment validation for independent component versions.
 - [x] Add repository-wide validation orchestration without removing focused component commands.
-- [ ] Verify a clean checkout produces the same bounded extension archive as the pre-migration workflow.
+- [x] Verify a clean checkout produces the same bounded extension archive as the pre-migration workflow.
 
 ### Phase 7 exit gate
 
@@ -386,7 +386,7 @@ This phase is a path-only reorganisation of already shipped widgets.
 - [ ] Fresh clone into a different absolute directory.
 - [ ] Directory names containing spaces and Unicode.
 - [x] Existing upgraded checkout.
-- [ ] Old local-page bookmark recovery.
+- [x] Old local-page bookmark recovery.
 - [x] Native-host reinstall after relocation.
 - [ ] No hard-coded legacy checkout path at runtime.
 
@@ -418,7 +418,7 @@ This phase is a path-only reorganisation of already shipped widgets.
 - [x] JavaScript/Python syntax and static correctness checks.
 - [x] JSON/manifest validation and version alignment.
 - [x] `web-ext lint` with zero errors.
-- [ ] Relay archive content/hash checks.
+- [x] Relay archive content/hash checks.
 - [ ] Diff checks and secret scan that reports locations only, never values.
 
 ## Rollback Rules

@@ -47,12 +47,13 @@ The receipt records component-relative names, sizes, hashes, statuses, timestamp
 
 Semantic comparison removes only `backgroundImage` or `managed_path` values before comparing source and destination structures. This verified that opaque keys, IDs, revision metadata, collection/emulator/profile configuration, scraper settings, favourites, and history did not otherwise change.
 
-## Remaining Manual Gate
+## User Confirmation
 
-The in-app browser was unavailable during the automated cutover, but the user subsequently confirmed that Portal and Arcade open successfully with their migrated databases and that Portal reports the external database location. The remaining manual checks are:
+The in-app browser was unavailable during the automated cutover, but the user subsequently confirmed that:
 
-- Reload Cyrune Relay 1.0.54 and confirm that saving a new Portal background writes beneath `%LOCALAPPDATA%\Cyrune\Portal\backgrounds`.
-- Any user bookmarks or shortcuts still using the old Portal or Arcade URLs are updated.
+- Portal and Arcade open successfully with their migrated databases and Portal reports the external database location.
+- A newly saved Portal background appears beneath `%LOCALAPPDATA%\Cyrune\Portal\backgrounds`, proving Relay 1.0.54 is using the external asset root.
+- Every bookmark in use that referred to the legacy WebHub or EmuGUI pages now points at the Cyrune project location; temporary recovery pages are not needed.
 
 The old checkouts and runtime sources remain untouched during monitoring.
 

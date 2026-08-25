@@ -28,6 +28,7 @@ try {
     Invoke-Checked 'Relay tests' { node --test 'Relay/tests/*.cjs' }
     Invoke-Checked 'Host tests' { python -m pytest -q Host/tests }
     Invoke-Checked 'Migration tests' { python -m pytest -q tests/migration }
+    Invoke-Checked 'Packaging tests' { python -m pytest -q tests/packaging }
 
     Push-Location (Join-Path $repoRoot 'Arcade')
     try {
@@ -48,6 +49,7 @@ try {
 
     Get-Content -LiteralPath (Join-Path $repoRoot 'Relay/manifest.json') -Raw | ConvertFrom-Json | Out-Null
     Write-Host '== Relay manifest JSON: valid ==' -ForegroundColor Green
+    Invoke-Checked 'Independent component versions' { python tools/validate_versions.py --repo $repoRoot }
 
     if (-not $SkipWebExtLint) {
         Invoke-Checked 'Relay web-ext lint' { npx --yes web-ext lint --source-dir (Join-Path $repoRoot 'Relay') }

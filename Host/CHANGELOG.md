@@ -6,6 +6,10 @@ Historical entries below are preserved from Portal releases whose release notes 
 
 ## [Unversioned] — 2026-08-25
 
+### Fixed
+
+- Chunked database and backup reads now bind their continuation token to both file metadata and a SHA-256 content identity, rejecting same-size replacements even when the filesystem reuses the previous modification timestamp.
+
 ### Changed
 
 - Relocated Host source, installers, tests, and templates from Relay into the top-level `Host/` component.
