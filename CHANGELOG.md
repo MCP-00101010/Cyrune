@@ -6,6 +6,8 @@ This log records repository-wide migration, tooling, and coordinated release cha
 
 ### Added
 
+- Added typed, role-bound Nexus settings consumers across Host, Relay 1.0.60, Portal 0.11.224, Widgets SDK 2, and Arcade: fixed component profiles, live revision broadcasts, accessibility/language/unit application, and an authoritative optional-network gate work while the Nexus page is closed.
+- Added Nexus 0.1.6 snapshot-schema health adapters across Host and Nexus: independently sampled Portal, Arcade, Nexus settings, Host, Relay, and source-only Widget states now provide sanitized schema/backup summaries and fixed actionable recovery guidance without allowing one failure to suppress healthy sections.
 - Added the Nexus 0.1.5 and Relay 1.0.59 explicit origin check: the authenticated page can request a fixed, non-interactive comparison of the current branch with live `origin`, while Host returns only sanitized commit state and never fetches or mutates the checkout.
 - Added the Nexus 0.1.4 and Relay 1.0.58 TODO-editing route: component and project TODOs open as exact allowlisted Visual Studio Code files through Host, while changelogs retain read-only previews without open links.
 - Added a coordinated validation-receipt writer and Nexus 0.1.3 Activity presentation for the last successful commit, component versions, passing suite counts, and fixed release gates; receipts remain atomic, content-free, and outside the checkout.
@@ -44,7 +46,7 @@ This log records repository-wide migration, tooling, and coordinated release cha
 
 ### Validation
 
-- The receipt-producing coordinated run passes 89 Portal, 253 Widgets, 68 Arcade, 11 Relay, 49 Host plus 11 parameterised subtests, 11 Nexus, 10 migration, 14 packaging, and 3 tooling tests. JavaScript syntax, manifest parsing, independent versions, packaging, and `web-ext lint` pass, and the resulting runtime receipt contains only its fixed schema.
+- The receipt-producing coordinated run passes 90 Portal, 254 Widgets, 69 Arcade, 12 Relay, 51 Host plus 11 parameterised subtests, 15 Nexus, 10 migration, 14 packaging, and 3 tooling tests. JavaScript syntax—including the shared Nexus client—manifest parsing, independent versions, packaging, and `web-ext lint` pass, and the resulting runtime receipt contains only its fixed schema.
 - The authoritative Nexus service passes 8 Nexus tests, 11 Relay tests, and 47 Host tests plus 11 parameterised subtests, covering exact roles, bounds, typed validation, atomic revisions, conflicts, allowlisted documents, status redaction, and remote-URL sanitization. Relay 1.0.56 passes `web-ext lint` with zero errors, notices, or warnings.
 - The Nexus baseline passes 89 Portal tests, 7 Nexus tests, 253 Widget tests, 8 Relay tests, 42 Host tests plus 11 parameterised subtests, 10 migration tests, 14 packaging/version tests, and 68 Arcade tests. All coordinated JavaScript syntax, manifest, independent-version, and `web-ext lint` checks pass with zero errors, notices, or warnings.
 - Nexus 0.1.0 adds focused component-catalogue, settings-normalization, safe-document, safe-Markdown, direct-file structure, and version-alignment coverage; Nexus source is included in the coordinated JavaScript syntax pass.

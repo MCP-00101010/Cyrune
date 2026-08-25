@@ -1173,6 +1173,29 @@ NEXUS_SETTING_BOOLEANS = {
     'privacy.allowPreciseLocation'
 }
 
+NEXUS_COMPONENT_SETTING_PATHS = {
+    'portal-widgets': (
+        'region.country', 'region.city', 'region.timeZone', 'region.locationMode',
+        'units.system', 'units.temperature', 'units.distance', 'units.speed', 'units.mass',
+        'units.volume', 'units.pressure',
+        'language.primary', 'language.secondary', 'language.interface', 'language.content',
+        'formatting.date', 'formatting.clock', 'formatting.currency', 'formatting.weekStart',
+        'behaviour.externalLinks', 'behaviour.confirmPrivilegedActions', 'behaviour.restoreLastView',
+        'accessibility.scale', 'accessibility.reducedMotion', 'accessibility.highContrast',
+        'privacy.allowOptionalNetwork', 'privacy.allowApproximateLocation', 'privacy.allowPreciseLocation'
+    ),
+    'arcade': (
+        'region.country', 'region.timeZone',
+        'units.system', 'units.temperature', 'units.distance', 'units.speed', 'units.mass',
+        'units.volume', 'units.pressure',
+        'language.primary', 'language.secondary', 'language.interface', 'language.content',
+        'formatting.date', 'formatting.clock', 'formatting.currency', 'formatting.weekStart',
+        'behaviour.externalLinks', 'behaviour.confirmPrivilegedActions', 'behaviour.restoreLastView',
+        'accessibility.scale', 'accessibility.reducedMotion', 'accessibility.highContrast',
+        'privacy.allowOptionalNetwork'
+    )
+}
+
 NEXUS_DOCUMENTS = {
     'portal': {'todo': ('Portal', 'Portal-TODO.md'), 'changelog': ('Portal', 'Portal-CHANGELOG.md')},
     'widgets': {'todo': ('Widgets', 'Widgets-TODO.md'), 'changelog': ('Widgets', 'Widgets-CHANGELOG.md')},
@@ -1278,6 +1301,26 @@ def load_nexus_settings():
     settings['revision'] = revision
     settings['updatedAt'] = updated_at
     return settings
+
+
+def nexus_component_settings(component):
+    component_id = str(component or '').strip().lower()
+    paths = NEXUS_COMPONENT_SETTING_PATHS.get(component_id)
+    if not paths:
+        raise ValueError('Unsupported Cyrune settings consumer')
+    settings = load_nexus_settings()
+    values = {}
+    for path in paths:
+        section, key = path.split('.', 1)
+        values.setdefault(section, {})[key] = _clone_json(settings[section][key])
+    return {
+        'profileSchemaVersion': 1,
+        'settingsSchemaVersion': settings['schemaVersion'],
+        'component': component_id,
+        'revision': settings['revision'],
+        'updatedAt': settings['updatedAt'],
+        'values': values
+    }
 
 
 def _nexus_changed_keys(before, after):
@@ -1598,25 +1641,150 @@ def _sanitized_validation_receipt():
         return None
 
 
+def _nexus_health(state, code, summary, guidance, sampled_at):
+    return {
+        'state': state,
+        'code': code,
+        'summary': summary,
+        'guidance': guidance,
+        'sampledAt': sampled_at
+    }
+
+
+def _json_object_metadata(path, max_bytes=64 * 1024 * 1024):
+    info = get_file_info(path)
+    if not info.get('exists'):
+        return {'valid': False, 'schemaVersion': None, 'reason': 'missing'}
+    if (info.get('size') or 0) > max_bytes:
+        return {'valid': None, 'schemaVersion': None, 'reason': 'too-large'}
+    try:
+        with open(path, 'r', encoding='utf-8') as source:
+            payload = json.load(source)
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return {'valid': False, 'schemaVersion': None, 'reason': 'invalid-json'}
+    if not isinstance(payload, dict):
+        return {'valid': False, 'schemaVersion': None, 'reason': 'not-object'}
+    schema_version = payload.get('schemaVersion')
+    if not isinstance(schema_version, int) or isinstance(schema_version, bool) or schema_version < 0:
+        schema_version = None
+    return {'valid': True, 'schemaVersion': schema_version, 'reason': 'ok'}
+
+
+def _portal_backup_health(database_path):
+    result = {'managed': True, 'count': 0, 'status': 'missing', 'newestModifiedMs': None}
+    try:
+        backup_dir = database_backup_dir(database_path)
+        stem = os.path.splitext(os.path.basename(str(database_path)))[0]
+        candidates = []
+        if os.path.isdir(backup_dir):
+            for name in os.listdir(backup_dir):
+                if name.startswith(f'{stem}.before-write.') and name.endswith('.json'):
+                    path = resolve_database_backup_path(database_path, name)
+                    candidates.append((os.path.getmtime(path), path))
+        candidates.sort(reverse=True)
+        result['count'] = min(len(candidates), MAX_DATABASE_BACKUPS)
+        if not candidates:
+            return result
+        newest_path = candidates[0][1]
+        info = get_file_info(newest_path)
+        result['newestModifiedMs'] = info.get('modifiedMs')
+        metadata = _json_object_metadata(newest_path)
+        result['status'] = 'healthy' if metadata.get('valid') is True else (
+            'unverified' if metadata.get('valid') is None else 'invalid'
+        )
+    except (OSError, ValueError):
+        result['status'] = 'unreadable'
+    return result
+
+
+def _nexus_backup_health():
+    result = {'managed': True, 'count': 0, 'status': 'missing', 'newestModifiedMs': None}
+    try:
+        backup_dir = Path(NEXUS_DATA_ROOT, 'backups')
+        candidates = sorted(
+            backup_dir.glob('settings.revision-*.json'),
+            key=lambda item: item.stat().st_mtime_ns,
+            reverse=True
+        ) if backup_dir.is_dir() else []
+        result['count'] = min(len(candidates), 10)
+        if not candidates:
+            return result
+        info = get_file_info(candidates[0])
+        result['newestModifiedMs'] = info.get('modifiedMs')
+        metadata = _json_object_metadata(candidates[0], max_bytes=256 * 1024)
+        result['status'] = 'healthy' if metadata.get('valid') is True else 'invalid'
+    except OSError:
+        result['status'] = 'unreadable'
+    return result
+
+
 def nexus_project_status():
+    sampled_at = int(time.time() * 1000)
     component_names = {'portal': 'Portal', 'widgets': 'Widgets', 'arcade': 'Arcade',
                        'relay': 'Relay', 'host': 'Host', 'nexus': 'Nexus'}
     components = [
         {'id': component_id, 'name': name, 'version': _read_component_version(component_id),
-         'updatedMs': _component_updated_ms(component_id)}
+         'updatedMs': _component_updated_ms(component_id), 'sampledAt': sampled_at}
         for component_id, name in component_names.items()
     ]
     portal_path = str(load_config().get('databasePath', '') or '')
     portal_info = get_file_info(portal_path, include_hash=True)
-    portal_record = {'location': portal_path, **portal_info}
+    portal_record = {'location': portal_path, **portal_info, 'sampledAt': sampled_at}
     if portal_info.get('exists') and (portal_info.get('size') or 0) <= 64 * 1024 * 1024:
         try:
             with open(portal_path, 'r', encoding='utf-8') as source:
                 portal_record['summary'] = summarize_hub_content(source.read())
         except (OSError, UnicodeError):
             portal_record['summary'] = {'valid': False}
+    portal_summary = portal_record.get('summary') if isinstance(portal_record.get('summary'), dict) else {}
+    portal_record['schema'] = {
+        'valid': portal_summary.get('valid') if portal_summary else None,
+        'version': portal_summary.get('schemaVersion') if portal_summary.get('valid') else None
+    }
+    portal_record['backup'] = _portal_backup_health(portal_path) if portal_path else {
+        'managed': True, 'count': 0, 'status': 'missing', 'newestModifiedMs': None
+    }
+    if not portal_path:
+        portal_record['health'] = _nexus_health(
+            'unavailable', 'portal-database-unconfigured', 'Portal database is not configured',
+            'Open Cyrune Portal through Relay and select or create its authoritative database.', sampled_at
+        )
+    elif not portal_info.get('exists'):
+        portal_record['health'] = _nexus_health(
+            'unavailable', 'portal-database-missing', 'Portal database is missing',
+            'Confirm the Portal database selection in Relay or restore the expected file from backup.', sampled_at
+        )
+    elif portal_summary.get('valid') is not True:
+        portal_record['health'] = _nexus_health(
+            'unavailable', 'portal-database-invalid', 'Portal database could not be validated',
+            'Open Portal recovery and restore a known-good retained database backup.', sampled_at
+        )
+    elif portal_record['backup']['status'] in {'invalid', 'unreadable'}:
+        portal_record['health'] = _nexus_health(
+            'attention', 'portal-backup-unhealthy', 'Portal database is healthy but its newest backup is not',
+            'Create and verify a fresh Portal backup before relying on the retained backup timeline.', sampled_at
+        )
+    elif portal_record['backup']['count'] == 0:
+        portal_record['health'] = _nexus_health(
+            'attention', 'portal-backup-missing', 'Portal database is healthy with no retained backup',
+            'Create a Portal backup before making substantial database changes.', sampled_at
+        )
+    else:
+        portal_record['health'] = _nexus_health(
+            'healthy', 'portal-data-healthy', 'Portal database and retained backup are healthy',
+            'No action is required.', sampled_at
+        )
+
     arcade_root = _default_arcade_data_root()
-    arcade_record = {'location': arcade_root, **get_file_info(os.path.join(arcade_root, 'state.json'), include_hash=True)}
+    arcade_state_path = os.path.join(arcade_root, 'state.json')
+    arcade_schema = _json_object_metadata(arcade_state_path, max_bytes=8 * 1024 * 1024)
+    arcade_record = {
+        'location': arcade_root,
+        **get_file_info(arcade_state_path, include_hash=True),
+        'sampledAt': sampled_at,
+        'schema': {'valid': arcade_schema.get('valid'), 'version': arcade_schema.get('schemaVersion')},
+        'backup': {'managed': False, 'count': 0, 'status': 'component-managed', 'newestModifiedMs': None}
+    }
     try:
         service = emugui_service_status()
         arcade_record['service'] = {
@@ -1624,21 +1792,76 @@ def nexus_project_status():
             'serviceVersion': int(service.get('serviceVersion', 0) or 0),
             'collectionCount': int(service.get('collectionCount', 0) or 0),
             'emulatorCount': int(service.get('emulatorCount', 0) or 0),
-            'profileCount': int(service.get('profileCount', 0) or 0)
+            'profileCount': int(service.get('profileCount', 0) or 0),
+            'sampledAt': sampled_at
         }
     except Exception:
         arcade_record['service'] = {'available': False, 'errorCode': 'arcade-service-unavailable',
-                                    'message': 'Cyrune Arcade service status is unavailable'}
+                                    'message': 'Cyrune Arcade service status is unavailable',
+                                    'sampledAt': sampled_at}
+    if arcade_record['service'].get('available') is not True:
+        arcade_record['health'] = _nexus_health(
+            'unavailable', 'arcade-service-unavailable', 'Arcade service is unavailable',
+            'Confirm Host has the current Cyrune Arcade root, then reload Relay and Arcade.', sampled_at
+        )
+    elif not arcade_record.get('exists'):
+        arcade_record['health'] = _nexus_health(
+            'attention', 'arcade-state-missing', 'Arcade is available but its local state file is missing',
+            'Use Arcade once to create its favourites and recent-history state file.', sampled_at
+        )
+    elif arcade_record['schema'].get('valid') is not True:
+        arcade_record['health'] = _nexus_health(
+            'attention', 'arcade-state-invalid', 'Arcade service is available but its local state is invalid',
+            'Review Arcade favourites and recent history, then let Arcade rewrite the local state.', sampled_at
+        )
+    else:
+        arcade_record['health'] = _nexus_health(
+            'healthy', 'arcade-data-healthy', 'Arcade service and local state are healthy',
+            'No action is required.', sampled_at
+        )
+
+    nexus_info = get_file_info(NEXUS_SETTINGS_PATH, include_hash=True)
+    nexus_record = {
+        'location': NEXUS_DATA_ROOT,
+        **nexus_info,
+        'sampledAt': sampled_at,
+        'backup': _nexus_backup_health()
+    }
+    if not nexus_info.get('exists'):
+        nexus_record['schema'] = {'valid': True, 'version': NEXUS_SETTINGS_SCHEMA_VERSION, 'revision': 0}
+        nexus_record['health'] = _nexus_health(
+            'attention', 'nexus-settings-defaults', 'Nexus is using schema defaults',
+            'Apply Variables once to create the authoritative settings file.', sampled_at
+        )
+    else:
+        try:
+            saved_settings = load_nexus_settings()
+            nexus_record['schema'] = {
+                'valid': True,
+                'version': saved_settings.get('schemaVersion'),
+                'revision': saved_settings.get('revision')
+            }
+            nexus_record['health'] = _nexus_health(
+                'healthy', 'nexus-settings-healthy', 'Nexus settings are valid and authoritative',
+                'No action is required.', sampled_at
+            )
+        except Exception:
+            nexus_record['schema'] = {'valid': False, 'version': None, 'revision': None}
+            nexus_record['health'] = _nexus_health(
+                'unavailable', 'nexus-settings-invalid', 'Authoritative Nexus settings are unreadable',
+                'Restore a retained Nexus settings backup before applying further shared variables.', sampled_at
+            )
     return {
-        'schemaVersion': 1,
-        'sampledAt': int(time.time() * 1000),
+        'schemaVersion': 2,
+        'sampledAt': sampled_at,
         'components': components,
-        'services': {'host': {'available': True, 'version': 'Unversioned',
+        'services': {'host': {'available': True, 'version': 'Unversioned', 'sampledAt': sampled_at,
+                              'health': _nexus_health('healthy', 'host-healthy', 'Host is responding',
+                                                      'No action is required.', sampled_at),
                               'capabilities': ['nexusSettings', 'nexusStatus', 'nexusDocuments',
                                                'nexusTodoEditor', 'repositoryStatus',
                                                'repositoryRemoteCheck']}},
-        'data': {'portal': portal_record, 'arcade': arcade_record,
-                 'nexus': {'location': NEXUS_DATA_ROOT, **get_file_info(NEXUS_SETTINGS_PATH, include_hash=True)}},
+        'data': {'portal': portal_record, 'arcade': arcade_record, 'nexus': nexus_record},
         'repository': nexus_repository_status(),
         'validation': _sanitized_validation_receipt()
     }
@@ -2996,6 +3219,16 @@ def handle(msg):
         except Exception:
             send_message({'ok': False, 'errorCode': 'nexus-settings-unavailable',
                           'error': 'Authoritative Cyrune Nexus settings are unavailable'})
+
+    elif msg_type == 'NEXUS_GET_COMPONENT_SETTINGS':
+        try:
+            reply_ok(profile=nexus_component_settings(msg.get('component', '')))
+        except ValueError:
+            send_message({'ok': False, 'errorCode': 'nexus-settings-consumer-unsupported',
+                          'error': 'This Cyrune component settings profile is not supported'})
+        except Exception:
+            send_message({'ok': False, 'errorCode': 'nexus-settings-unavailable',
+                          'error': 'Authoritative Cyrune component settings are unavailable'})
 
     elif msg_type == 'NEXUS_SAVE_SETTINGS':
         try:

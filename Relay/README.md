@@ -2,6 +2,8 @@
 
 Cyrune Relay is the Firefox-compatible WebExtension that authenticates trusted local Portal, Arcade, and Nexus pages, routes browser actions and durable intake, and maintains the persistent connection to Cyrune Host. Each local application has an exact, independently registered role; authority is never shared merely because pages are in the same checkout.
 
+For shared variables, Relay maps Portal and Arcade roles to fixed Host-owned profiles and broadcasts only numeric settings revisions. A page cannot request another component's profile or provide setting paths.
+
 The unpackaged extension root is this directory. Native Python, installers, configuration, and launchers live exclusively in `../Host/` and must not be included in Relay packages.
 
 ## Architecture and Guidance

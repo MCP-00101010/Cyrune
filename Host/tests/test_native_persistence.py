@@ -57,6 +57,23 @@ class NativePersistenceTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'IANA time-zone name'):
             HOST.validate_nexus_settings(candidate)
 
+    def test_nexus_component_settings_are_typed_and_fixed_per_consumer(self):
+        settings = json.loads(json.dumps(HOST.NEXUS_DEFAULT_SETTINGS))
+        settings['revision'] = 7
+        settings['updatedAt'] = 1700000000000
+        settings['region']['city'] = 'Glasgow'
+        with patch.object(HOST, 'load_nexus_settings', return_value=settings):
+            portal = HOST.nexus_component_settings('portal-widgets')
+            arcade = HOST.nexus_component_settings('arcade')
+        self.assertEqual(portal['revision'], 7)
+        self.assertEqual(portal['values']['region']['city'], 'Glasgow')
+        self.assertEqual(portal['values']['accessibility']['scale'], '100')
+        self.assertNotIn('city', arcade['values']['region'])
+        self.assertNotIn('allowPreciseLocation', arcade['values']['privacy'])
+        self.assertNotIn('path', json.dumps(portal).lower())
+        with self.assertRaisesRegex(ValueError, 'Unsupported Cyrune settings consumer'):
+            HOST.nexus_component_settings('../portal')
+
     def test_nexus_page_and_documents_are_exactly_allowlisted(self):
         expected = (Path(HOST.CYRUNE_REPO_ROOT) / 'Nexus' / 'index.html').resolve().as_uri()
         self.assertTrue(HOST.authorize_nexus_page(expected))
@@ -150,9 +167,61 @@ class NativePersistenceTests(unittest.TestCase):
             self.assertTrue(snapshot['repository']['available'])
             self.assertEqual(snapshot['repository']['remoteUrl'], 'https://github.com/example/cyrune')
             self.assertNotIn('path', snapshot['repository'])
+            self.assertEqual(snapshot['schemaVersion'], 2)
+            self.assertEqual(snapshot['data']['portal']['schema'], {'valid': True, 'version': 2})
+            self.assertEqual(snapshot['data']['portal']['health']['code'], 'portal-backup-missing')
+            self.assertEqual(snapshot['data']['arcade']['health']['code'], 'arcade-data-healthy')
+            self.assertEqual(snapshot['data']['arcade']['schema'], {'valid': True, 'version': None})
+            self.assertEqual(snapshot['data']['nexus']['health']['code'], 'nexus-settings-defaults')
+            self.assertEqual(snapshot['services']['host']['health']['code'], 'host-healthy')
             self.assertEqual(snapshot['data']['portal']['location'], str(portal))
             self.assertEqual(snapshot['data']['arcade']['service']['collectionCount'], 3)
             self.assertNotIn('activeCollection', snapshot['data']['arcade']['service'])
+
+    def test_nexus_status_keeps_partial_health_failures_sanitized_and_independent(self):
+        with TemporaryDirectory(dir=TEST_TEMP_ROOT) as directory:
+            root = Path(directory)
+            portal = root / 'portal.json'
+            portal.write_text('{broken', encoding='utf-8')
+            arcade = root / 'Arcade'
+            arcade.mkdir()
+            (arcade / 'state.json').write_text('[]', encoding='utf-8')
+            nexus = root / 'Nexus'
+            nexus.mkdir()
+            settings_path = nexus / 'settings.json'
+            settings_path.write_text('{broken', encoding='utf-8')
+
+            def git_output(_path, args):
+                if args[:2] == ['status', '--porcelain=v2']:
+                    return '# branch.head main\n'
+                if args[:2] == ['log', '-1'] and '--' in args:
+                    return '1700000000\n'
+                if args[:2] == ['log', '-1']:
+                    return 'abcdef\x1fabc123\x1f1700000000\x1fHealth adapters\n'
+                if args[:2] == ['remote', 'get-url']:
+                    return ''
+                raise AssertionError(args)
+
+            with patch.object(HOST, '_run_git', side_effect=git_output), \
+                    patch.object(HOST, 'load_config', return_value={'databasePath': str(portal)}), \
+                    patch.object(HOST, '_default_arcade_data_root', return_value=str(arcade)), \
+                    patch.object(HOST, 'emugui_service_status', side_effect=RuntimeError('private path')), \
+                    patch.object(HOST, 'NEXUS_DATA_ROOT', str(nexus)), \
+                    patch.object(HOST, 'NEXUS_SETTINGS_PATH', str(settings_path)), \
+                    patch.object(HOST, 'NEXUS_VALIDATION_PATH', str(nexus / 'validation.json')):
+                snapshot = HOST.nexus_project_status()
+
+            self.assertEqual(snapshot['data']['portal']['health']['code'], 'portal-database-invalid')
+            self.assertEqual(snapshot['data']['arcade']['health']['code'], 'arcade-service-unavailable')
+            self.assertEqual(snapshot['data']['nexus']['health']['code'], 'nexus-settings-invalid')
+            self.assertTrue(snapshot['repository']['available'])
+            serialized = json.dumps(snapshot)
+            self.assertNotIn('private path', serialized)
+            self.assertNotIn(str(root), json.dumps({
+                'portalHealth': snapshot['data']['portal']['health'],
+                'arcadeHealth': snapshot['data']['arcade']['health'],
+                'nexusHealth': snapshot['data']['nexus']['health']
+            }))
 
     def test_nexus_remote_and_validation_receipt_remove_secrets_and_unknown_fields(self):
         self.assertEqual(

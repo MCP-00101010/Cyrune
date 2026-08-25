@@ -34,7 +34,14 @@ const webHubHandoff = (() => {
 })();
 
 window.addEventListener("message", (event) => {
-  if (event.source !== window || event.data?._emuguiRes !== true) return;
+  if (event.source !== window) return;
+  if (event.data?._emugui === true && event.data?._cyruneSettingsChanged === true) {
+    window.dispatchEvent(new CustomEvent("cyrune:settings-revision", {
+      detail: { revision: Number(event.data.revision || 0) },
+    }));
+    return;
+  }
+  if (event.data?._emuguiRes !== true) return;
   const pending = pendingWebHubRequests.get(event.data.requestId);
   if (!pending) return;
   clearTimeout(pending.timer);
@@ -77,6 +84,54 @@ async function requestWebHub(type, payload = {}) {
     window.postMessage({ _emuguiReq: true, requestId, type, ...payload }, "*");
   });
 }
+
+const arcadeCyruneSettings = (() => {
+  const factory = globalThis.CyruneComponentSettingsClient;
+  let client = null;
+
+  function applyProfile(profile) {
+    const values = profile.values || {};
+    const accessibility = values.accessibility || {};
+    const language = values.language || {};
+    const units = values.units || {};
+    const privacy = values.privacy || {};
+    const root = document.documentElement;
+    if (language.interface) root.lang = language.interface;
+    if (accessibility.scale) root.style.fontSize = `${accessibility.scale}%`;
+    root.dataset.cyruneReducedMotion = String(accessibility.reducedMotion === true);
+    root.dataset.cyruneHighContrast = String(accessibility.highContrast === true);
+    root.dataset.cyruneUnits = units.system || "metric";
+    root.dataset.cyruneOptionalNetwork = String(privacy.allowOptionalNetwork !== false);
+    window.dispatchEvent(new CustomEvent("cyrune:settings-applied", {
+      detail: { component: profile.component, revision: profile.revision },
+    }));
+  }
+
+  if (factory) {
+    client = factory.create({
+      component: "arcade",
+      request: async () => {
+        const response = await requestWebHub("MW_EMUGUI_GET_CYRUNE_SETTINGS");
+        return response.profile;
+      },
+      apply: applyProfile,
+    });
+    const refresh = () => { client.refresh().catch(() => {}); };
+    window.addEventListener("cyrune:settings-revision", (event) => {
+      const current = client.get();
+      if (Number(event.detail?.revision || 0) > Number(current?.revision || -1)) refresh();
+    });
+    refresh();
+  }
+
+  return Object.freeze({
+    get: () => client?.get() || null,
+    refresh: () => client ? client.refresh() : Promise.resolve(null),
+    subscribe: (listener) => client ? client.subscribe(listener) : (() => {}),
+  });
+})();
+
+globalThis.CyruneSettings = arcadeCyruneSettings;
 
 const COUNTRY_NAMES = {
   BR: "Brazil",

@@ -12,6 +12,7 @@ Historical entries below are preserved from Portal releases whose release notes 
 
 ### Changed
 
+- Widget SDK 2 exposes the Portal-hosted typed Nexus settings profile through `settings.shared()` and `settings.subscribeShared()`. Its managed network gateway refuses optional requests when the authoritative Nexus privacy setting disables them.
 - Updated notification defaults, SDK examples, provider identification, export filenames, and Relay guidance to use the Cyrune Portal, Widgets, and Relay names.
 - Renamed the active backlog and release log to `Widgets-TODO.md` and `Widgets-CHANGELOG.md` for unambiguous editor tabs.
 - Began the path-only category regrouping with Git Workspace under `coding-development/`, colocating its JavaScript, CSS, and focused test without changing its widget ID or behaviour.
@@ -28,7 +29,7 @@ Historical entries below are preserved from Portal releases whose release notes 
 
 ### Validation
 
-- The coordinated naming and migration audit passes all 253 colocated Widget tests and JavaScript syntax checks.
+- The coordinated settings and migration audit passes all 254 colocated Widget tests and JavaScript syntax checks.
 
 ### Validation
 

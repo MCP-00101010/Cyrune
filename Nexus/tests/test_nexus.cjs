@@ -91,6 +91,18 @@ test('repository remote status is an explicit fixed-purpose action', () => {
   assert.doesNotMatch(app, /git (?:fetch|pull|push|reset|checkout)/i);
 });
 
+test('health adapters render fixed states and preserve partial service results', () => {
+  const app = fs.readFileSync(path.join(nexusRoot, 'source', 'app.js'), 'utf8');
+  const styles = fs.readFileSync(path.join(nexusRoot, 'source', 'styles.css'), 'utf8');
+  assert.match(app, /Promise\.allSettled/);
+  assert.match(app, /settingsAuthority = 'status-only'/);
+  assert.match(app, /function componentHealth\(component\)/);
+  assert.match(app, /health\.guidance|health\.sampledAt/);
+  assert.match(app, /Runtime recovery guidance|runtime recovery guidance/i);
+  assert.match(styles, /status-attention/);
+  assert.match(styles, /health-guidance/);
+});
+
 test('TODO actions use the fixed VS Code operation while changelogs have no open link', () => {
   const app = fs.readFileSync(path.join(nexusRoot, 'source', 'app.js'), 'utf8');
   assert.match(app, /data-open-todo=/);

@@ -16,6 +16,8 @@ The normal Cyrune Arcade interface remains in this repository. It sends its API 
 
 Firefox/Zen must allow Cyrune Relay to access local files. Relay authorises only this checkout's configured `web/index.html`, not arbitrary file pages.
 
+Arcade consumes the fixed `arcade` Nexus settings profile through that authenticated role. It applies shared language and accessibility presentation and exposes unit/privacy values locally, refreshes after revision broadcasts, and remains usable with defaults if the settings service is unavailable. The profile deliberately excludes Portal/Widget city and precise-location settings.
+
 ## Architecture and Guidance
 
 - [Arcade instructions](AGENTS.md) define product ownership, transport, filesystem, metadata, launch, Portal-integration, and validation invariants.

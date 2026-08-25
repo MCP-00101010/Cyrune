@@ -29,3 +29,12 @@ test('Nexus document routing is allowlisted by component and document type', () 
   assert.match(source, /nexusNativeRequest\(\{ type: 'NEXUS_CHECK_REMOTE' \}\)/);
   assert.match(source, /MAX_NEXUS_SETTINGS_BYTES = 64 \* 1024/);
 });
+
+test('component settings routes map authenticated page roles to fixed Host profiles', () => {
+  assert.match(source, /MW_GET_CYRUNE_SETTINGS/);
+  assert.match(source, /NEXUS_GET_COMPONENT_SETTINGS', component: 'portal-widgets'/);
+  assert.match(source, /MW_EMUGUI_GET_CYRUNE_SETTINGS/);
+  assert.match(source, /NEXUS_GET_COMPONENT_SETTINGS', component: 'arcade'/);
+  assert.match(source, /hubRegistrations\.keys\(\).*MW_CYRUNE_SETTINGS_CHANGED/s);
+  assert.match(source, /emuguiRegistrations\.keys\(\).*MW_CYRUNE_SETTINGS_CHANGED/s);
+});

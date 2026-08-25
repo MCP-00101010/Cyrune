@@ -15,6 +15,11 @@ Nexus file page
   -> exact authenticated Nexus role in Relay
     -> fixed-purpose, independently validated Host operations
       -> Nexus settings / sanitized metadata / allowlisted project documents
+
+Portal or Arcade file page
+  -> its own exact authenticated Relay role
+    -> one fixed Host-owned component settings profile
+      -> typed subset plus revision (no caller-selected paths or keys)
 ```
 
 Nexus never receives a general filesystem path, shell, Git command, database query, credential, process, or native-operation interface. Relay binds every page request to the exact registered Nexus URL, tab, role, and opaque session. Host independently validates operation names, component IDs, document types, bounds, revisions, and approved roots.
@@ -25,7 +30,9 @@ The initial status product is read-only. Shared settings are the first Nexus-own
 
 The page-to-Relay message allowlist is `MW_NEXUS_PING`, `MW_NEXUS_GET_SETTINGS`, `MW_NEXUS_SAVE_SETTINGS`, `MW_NEXUS_GET_STATUS`, `MW_NEXUS_GET_DOCUMENT`, `MW_NEXUS_OPEN_TODO`, and `MW_NEXUS_CHECK_REMOTE`. Relay maps these to fixed Host operations after exact-role authorization. Settings payloads are bounded to 64 KiB by Relay; documents are selected only by component/document type and bounded to 512 KiB by Host. The remote check accepts no page parameters: Host derives the current checkout branch and compares it only with fixed `origin`.
 
-`MW_NEXUS_SAVE_SETTINGS` includes the complete candidate snapshot and `expectedRevision`. A successful response includes the saved snapshot and changed-key metadata. A stale write returns `conflict: true` with the current authoritative snapshot so the page can reload instead of overwriting it. Relay broadcasts only the new numeric revision to authenticated Nexus pages.
+`MW_NEXUS_SAVE_SETTINGS` includes the complete candidate snapshot and `expectedRevision`. A successful response includes the saved snapshot and changed-key metadata. A stale write returns `conflict: true` with the current authoritative snapshot so the page can reload instead of overwriting it. Relay broadcasts only the new numeric revision to authenticated Nexus, Portal, and Arcade pages.
+
+Portal uses `MW_GET_CYRUNE_SETTINGS`, which Relay maps to the fixed Host `portal-widgets` profile. Arcade uses `MW_EMUGUI_GET_CYRUNE_SETTINGS`, mapped to `arcade`. Host owns both allowlists and returns profile schema version, settings schema version, component ID, revision, update time, and the typed subset. Neither page supplies a component ID, path, key, or query. The shared browser client validates the expected component and profile schema, strips unknown data, clones values at its API boundary, and refuses to replace a newer revision with an older response.
 
 ## Runtime Data
 
@@ -40,7 +47,7 @@ Authoritative Nexus data belongs beneath `%LOCALAPPDATA%\Cyrune\Nexus` on Window
 
 The repository contains source, schemas, examples, and fixtures only. It must not contain live settings, user location, runtime snapshots, repository paths, database fingerprints from a user's installation, validation receipts, or private component data.
 
-The Nexus page is the settings editor, not the runtime server. Relay and Host make settings readable by other components while the Nexus page is closed. A small browser-local preview/cache may make the page useful during disconnection but must be labelled non-authoritative and never silently overwrite a newer Host revision.
+The Nexus page is the settings editor, not the runtime server. Relay and Host make settings readable by Portal/Widgets and Arcade while the Nexus page is closed. A small browser-local preview/cache may make the page useful during disconnection but must be labelled non-authoritative and never silently overwrite a newer Host revision.
 
 ## Shared Settings
 
@@ -72,11 +79,15 @@ The first schema covers:
 
 Location is manual by default. Approximate or precise automatic location requires an explicit global opt-in and a declared component capability. Settings responses expose only the value needed by that component; they do not make location or other sensitive fields universally available by accident.
 
+The implemented `portal-widgets` profile contains regional city/location mode, units, languages, formatting, behaviour, accessibility, optional-network permission, and both location permission flags because Portal hosts declared location-aware widgets. The `arcade` profile contains country/time zone, units, languages, formatting, behaviour, accessibility, and optional-network permission; it deliberately excludes city, location mode, and approximate/precise location permissions. Future additions require a versioned profile change and consumer coverage rather than a generic settings read.
+
+Portal applies interface language, scale, reduced motion, and contrast to its document and exposes the profile to hosted Widgets through `WidgetSDK.settings`. The SDK's managed network gateway rejects optional requests when `allowOptionalNetwork` is false. Arcade applies the same presentation subset to its own document. Component startup remains non-blocking and uses documented defaults when Relay or Host is unavailable.
+
 Each authoritative snapshot includes a schema version, monotonic revision, updated timestamp, and typed setting sections. Writes compare the expected revision and reject stale callers. Unknown sections or keys, wrong types, excessive or control-character strings, unsupported enum values, invalid region/language/currency identifiers, and automatic location without the matching permission are rejected rather than preserved invisibly.
 
 ## Status Snapshot
 
-Relay returns a versioned aggregate snapshot with independent sampled times and errors. One unavailable section does not erase healthy sections. The presentation distinguishes source metadata, cached native state, a live remote check, and a validation receipt.
+Relay returns a versioned aggregate snapshot with independent sampled times and errors. Snapshot schema 2 adds fixed per-source health objects with `healthy`, `attention`, `unavailable`, or `source-only` state, a stable diagnostic code, bounded summary, prescribed recovery guidance, and sample time. One unavailable section does not erase healthy sections, including when authoritative Nexus settings are unreadable. The presentation distinguishes source metadata, cached native state, a live remote check, and a validation receipt.
 
 Allowed status includes:
 

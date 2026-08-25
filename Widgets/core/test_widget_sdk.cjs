@@ -168,6 +168,26 @@ test('settings validation accepts numeric form values and rejects incorrect type
   assert.equal(result[1].errors.length, 2);
 });
 
+test('widgets read shared settings and optional network obeys the Nexus privacy gate', async () => {
+  const context = makeContext();
+  vm.runInContext(`globalThis.CyruneSettings = {
+    get: () => ({ revision: 7, values: { privacy: { allowOptionalNetwork: false } } }),
+    subscribe: listener => { listener({ revision: 7 }); return () => {}; }
+  }`, context);
+  const shared = vm.runInContext('WidgetSDK.settings.shared()', context);
+  assert.equal(shared.revision, 7);
+  const observed = vm.runInContext(`(() => {
+    let revision = 0;
+    WidgetSDK.settings.subscribeShared(value => { revision = value.revision; });
+    return revision;
+  })()`, context);
+  assert.equal(observed, 7);
+  await assert.rejects(
+    vm.runInContext(`WidgetSDK.network.request('https://example.com/data', {}, 1000, fetch)`, context),
+    /disabled in Cyrune Nexus/
+  );
+});
+
 test('cache data stays outside portable widget state and respects descriptor quotas', () => {
   const context = makeContext();
   const result = vm.runInContext(`(() => {

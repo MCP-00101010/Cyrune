@@ -5,15 +5,15 @@
 }(typeof globalThis !== 'undefined' ? globalThis : this, function createNexusModel() {
   'use strict';
 
-  const NEXUS_VERSION = '0.1.5';
+  const NEXUS_VERSION = '0.1.6';
   const SETTINGS_SCHEMA_VERSION = 1;
   const PREVIEW_STORAGE_KEY = 'cyrune.nexus.settings.preview.v1';
 
   const COMPONENTS = Object.freeze([
-    { id: 'portal', name: 'Portal', version: '0.11.223', accent: 'violet', summary: 'Dashboard, boards, items, shared persistence client and widget host.', todo: '../Portal/Portal-TODO.md', changelog: '../Portal/Portal-CHANGELOG.md' },
+    { id: 'portal', name: 'Portal', version: '0.11.224', accent: 'violet', summary: 'Dashboard, boards, items, shared persistence client and widget host.', todo: '../Portal/Portal-TODO.md', changelog: '../Portal/Portal-CHANGELOG.md' },
     { id: 'widgets', name: 'Widgets', version: 'Unversioned', accent: 'cyan', summary: 'Widget catalogue, SDK, providers and browser-local runtime state.', todo: '../Widgets/Widgets-TODO.md', changelog: '../Widgets/Widgets-CHANGELOG.md' },
     { id: 'arcade', name: 'Arcade', version: 'Unversioned', accent: 'orange', summary: 'Game libraries, metadata, collections, profiles and launch decisions.', todo: '../Arcade/Arcade-TODO.md', changelog: '../Arcade/Arcade-CHANGELOG.md' },
-    { id: 'relay', name: 'Relay', version: '1.0.59', accent: 'blue', summary: 'Authenticated browser bridge, exact client roles and durable routing.', todo: '../Relay/Relay-TODO.md', changelog: '../Relay/Relay-CHANGELOG.md' },
+    { id: 'relay', name: 'Relay', version: '1.0.60', accent: 'blue', summary: 'Authenticated browser bridge, exact client roles and durable routing.', todo: '../Relay/Relay-TODO.md', changelog: '../Relay/Relay-CHANGELOG.md' },
     { id: 'host', name: 'Host', version: 'Unversioned', accent: 'green', summary: 'Bounded native persistence, filesystem, binding and process authority.', todo: '../Host/Host-TODO.md', changelog: '../Host/Host-CHANGELOG.md' },
     { id: 'nexus', name: 'Nexus', version: NEXUS_VERSION, accent: 'pink', summary: 'Project health, shared variables, validation state and future managers.', todo: 'Nexus-TODO.md', changelog: 'Nexus-CHANGELOG.md' }
   ]);

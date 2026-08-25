@@ -1,10 +1,10 @@
 {
   "id": "nexus",
   "name": "Cyrune Nexus",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "entrypoint": "index.html",
   "todo": "Nexus-TODO.md",
   "changelog": "Nexus-CHANGELOG.md",
   "settingsSchema": 1,
-  "statusSnapshotSchema": 1
+  "statusSnapshotSchema": 2
 }

@@ -8,6 +8,8 @@ Historical entries below are preserved from Portal releases whose release notes 
 
 ### Added
 
+- Added fixed typed Nexus settings profiles for `portal-widgets` and `arcade`. Host chooses each profile's exact key set, rejects unknown component IDs, and never accepts a path or arbitrary key list from browser pages.
+- Added sanitized, independently sampled health adapters for Portal database/schema/backups, Arcade service/state, Nexus settings/backups, and Host availability, using only fixed diagnostic codes and recovery guidance.
 - Added a fixed-purpose Nexus origin check that derives the current branch locally, disables interactive Git credential prompts, calls only timeout-bounded `git ls-remote` against fixed `origin`, and returns sanitized short commit comparisons without fetching or changing repository state.
 - Added a user-triggered, fixed-purpose Nexus TODO editor that maps only registered component IDs to their authoritative TODOs and opens Visual Studio Code with an argument array without returning filesystem or executable paths.
 - Added the authoritative Nexus shared-settings service with typed schema validation, monotonic revisions, stale-write rejection, atomic persistence, bounded content-free history, and retained revision backups beneath the Nexus runtime-data root.
@@ -15,6 +17,7 @@ Historical entries below are preserved from Portal releases whose release notes 
 
 ### Fixed
 
+- A corrupt component state source now degrades only its own Nexus health record instead of erasing otherwise healthy status sections.
 - Nexus page authorization now treats client-side `#…` routes as views of the same exact `Nexus/index.html` document while continuing to reject query-bearing and different local files.
 - Chunked database and backup reads now bind their continuation token to both file metadata and a SHA-256 content identity, rejecting same-size replacements even when the filesystem reuses the previous modification timestamp.
 
@@ -29,7 +32,7 @@ Historical entries below are preserved from Portal releases whose release notes 
 
 ### Validation
 
-- All 49 Host tests plus 11 parameterised subtests pass, covering Nexus authorization, validation, atomic revisions, stale-write conflicts, document/editor allowlists, path-free Visual Studio Code startup, fixed-origin remote comparison, status redaction, and remote-URL sanitization.
+- Host coverage now includes fixed per-component settings subsets and traversal rejection alongside Nexus authorization, independent health adapters, partial failures, validation, atomic revisions, stale-write conflicts, document/editor allowlists, path-free Visual Studio Code startup, fixed-origin remote comparison, status redaction, and remote-URL sanitization.
 
 
 ## [0.11.220] — 2026-08-25

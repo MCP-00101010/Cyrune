@@ -24,7 +24,7 @@ Widgets own their provider adapters, settings, presentation, and bounded local r
 
 ## Nexus
 
-Nexus owns project-status aggregation and presentation, typed shared-settings schemas and management, sanitized validation receipts, and its own cached view state. It remains a direct `file://` diagnostic client and does not gain filesystem, Git, process, credential, Portal database, or Arcade library authority. Relay authenticates the exact Nexus client role; Host provides fixed-purpose settings persistence and sanitized inspection operations.
+Nexus owns project-status aggregation and presentation, typed shared-settings schemas and management, sanitized validation receipts, and its own cached view state. It remains a direct `file://` diagnostic client and does not gain filesystem, Git, process, credential, Portal database, or Arcade library authority. Relay authenticates the exact Nexus client role; Host provides fixed-purpose settings persistence and sanitized inspection operations. Host also derives fixed `portal-widgets` and `arcade` settings profiles, while Relay maps each authenticated component role to exactly one profile and broadcasts only revisions.
 
 ## Durable Rules
 

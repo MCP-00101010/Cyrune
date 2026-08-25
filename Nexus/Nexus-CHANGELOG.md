@@ -1,5 +1,21 @@
 # Cyrune Nexus Changelog
 
+## [0.1.6] — 2026-08-25
+
+### Added
+
+- Added independent health sampling for Portal data, Arcade service/state, Nexus settings, Host, Relay, and source-only Widgets, with fixed healthy, attention, unavailable, and source-only states.
+- Runtime data now reports sanitized schema validity, retained-backup health where managed, sample age, stable diagnostic codes, and concrete recovery guidance without exposing contents or native targets.
+- Added a browser-neutral typed component client and fixed `portal-widgets` and `arcade` profiles. Portal, hosted Widgets, and Arcade now consume only their approved subsets and refresh after revision-only Relay broadcasts while Nexus is closed.
+
+### Fixed
+
+- Settings and project status now refresh independently. Corrupt or unavailable authoritative settings no longer suppress healthy repository, component, service, validation, or runtime diagnostics; Variables falls back safely while the status surface remains live.
+
+### Validation
+
+- All 15 Nexus tests and 51 Host tests plus 11 parameterised subtests pass, including partial failures, corrupt persisted state, fixed guidance, schema/backup summaries, independent sampling, snapshot redaction, profile normalization, role mismatch, stale revisions, safe copies, and fixed component subsets. Packaging, version, and syntax checks also pass.
+
 ## [0.1.5] — 2026-08-25
 
 ### Added

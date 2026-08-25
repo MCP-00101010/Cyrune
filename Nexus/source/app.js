@@ -16,6 +16,7 @@
   let settingsAuthority = 'connecting';
   let serviceError = '';
   let serviceRefresh = null;
+  let serviceAuthenticated = false;
   let remoteCheck = null;
   let remoteCheckPending = false;
 
@@ -45,10 +46,36 @@
     return snapshot?.components?.find(item => item.id === component.id) || component;
   }
 
+  function componentHealth(component) {
+    const sampledAt = snapshot?.sampledAt || 0;
+    if (!snapshot) return { state: 'source-only', summary: 'Live health pending', guidance: '', sampledAt: 0 };
+    if (component.id === 'portal' || component.id === 'arcade' || component.id === 'nexus') {
+      return snapshot.data?.[component.id]?.health || { state: 'unavailable', summary: 'Health adapter unavailable', guidance: 'Refresh Nexus after restoring Relay and Host.', sampledAt };
+    }
+    if (component.id === 'host') {
+      return snapshot.services?.host?.health || { state: snapshot.services?.host?.available ? 'healthy' : 'unavailable', summary: snapshot.services?.host?.available ? 'Host is responding' : 'Host is unavailable', guidance: 'Reload Relay to restart the native Host connection.', sampledAt };
+    }
+    if (component.id === 'relay') {
+      return { state: snapshot.services?.relay?.available ? 'healthy' : 'unavailable', summary: snapshot.services?.relay?.available ? 'Relay is authenticated to this tab' : 'Relay is unavailable', guidance: 'Reload the Cyrune Relay extension and this page.', sampledAt };
+    }
+    return { state: 'source-only', summary: 'Browser-local runtime is not yet instrumented', guidance: 'Open Portal to exercise hosted Widgets; deeper Widget health remains planned.', sampledAt };
+  }
+
+  function healthTone(state) {
+    if (state === 'healthy') return 'status-live';
+    if (state === 'attention') return 'status-attention';
+    if (state === 'unavailable') return 'status-unavailable';
+    return 'status-source';
+  }
+
+  function healthLabel(state) {
+    return ({ healthy: 'Healthy', attention: 'Attention', unavailable: 'Unavailable', 'source-only': 'Source only' })[state] || 'Unknown';
+  }
+
   function renderServiceChrome() {
-    const connected = settingsAuthority === 'authoritative';
+    const connected = serviceAuthenticated;
     const sample = document.querySelector('.sample-time');
-    if (sample) sample.innerHTML = `<span class="connection-dot${connected ? ' is-online' : ' is-offline'}"></span>${connected ? `Live snapshot · ${formatAge(snapshot?.sampledAt)}` : (settingsAuthority === 'connecting' ? 'Connecting to Relay…' : 'Disconnected preview')}`;
+    if (sample) sample.innerHTML = `<span class="connection-dot${connected ? ' is-online' : ' is-offline'}"></span>${connected ? (snapshot ? `Live snapshot · ${formatAge(snapshot.sampledAt)}` : 'Relay & Host connected · status unavailable') : (settingsAuthority === 'connecting' ? 'Connecting to Relay…' : 'Disconnected preview')}`;
     const footer = document.querySelector('.sidebar-footer');
     if (footer) {
       const dot = footer.querySelector('.connection-dot');
@@ -56,8 +83,8 @@
       dot?.classList.toggle('is-offline', !connected);
       const strong = footer.querySelector('strong');
       const small = footer.querySelector('small');
-      if (strong) strong.textContent = connected ? 'Authoritative' : 'Local fallback';
-      if (small) small.textContent = connected ? `Relay ${snapshot?.services?.relay?.version || ''} · Host connected` : (serviceError || 'Relay not connected');
+      if (strong) strong.textContent = settingsAuthority === 'authoritative' ? 'Authoritative' : (connected ? 'Partial service' : 'Local fallback');
+      if (small) small.textContent = connected ? `Relay ${snapshot?.services?.relay?.version || ''} · ${settingsAuthority === 'authoritative' ? 'settings and status connected' : (serviceError || 'status only')}` : (serviceError || 'Relay not connected');
     }
   }
 
@@ -72,20 +99,30 @@
     serviceRefresh = (async () => {
       try {
         await bridge.request('MW_NEXUS_PING', {}, 8000);
-        const [settingsResponse, statusResponse] = await Promise.all([
+        serviceAuthenticated = true;
+        const [settingsResult, statusResult] = await Promise.allSettled([
           bridge.request('MW_NEXUS_GET_SETTINGS'),
           bridge.request('MW_NEXUS_GET_STATUS', {}, 30000)
         ]);
-        settings = model.normalizeSettings(settingsResponse.settings);
-        snapshot = statusResponse.snapshot || null;
+        snapshot = statusResult.status === 'fulfilled' ? (statusResult.value.snapshot || null) : null;
         remoteCheck = null;
-        settingsAuthority = 'authoritative';
-        serviceError = '';
-        cacheSettings(settings);
+        if (settingsResult.status === 'fulfilled') {
+          settings = model.normalizeSettings(settingsResult.value.settings);
+          settingsAuthority = 'authoritative';
+          cacheSettings(settings);
+        } else {
+          settingsAuthority = 'status-only';
+        }
+        const failures = [];
+        if (settingsResult.status === 'rejected') failures.push(`Settings: ${settingsResult.reason?.message || 'unavailable'}`);
+        if (statusResult.status === 'rejected') failures.push(`Status: ${statusResult.reason?.message || 'unavailable'}`);
+        serviceError = failures.join(' · ');
         render();
-        if (announceResult) announce('Authoritative Nexus settings and project status refreshed.', 'success');
-        return true;
+        if (announceResult) announce(failures.length ? `Nexus refreshed with partial results. ${serviceError}` : 'Authoritative Nexus settings and project status refreshed.', failures.length ? 'error' : 'success');
+        return failures.length === 0;
       } catch (error) {
+        serviceAuthenticated = false;
+        snapshot = null;
         settingsAuthority = 'preview';
         serviceError = error?.message || String(error);
         renderServiceChrome();
@@ -122,15 +159,16 @@
   function renderOverview() {
     viewTitle.textContent = 'Overview';
     viewEyebrow.textContent = 'Project control centre';
-    const connected = settingsAuthority === 'authoritative' && snapshot;
+    const connected = serviceAuthenticated && !!snapshot;
     const cards = model.COMPONENTS.map(component => {
       const live = liveComponent(component);
+      const health = componentHealth(component);
       return `
       <button class="component-card accent-${component.accent}" type="button" data-open-component="${component.id}">
-        <span class="component-card-top"><span class="component-symbol">${component.name.slice(0, 1)}</span><span class="status-pill ${connected ? 'status-live' : 'status-source'}">${connected ? 'Live' : 'Source'}</span></span>
+        <span class="component-card-top"><span class="component-symbol">${component.name.slice(0, 1)}</span><span class="status-pill ${healthTone(health.state)}">${healthLabel(health.state)}</span></span>
         <span class="component-name">${component.name}</span><span class="component-version">${model.escapeHtml(live.version || component.version)}</span>
         <span class="component-summary">${model.escapeHtml(component.summary)}</span>
-        <span class="component-foot"><span>${connected ? `Updated ${formatAge(live.updatedMs)}` : 'Live health pending'}</span><span aria-hidden="true">→</span></span>
+        <span class="component-foot"><span>${model.escapeHtml(health.summary)}${health.sampledAt ? ` · ${formatAge(health.sampledAt)}` : ''}</span><span aria-hidden="true">→</span></span>
       </button>`;
     }).join('');
 
@@ -138,7 +176,15 @@
     const host = snapshot?.services?.host || {};
     const repository = snapshot?.repository?.available === false ? null : (snapshot?.repository || null);
     const data = snapshot?.data || {};
-    const locationRow = (label, record) => `<div class="runtime-location"><span>${model.escapeHtml(label)}</span><strong>${model.escapeHtml(record?.location || 'Unavailable')}</strong><small>${record?.exists ? `${formatBytes(record.size)} · changed ${formatAge(record.modifiedMs)}` : 'No authoritative file yet'}</small></div>`;
+    const locationRow = (label, record) => {
+      const health = record?.health || { state: 'unavailable', summary: 'Unavailable' };
+      const schema = record?.schema?.valid === false ? 'invalid schema' : (record?.schema?.version === null || record?.schema?.version === undefined ? 'unversioned schema' : `schema ${record.schema.version}`);
+      const backup = record?.backup?.managed ? `${record.backup.count || 0} backup${record.backup.count === 1 ? '' : 's'}` : 'component-managed protection';
+      const file = record?.exists ? `${formatBytes(record.size)} · changed ${formatAge(record.modifiedMs)}` : 'No authoritative file yet';
+      return `<div class="runtime-location"><span><i class="mini-beacon health-${health.state}"></i>${model.escapeHtml(label)}</span><strong>${model.escapeHtml(record?.location || 'Unavailable')}</strong><small>${model.escapeHtml(`${healthLabel(health.state)} · ${schema} · ${backup} · ${file}`)}</small></div>`;
+    };
+    const recoveryItems = ['portal', 'arcade', 'nexus'].map(id => data[id]).filter(record => record?.health && record.health.state !== 'healthy').map(record => `<li class="health-${record.health.state}"><strong>${model.escapeHtml(record.health.summary)}</strong><span>${model.escapeHtml(record.health.guidance)} <code>${model.escapeHtml(record.health.code)}</code></span></li>`).join('');
+    const recoveryMarkup = recoveryItems ? `<ul class="health-guidance" aria-label="Runtime recovery guidance">${recoveryItems}</ul>` : '';
     const remoteSummary = remoteCheck?.available
       ? (remoteCheck.branchAvailable === false
         ? ['Not on origin', 'The current local branch is not advertised by origin.']
@@ -163,8 +209,8 @@
       <section class="hero-row"><div><span class="section-kicker">System snapshot</span><h2>The shape of Cyrune, at a glance.</h2><p>${connected ? `Authoritative status sampled ${formatAge(snapshot.sampledAt)} through the exact Nexus Relay and Host boundary.` : 'Source metadata remains available while Nexus reconnects to its authoritative Relay and Host service.'}</p></div><div class="hero-metric"><strong>${model.COMPONENTS.length}</strong><span>components tracked</span></div></section>
       <section class="component-grid" aria-label="Component status">${cards}</section>
       <section class="dashboard-grid">
-        <article class="panel service-panel"><div class="panel-heading"><div><span class="section-kicker">Service boundary</span><h2>Relay & Host</h2></div><span class="status-pill ${connected ? 'status-live' : 'status-waiting'}">${connected ? 'Authenticated' : 'Disconnected'}</span></div><div class="status-list"><div><span><i class="mini-beacon ${relay.available ? 'is-online' : 'is-offline'}"></i>Relay extension</span><strong>${relay.available ? `v${model.escapeHtml(relay.version || '')}` : 'Not connected'}</strong></div><div><span><i class="mini-beacon ${host.available ? 'is-online' : 'is-offline'}"></i>Native Host</span><strong>${host.available ? model.escapeHtml(host.version || 'Available') : 'Not connected'}</strong></div><div><span><i class="mini-beacon ${relay.fileSchemeAccess === true ? 'is-online' : (relay.fileSchemeAccess === false ? 'is-offline' : 'is-pending')}"></i>File scheme access</span><strong>${relay.fileSchemeAccess === false ? 'Disabled' : (connected ? 'Allowed' : 'Unknown')}</strong></div><div><span><i class="mini-beacon ${relay.nexusRole ? 'is-online' : 'is-pending'}"></i>Nexus client role</span><strong>${relay.nexusRole ? 'Bound to this tab' : 'Unavailable'}</strong></div></div>${!connected && serviceError ? `<p class="service-guidance">${model.escapeHtml(serviceError)}</p>` : ''}</article>
-        <article class="panel runtime-panel"><div class="panel-heading"><div><span class="section-kicker">Shared state</span><h2>Runtime data</h2></div><button class="text-button" type="button" data-view-link="variables">Variables →</button></div><div class="runtime-locations">${locationRow('Portal database', data.portal)}${locationRow('Arcade data', data.arcade)}${locationRow('Nexus settings', data.nexus)}</div><div class="two-stat"><div><small>Settings revision</small><strong>${connected ? `Authoritative ${settings.revision}` : `Cached ${settings.revision}`}</strong></div><div><small>Validation receipt</small><strong>${snapshot?.validation ? formatAge(snapshot.validation.timestamp) : 'Unavailable'}</strong></div></div></article>
+        <article class="panel service-panel"><div class="panel-heading"><div><span class="section-kicker">Service boundary</span><h2>Relay & Host</h2></div><span class="status-pill ${connected ? 'status-live' : 'status-waiting'}">${connected ? 'Authenticated' : 'Disconnected'}</span></div><div class="status-list"><div><span><i class="mini-beacon ${relay.available ? 'is-online' : 'is-offline'}"></i>Relay extension</span><strong>${relay.available ? `v${model.escapeHtml(relay.version || '')} · ${formatAge(snapshot?.sampledAt)}` : 'Not connected'}</strong></div><div><span><i class="mini-beacon ${host.available ? 'is-online' : 'is-offline'}"></i>Native Host</span><strong>${host.available ? `${model.escapeHtml(host.version || 'Available')} · ${formatAge(host.sampledAt)}` : 'Not connected'}</strong></div><div><span><i class="mini-beacon ${relay.fileSchemeAccess === true ? 'is-online' : (relay.fileSchemeAccess === false ? 'is-offline' : 'is-pending')}"></i>File scheme access</span><strong>${relay.fileSchemeAccess === false ? 'Disabled' : (connected ? 'Allowed' : 'Unknown')}</strong></div><div><span><i class="mini-beacon ${relay.nexusRole ? 'is-online' : 'is-pending'}"></i>Nexus client role</span><strong>${relay.nexusRole ? 'Bound to this tab' : 'Unavailable'}</strong></div></div>${serviceError ? `<p class="service-guidance">${model.escapeHtml(serviceError)}</p>` : ''}</article>
+        <article class="panel runtime-panel"><div class="panel-heading"><div><span class="section-kicker">Shared state</span><h2>Runtime data</h2></div><button class="text-button" type="button" data-view-link="variables">Variables →</button></div><div class="runtime-locations">${locationRow('Portal database', data.portal)}${locationRow('Arcade data', data.arcade)}${locationRow('Nexus settings', data.nexus)}</div>${recoveryMarkup}<div class="two-stat"><div><small>Settings revision</small><strong>${settingsAuthority === 'authoritative' ? `Authoritative ${settings.revision}` : `Cached ${settings.revision}`}</strong></div><div><small>Validation receipt</small><strong>${snapshot?.validation ? formatAge(snapshot.validation.timestamp) : 'Unavailable'}</strong></div></div></article>
         <article class="panel repo-panel"><div class="panel-heading"><div><span class="section-kicker">Repository</span><h2>Working tree</h2></div><div class="panel-actions">${repository ? `<button class="text-button" type="button" data-check-remote${remoteCheckPending ? ' disabled' : ''}>${remoteCheckPending ? 'Checking…' : 'Check origin'}</button>` : ''}<span class="status-pill ${repository?.clean ? 'status-live' : 'status-waiting'}">${repository ? (repository.clean ? 'Clean' : 'Changes') : 'No snapshot'}</span></div></div>${repositoryMarkup}</article>
         <article class="panel activity-panel"><div class="panel-heading"><div><span class="section-kicker">Recent work</span><h2>Project activity</h2></div><button class="text-button" type="button" data-view-link="activity">View all →</button></div><ol class="timeline"><li><i></i><div><strong>${model.escapeHtml(repository?.lastCommit?.subject || 'Nexus authoritative service')}</strong><span>${repository?.lastCommit?.shortHash ? `Commit ${model.escapeHtml(repository.lastCommit.shortHash)}` : 'Settings, status and document boundary'}</span></div><time>${formatAge(repository?.lastCommit?.timestamp || snapshot?.sampledAt)}</time></li><li><i></i><div><strong>Shared variables</strong><span>${connected ? `Authoritative revision ${settings.revision}` : 'Cached fallback active'}</span></div><time>${formatAge(settings.updatedAt)}</time></li><li class="${snapshot?.validation ? '' : 'is-muted'}"><i></i><div><strong>Coordinated validation</strong><span>${snapshot?.validation ? 'Sanitized receipt available' : 'Waiting for validation receipt writer'}</span></div><time>${snapshot?.validation ? formatAge(snapshot.validation.timestamp) : 'Planned'}</time></li></ol></article>
       </section>`;
@@ -288,11 +334,12 @@
     if (!component) return renderOverview();
     const live = liveComponent(component);
     const repository = snapshot?.repository;
+    const health = componentHealth(component);
     const runtime = component.id === 'arcade' ? snapshot?.data?.arcade?.service : null;
-    const runtimeLabel = runtime ? (runtime.available ? `${runtime.collectionCount || 0} collections` : 'Unavailable') : (settingsAuthority === 'authoritative' ? 'Status connected' : 'Snapshot unavailable');
+    const runtimeLabel = runtime?.available ? `${health.summary} · ${runtime.collectionCount || 0} collections` : health.summary;
     viewTitle.textContent = component.name;
     viewEyebrow.textContent = 'Component status';
-    viewRoot.innerHTML = `<section class="component-hero accent-${component.accent}"><span class="component-symbol large">${component.name.slice(0, 1)}</span><div><span class="section-kicker">Cyrune component</span><h2>${model.escapeHtml(component.name)}</h2><p>${model.escapeHtml(component.summary)}</p></div><div class="version-stack"><small>Source version</small><strong>${model.escapeHtml(live.version || component.version)}</strong><span>Updated ${formatAge(live.updatedMs)}</span></div></section><section class="component-facts"><div><small>Runtime health</small><strong>${model.escapeHtml(runtimeLabel)}</strong></div><div><small>Last source change</small><strong>${formatAge(live.updatedMs)}</strong></div><div><small>Repository state</small><strong>${repository ? (repository.clean ? 'Clean' : `${repository.staged + repository.unstaged} changes`) : 'Unavailable'}</strong></div><div><small>Validation</small><strong>${snapshot?.validation ? formatAge(snapshot.validation.timestamp) : 'No receipt'}</strong></div></section><section class="document-grid">${documentPanel(component, 'todo', 'Open work', component.todo)}${documentPanel(component, 'changelog', 'Release history', component.changelog)}</section>`;
+    viewRoot.innerHTML = `<section class="component-hero accent-${component.accent}"><span class="component-symbol large">${component.name.slice(0, 1)}</span><div><span class="section-kicker">Cyrune component</span><h2>${model.escapeHtml(component.name)}</h2><p>${model.escapeHtml(component.summary)}</p></div><div class="version-stack"><small>Source version</small><strong>${model.escapeHtml(live.version || component.version)}</strong><span>Updated ${formatAge(live.updatedMs)}</span></div></section><section class="component-facts"><div><small>Runtime health</small><strong>${model.escapeHtml(runtimeLabel)}</strong></div><div><small>Health sampled</small><strong>${formatAge(health.sampledAt)}</strong></div><div><small>Repository state</small><strong>${repository ? (repository.clean ? 'Clean' : `${repository.staged + repository.unstaged} changes`) : 'Unavailable'}</strong></div><div><small>Validation</small><strong>${snapshot?.validation ? formatAge(snapshot.validation.timestamp) : 'No receipt'}</strong></div></section>${health.state !== 'healthy' && health.guidance ? `<section class="component-health-guidance health-${health.state}"><span class="status-pill ${healthTone(health.state)}">${healthLabel(health.state)}</span><div><strong>${model.escapeHtml(health.summary)}</strong><p>${model.escapeHtml(health.guidance)}</p></div></section>` : ''}<section class="document-grid">${documentPanel(component, 'todo', 'Open work', component.todo)}${documentPanel(component, 'changelog', 'Release history', component.changelog)}</section>`;
     loadDocument(component, 'todo', component.todo);
     loadDocument(component, 'changelog', component.changelog);
   }
@@ -308,7 +355,7 @@
   }
 
   async function openTodoInVscode(component) {
-    if (settingsAuthority !== 'authoritative' || !bridge) {
+    if (!serviceAuthenticated || !bridge) {
       announce('Reconnect Cyrune Relay and Host before opening a TODO in Visual Studio Code.', 'error');
       return;
     }
@@ -321,8 +368,8 @@
   }
 
   async function checkRepositoryRemote() {
-    if (settingsAuthority !== 'authoritative' || !bridge || remoteCheckPending) {
-      if (settingsAuthority !== 'authoritative') announce('Reconnect Cyrune Relay and Host before checking origin.', 'error');
+    if (!serviceAuthenticated || !bridge || remoteCheckPending) {
+      if (!serviceAuthenticated) announce('Reconnect Cyrune Relay and Host before checking origin.', 'error');
       return;
     }
     remoteCheckPending = true;
@@ -342,7 +389,7 @@
 
   async function loadTextDocument(target, url, fallback, serviceDocument) {
     try {
-      if (settingsAuthority === 'authoritative' && bridge && serviceDocument) {
+      if (serviceAuthenticated && bridge && serviceDocument) {
         const response = await bridge.request('MW_NEXUS_GET_DOCUMENT', serviceDocument);
         const markdown = response.document?.markdown || '';
         if (!markdown || markdown.length > 500000) throw new Error('Authoritative document is empty or too large');

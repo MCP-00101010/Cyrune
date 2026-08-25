@@ -71,7 +71,7 @@ try {
         Get-ChildItem -LiteralPath (Join-Path $repoRoot 'Widgets') -Filter '*.js' -File -Recurse
         Get-ChildItem -LiteralPath (Join-Path $repoRoot 'Relay') -Filter '*.js' -File -Recurse
         Get-ChildItem -LiteralPath (Join-Path $repoRoot 'Arcade/web') -Filter '*.js' -File
-        Get-ChildItem -LiteralPath (Join-Path $repoRoot 'Nexus/source') -Filter '*.js' -File
+        Get-ChildItem -LiteralPath (Join-Path $repoRoot 'Nexus') -Filter '*.js' -File -Recurse
     )
     foreach ($file in $javascript) {
         Invoke-Checked "JavaScript syntax: $($file.FullName.Substring($repoRoot.Length + 1))" { node --check $file.FullName }

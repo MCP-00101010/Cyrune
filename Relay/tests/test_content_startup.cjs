@@ -84,6 +84,10 @@ test('known-good idle relay registers and catches the page bridge ping', async (
   assert.equal(postedMessages.at(-1).id, 'startup-ping');
   assert.equal(postedMessages.at(-1).nativeAvailable, true);
 
+  runtimeListeners[0]({ type: 'MW_CYRUNE_SETTINGS_CHANGED', revision: 4 });
+  assert.equal(postedMessages.at(-1)._cyruneSettingsChanged, true);
+  assert.equal(postedMessages.at(-1).revision, 4);
+
   const delivery = runtimeListeners[0]({
     type: 'MW_RECEIVE_TAB',
     deliveryId: 'delivery-1',
@@ -201,6 +205,7 @@ test('discovery retries registration after the initial background handshake fail
 
 test('EmuGUI file page registers before requesting bounded game delivery', async () => {
   const listeners = [];
+  const runtimeListeners = [];
   const runtimeMessages = [];
   const posted = [];
   const window = {
@@ -221,7 +226,7 @@ test('EmuGUI file page registers before requesting bounded game delivery', async
         }
         return { ok: true, deliveryId: 'game-one', persisted: 'shared' };
       },
-      onMessage: { addListener: () => {} }
+      onMessage: { addListener: listener => runtimeListeners.push(listener) }
     }
   };
   const context = vm.createContext({ browser, document, window, Date, Promise, setTimeout, clearTimeout });
@@ -242,6 +247,15 @@ test('EmuGUI file page registers before requesting bounded game delivery', async
   });
   assert.equal(posted.at(-1)._emuguiRes, true);
   assert.equal(posted.at(-1).persisted, 'shared');
+
+  await listeners[0]({ source: window, data: {
+    _emuguiReq: true, requestId: 'settings-1', type: 'MW_EMUGUI_GET_CYRUNE_SETTINGS'
+  } });
+  assert.equal(runtimeMessages.at(-1).type, 'MW_EMUGUI_GET_CYRUNE_SETTINGS');
+  assert.equal(runtimeMessages.at(-1).emuguiSessionToken, 'emugui-session-1');
+  runtimeListeners[0]({ type: 'MW_CYRUNE_SETTINGS_CHANGED', revision: 5 });
+  assert.equal(posted.at(-1)._cyruneSettingsChanged, true);
+  assert.equal(posted.at(-1).revision, 5);
 });
 
 test('EmuGUI file page relays namespaced API requests through its registered session', async () => {
@@ -308,7 +322,7 @@ test('Nexus file page registers an exact role and relays only namespaced operati
       sendMessage: async message => {
         runtimeMessages.push(message);
         if (message.type === 'MW_NEXUS_REGISTER') {
-          return { ok: true, nexusSessionToken: 'nexus-session-1', relayVersion: '1.0.59' };
+          return { ok: true, nexusSessionToken: 'nexus-session-1', relayVersion: '1.0.60' };
         }
         return { ok: true, settings: { schemaVersion: 1, revision: 2 } };
       },

@@ -5,19 +5,16 @@ This file owns project-status aggregation, shared Cyrune settings, Nexus present
 ## Foundation Follow-ups
 
 - Add schema migrations and typed per-component setting overrides to the versioned settings snapshot.
-- Add component clients that consume only their approved settings subset and respond to bounded Relay revision broadcasts while Nexus is closed.
 - Add component metadata manifests for Portal, Widgets, Arcade, Relay, and Host; validate runtime versions against their manifests where applicable.
 
 ## Status Dashboard
 
-- Add per-section sample times and backup/schema health to the live versioned snapshot.
-- Add deeper component-specific health adapters and actionable partial-failure guidance for missing databases, registrations, permissions, or stale snapshot sections.
+- Add authenticated browser-local Widget health and expand component adapters beyond the implemented Portal database, Arcade service/state, Nexus settings, Host, and Relay checks.
 
 ## Shared Variables
 
 - Support search, categories, inherited/default indicators, per-component overrides, reset, import/export, migrations, and sanitized change history.
 - Keep precise location and automatic geolocation opt-in; distinguish country/region, city, and coordinates in both schema and UI.
-- Publish a small typed client library or stable message contract for each component to consume settings safely.
 
 ## Component Documents
 
@@ -36,4 +33,4 @@ This file owns project-status aggregation, shared Cyrune settings, Nexus present
 - Add keyboard, screen-reader, contrast, reduced-motion, narrow-layout, corrupt-cache, and partial-service coverage.
 - Add migration, interrupted-write, corrupt-authoritative-state, and expanded redaction tests around the implemented Relay/Host contract.
 - Verify direct-file startup, stale cached snapshots, offline behaviour, and recovery guidance in Firefox.
-- Monitor Nexus 0.1.5's authoritative settings/status/document/editor/remote-check service and validation receipts during normal Cyrune use before expanding its mutation surface.
+- Monitor Nexus 0.1.6's authoritative settings/status/document/editor/remote-check and independent health service during normal Cyrune use before expanding its mutation surface.

@@ -79,9 +79,10 @@ const HUB_PAGE_REQUEST_TYPES = new Set([
   'MW_EMUGUI_STATUS', 'MW_GET_GAME_STATUS', 'MW_LAUNCH_GAME', 'MW_OPEN_GAME_IN_EMUGUI',
   'MW_REVEAL_GAME', 'MW_FORGET_GAME',
   'MW_FETCH_TRANSLATOR_ASSET_CHUNK', 'MW_NOTIFICATION_SCHEDULE', 'MW_NOTIFICATION_CANCEL',
-  'MW_NOTIFICATION_LIST', 'MW_NOTIFICATION_MARK_READ', 'MW_NOTIFICATION_CLEAR'
+  'MW_NOTIFICATION_LIST', 'MW_NOTIFICATION_MARK_READ', 'MW_NOTIFICATION_CLEAR',
+  'MW_GET_CYRUNE_SETTINGS'
 ]);
-const EMUGUI_PAGE_REQUEST_TYPES = new Set(['MW_EMUGUI_SEND_GAME', 'MW_EMUGUI_RPC', 'MW_EMUGUI_ASSET']);
+const EMUGUI_PAGE_REQUEST_TYPES = new Set(['MW_EMUGUI_SEND_GAME', 'MW_EMUGUI_RPC', 'MW_EMUGUI_ASSET', 'MW_EMUGUI_GET_CYRUNE_SETTINGS']);
 const NEXUS_PAGE_REQUEST_TYPES = new Set([
   'MW_NEXUS_PING', 'MW_NEXUS_GET_SETTINGS', 'MW_NEXUS_SAVE_SETTINGS',
   'MW_NEXUS_GET_STATUS', 'MW_NEXUS_GET_DOCUMENT', 'MW_NEXUS_OPEN_TODO',
@@ -493,9 +494,17 @@ async function getNexusStatus() {
 }
 
 async function broadcastNexusSettingsChanged(revision) {
-  await Promise.all([...nexusRegistrations.keys()].map(tabId =>
-    browser.tabs.sendMessage(tabId, { type: 'MW_NEXUS_SETTINGS_CHANGED', revision }).catch(() => null)
-  ));
+  await Promise.all([
+    ...[...nexusRegistrations.keys()].map(tabId =>
+      browser.tabs.sendMessage(tabId, { type: 'MW_NEXUS_SETTINGS_CHANGED', revision }).catch(() => null)
+    ),
+    ...[...hubRegistrations.keys()].map(tabId =>
+      browser.tabs.sendMessage(tabId, { type: 'MW_CYRUNE_SETTINGS_CHANGED', revision }).catch(() => null)
+    ),
+    ...[...emuguiRegistrations.keys()].map(tabId =>
+      browser.tabs.sendMessage(tabId, { type: 'MW_CYRUNE_SETTINGS_CHANGED', revision }).catch(() => null)
+    )
+  ]);
 }
 
 async function discoverMorpheusTab(tab, { inject = false } = {}) {
@@ -631,7 +640,7 @@ function getStorageInfo() {
     fileSchemeAccess,
     fileSchemeAccessRequired,
     extensionId: browser.runtime.id || '',
-    capabilities: ['urlHealth', 'serviceMonitor', 'systemMetrics', 'approvedDirectories', 'gitWorkspace', 'recentFiles', 'applicationLauncher', 'emuguiService', 'commandPalette', 'browserSessions', 'backupTimeline', 'portableBundles', 'translationModels', 'notificationScheduler']
+    capabilities: ['urlHealth', 'serviceMonitor', 'systemMetrics', 'approvedDirectories', 'gitWorkspace', 'recentFiles', 'applicationLauncher', 'emuguiService', 'commandPalette', 'browserSessions', 'backupTimeline', 'portableBundles', 'translationModels', 'notificationScheduler', 'cyruneSettings']
   };
 }
 
@@ -2019,6 +2028,18 @@ browser.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         .catch(error => sendResponse({ ok: false, error: error?.message || String(error) }));
       return true;
 
+    case 'MW_GET_CYRUNE_SETTINGS':
+      nexusNativeRequest({ type: 'NEXUS_GET_COMPONENT_SETTINGS', component: 'portal-widgets' })
+        .then(sendResponse)
+        .catch(error => sendResponse({ ok: false, error: error?.message || String(error) }));
+      return true;
+
+    case 'MW_EMUGUI_GET_CYRUNE_SETTINGS':
+      nexusNativeRequest({ type: 'NEXUS_GET_COMPONENT_SETTINGS', component: 'arcade' })
+        .then(sendResponse)
+        .catch(error => sendResponse({ ok: false, error: error?.message || String(error) }));
+      return true;
+
     case 'MW_NEXUS_REGISTER':
       registerNexusPage(sender, msg.pageUrl)
         .then(sendResponse)
@@ -2032,7 +2053,7 @@ browser.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           relayVersion: browser.runtime.getManifest?.()?.version || '',
           nativeAvailable,
           fileSchemeAccess,
-          capabilities: ['nexusSettings', 'nexusStatus', 'nexusDocuments', 'nexusTodoEditor', 'repositoryRemoteCheck']
+          capabilities: ['nexusSettings', 'nexusStatus', 'nexusDocuments', 'nexusTodoEditor', 'repositoryRemoteCheck', 'componentSettings']
         }))
         .catch(error => sendResponse({ ok: false, error: error?.message || String(error) }));
       return true;

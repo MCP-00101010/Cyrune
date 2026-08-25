@@ -13,6 +13,8 @@ Open `index.html` directly through a browser with local-file access enabled for 
 
 Portal scripts run in a deliberate classic-script order for direct-file compatibility. Keep top-level declarations unique. `state-schema.js` owns persisted structural repair, `state.js` owns normalized state and persistence, `render.js`/`render-items.js` own composition, and `app.js` owns startup and UI orchestration.
 
+Portal and its hosted Widgets consume the fixed `portal-widgets` Nexus settings profile through Relay and Host. The typed client applies shared language and accessibility presentation and exposes unit/privacy values to the Widget SDK; it continues with safe defaults when the service is unavailable and refreshes after revision broadcasts.
+
 ## Platform Limits
 
 - Firefox/Zen may require explicit local-file permission for Relay.

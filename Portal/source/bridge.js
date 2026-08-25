@@ -169,6 +169,13 @@ const bridge = (() => {
       return;
     }
 
+    if (e.data._cyruneSettingsChanged === true) {
+      window.dispatchEvent(new CustomEvent('cyrune:settings-revision', {
+        detail: { revision: Number(e.data.revision || 0) }
+      }));
+      return;
+    }
+
     // Tab pushed from the extension popup.
     if (e.data._push && e.data.type === 'MW_RECEIVE_TAB') {
       window.dispatchEvent(new CustomEvent('morpheus:receive-tab', {
@@ -296,6 +303,15 @@ const bridge = (() => {
         _lastError = 'Storage information request failed';
         return { nativeAvailable: false, databasePath: null };
       }
+    },
+
+    async getCyruneSettings() {
+      if (!_available) await _connect({ retries: 1, delayMs: 200, pingTimeoutMs: 750 });
+      if (!_available || !_nativeAvailable || !_capabilities.has('cyruneSettings')) {
+        return { profile: null, available: false };
+      }
+      const res = await _send('MW_GET_CYRUNE_SETTINGS');
+      return { profile: res.profile || null, available: true };
     },
 
     async scheduleNotification(job) {

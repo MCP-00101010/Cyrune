@@ -5,6 +5,17 @@ Format: `[version] — date` followed by Added / Changed / Fixed sections.
 
 ---
 
+## [0.11.224] — 2026-08-25
+
+### Added
+
+- **Authoritative shared variables** — Portal now consumes its fixed `portal-widgets` profile from Nexus through authenticated Relay and Host operations, applying interface language, scale, reduced motion, high contrast, unit-system metadata, and optional-network policy without requiring the Nexus page to remain open.
+- **Live settings revisions** — open Portal pages refresh after bounded revision-only broadcasts. Widgets can read and subscribe to the same typed profile through the shared SDK.
+
+### Validation
+
+- All 90 Portal tests pass, including focused profile-load and script-order coverage; the coordinated repository validator covers the complete Portal, Widgets, Relay, Host, Arcade, and Nexus settings path.
+
 ## [0.11.223] — 2026-08-25
 
 ### Changed

@@ -26,7 +26,6 @@ This file owns outstanding dashboard, board, item, launcher-presentation, and Po
 
 ## Code Health and Documentation
 
-- Adopt the authoritative Nexus shared-settings contract for applicable regional, unit, language, formatting, accessibility, and privacy defaults once the Nexus/Relay/Host service is versioned; keep Portal operational with documented defaults when it is unavailable.
 - Continue decomposing large rendering modules where a stable boundary exists and document major functions/data shapes.
 - Extract stable user-facing strings into locale files and support drop-in translations.
 - Expand user/developer documentation for installation, state schema, rendering, and bridge usage after the migration layout is stable.

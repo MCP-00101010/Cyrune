@@ -4,6 +4,8 @@ Portal widgets are grouped by their existing catalogue category. Each widget’s
 
 Category names and persisted widget type IDs remain unchanged by this layout.
 
+Portal supplies the fixed `portal-widgets` Nexus profile to Widget SDK 2. Widgets read or subscribe through `WidgetSDK.settings` rather than contacting Relay directly, and all managed optional network requests obey the shared Nexus privacy gate.
+
 ## Architecture and Guidance
 
 - [Widgets instructions](AGENTS.md) define catalogue layout, state, settings, capabilities, rendering, and validation invariants.

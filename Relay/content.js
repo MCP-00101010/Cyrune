@@ -134,6 +134,10 @@ if (IS_MORPHEUS) {
   void registerHub();
 
   browser.runtime.onMessage.addListener(msg => {
+    if (msg.type === 'MW_CYRUNE_SETTINGS_CHANGED') {
+      window.postMessage({ _mw: true, _cyruneSettingsChanged: true, revision: Number(msg.revision || 0) }, '*');
+      return;
+    }
     if (msg.type === 'MW_DISCOVER') {
       return registerHub({ force: true }).then(result => ({
         ok: result?.ok === true,
@@ -196,6 +200,11 @@ if (IS_MORPHEUS) {
 if (IS_EMUGUI) {
   setRelayDiagnostic('loaded');
   void registerEmuGui();
+  browser.runtime.onMessage.addListener(msg => {
+    if (msg.type === 'MW_CYRUNE_SETTINGS_CHANGED') {
+      window.postMessage({ _emugui: true, _cyruneSettingsChanged: true, revision: Number(msg.revision || 0) }, '*');
+    }
+  });
 }
 if (IS_NEXUS) {
   setRelayDiagnostic('loaded');
@@ -245,7 +254,7 @@ window.addEventListener('message', async event => {
   if (IS_EMUGUI && event.source === window && event.data?._emuguiReq === true) {
     const requestId = String(event.data.requestId || '');
     const type = String(event.data.type || '');
-    if (!requestId || !['MW_EMUGUI_SEND_GAME', 'MW_EMUGUI_RPC', 'MW_EMUGUI_ASSET'].includes(type)) return;
+    if (!requestId || !['MW_EMUGUI_SEND_GAME', 'MW_EMUGUI_RPC', 'MW_EMUGUI_ASSET', 'MW_EMUGUI_GET_CYRUNE_SETTINGS'].includes(type)) return;
     let response;
     try {
       const registration = await registerEmuGui();

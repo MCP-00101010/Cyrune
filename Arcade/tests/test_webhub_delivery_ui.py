@@ -9,6 +9,16 @@ def test_emugui_page_declares_the_extension_boundary():
     assert '<meta name="morpheus-emugui" content="1">' in html
 
 
+def test_arcade_consumes_only_its_fixed_shared_settings_profile():
+    html = (ROOT / "web" / "index.html").read_text(encoding="utf-8")
+    source = (ROOT / "web" / "app.js").read_text(encoding="utf-8")
+    assert html.index("../../Nexus/client/component-settings.js") < html.index('src="app.js"')
+    assert 'component: "arcade"' in source
+    assert 'requestWebHub("MW_EMUGUI_GET_CYRUNE_SETTINGS")' in source
+    assert '"cyrune:settings-revision"' in source
+    assert "allowPreciseLocation" not in source
+
+
 def test_selected_game_can_be_sent_without_passing_native_paths():
     source = (ROOT / "web" / "app.js").read_text(encoding="utf-8")
     start = source.index("async function sendSelectedToWebHub")

@@ -1554,3 +1554,18 @@ tbody tr.empty-row:hover {
     width: 100%;
   }
 }
+
+html[data-cyrune-reduced-motion="true"] *,
+html[data-cyrune-reduced-motion="true"] *::before,
+html[data-cyrune-reduced-motion="true"] *::after {
+  scroll-behavior: auto !important;
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+}
+
+html[data-cyrune-high-contrast="true"] {
+  --line: #61708b;
+  --muted: #b9c4d9;
+  --text: #fff;
+}

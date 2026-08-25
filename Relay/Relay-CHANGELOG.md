@@ -4,6 +4,17 @@ Historical entries below are preserved from Portal releases whose release notes 
 
 ---
 
+## [1.0.60] — 2026-08-25
+
+### Added
+
+- **Role-bound component settings** — authenticated Portal and Arcade pages can request only their fixed Host-defined Nexus settings profiles. Pages cannot select setting paths or impersonate another component role.
+- **Revision broadcasts** — successful Nexus saves send only the new numeric revision to registered Nexus, Portal, and Arcade pages so each client can refresh its own allowlisted profile.
+
+### Validation
+
+- All 12 Relay tests cover both fixed profiles, wrong-role authorization boundaries, and revision delivery; 14 packaging tests, version alignment, manifest parsing, and `web-ext lint` also pass.
+
 ## [1.0.59] — 2026-08-25
 
 ### Added

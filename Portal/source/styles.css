@@ -57,6 +57,20 @@
   --accent-selected-border: rgba(109, 124, 255, 0.35);
 }
 
+html[data-cyrune-reduced-motion="true"] *,
+html[data-cyrune-reduced-motion="true"] *::before,
+html[data-cyrune-reduced-motion="true"] *::after {
+  scroll-behavior: auto !important;
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+}
+
+html[data-cyrune-high-contrast="true"] {
+  --border: color-mix(in srgb, var(--text) 42%, transparent);
+  --text-muted: color-mix(in srgb, var(--text) 78%, var(--bg));
+}
+
 * {
   box-sizing: border-box;
 }

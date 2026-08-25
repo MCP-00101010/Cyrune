@@ -1,7 +1,7 @@
 // Widget and Integration SDK. Loaded after the legacy built-in catalogue so it
 // can normalize those descriptors without changing their classic-script order.
 
-const WIDGET_SDK_VERSION = 1;
+const WIDGET_SDK_VERSION = 2;
 const WIDGET_LOCAL_OPT_IN_KEY = 'morpheus-widget-sdk-local-opt-in';
 const WIDGET_SDK_CACHE_PREFIX = 'morpheus-widget-sdk-cache:v1:';
 const WIDGET_SDK_DEFAULT_CACHE_QUOTA = 256 * 1024;
@@ -612,6 +612,10 @@ function _widgetSdkRunNetworkQueue() {
 }
 
 function _widgetSdkNetworkRequest(input, options, timeoutMs, executor) {
+  const sharedSettings = globalThis.CyruneSettings?.get?.();
+  if (sharedSettings?.values?.privacy?.allowOptionalNetwork === false) {
+    return Promise.reject(new Error('Optional network access is disabled in Cyrune Nexus'));
+  }
   const widgetType = _widgetSdkResolveNetworkWidget(options);
   _widgetSdkAssertNetworkDomain(input, widgetType);
   const requestKey = String(options.widgetFetchKey || '');
@@ -737,7 +741,11 @@ const WidgetSDK = Object.freeze({
   capabilities: Object.freeze({ names: WIDGET_SDK_CAPABILITIES, available: _widgetSdkCapabilityAvailable, missing: _widgetSdkMissingCapabilities }),
   registry: Object.freeze({ register: registerWidget, adoptBuiltins: _widgetSdkAdoptBuiltins, get: id => _widgetSdkDescriptors.get(id), list: () => [..._widgetSdkDescriptors.values()], validate: validateWidgetDescriptor }),
   runtime: Object.freeze({ render: _widgetSdkRender, reload: _widgetSdkReload, schedule: _widgetSdkSchedule, cancelSchedule: _widgetSdkCancelSchedule, requestFrame: _widgetSdkRequestFrame, cancelFrame: _widgetSdkCancelFrame, teardown: _widgetSdkTeardown }),
-  settings: Object.freeze({ validateDraft: _widgetSdkValidateSettingsDraft }),
+  settings: Object.freeze({
+    validateDraft: _widgetSdkValidateSettingsDraft,
+    shared: () => globalThis.CyruneSettings?.get?.() || null,
+    subscribeShared: listener => globalThis.CyruneSettings?.subscribe?.(listener) || (() => {})
+  }),
   state: Object.freeze({ migrate: _widgetSdkMigrateState }),
   cache: Object.freeze({ get: _widgetSdkCacheGet, set: _widgetSdkCacheSet, remove: _widgetSdkCacheRemove, migrateLegacy: _widgetSdkCacheMigrateLegacy }),
   assets: Object.freeze({ metadata: _widgetSdkAssetMetadata, list: _widgetSdkAssetList, get: _widgetSdkAssetGet, set: _widgetSdkAssetSet, remove: _widgetSdkAssetRemove, clear: _widgetSdkAssetClear }),
