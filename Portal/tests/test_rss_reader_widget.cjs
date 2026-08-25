@@ -202,8 +202,8 @@ test('RSS UI exposes combined, starred and feed tabs with local read state', () 
   const styles = fs.readFileSync(path.join(root, 'source/rss-reader-widget.css'), 'utf8');
   const frameworkStyles = fs.readFileSync(path.join(root, 'source/styles.css'), 'utf8');
   const bridge = fs.readFileSync(path.join(root, 'source/bridge.js'), 'utf8');
-  const background = fs.readFileSync(path.join(root, 'extension/background.js'), 'utf8');
-  const manifest = JSON.parse(fs.readFileSync(path.join(root, 'extension/manifest.json'), 'utf8'));
+  const background = fs.readFileSync(path.join(root, '..', 'Relay', 'background.js'), 'utf8');
+  const manifest = JSON.parse(fs.readFileSync(path.join(root, '..', 'Relay', 'manifest.json'), 'utf8'));
   const rssSource = widgets.slice(widgets.indexOf("WIDGET_REGISTRY['rssReader']"));
   assert.match(rssSource, /\{ id: 'all', name: 'All'/);
   assert.match(rssSource, /\{ id: 'starred', name: '★ Starred'/);

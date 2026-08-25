@@ -99,7 +99,7 @@ test('popup enables delivery actions when a later status refresh finds the hub',
     setTimeout,
     clearTimeout
   });
-  const filename = path.join(__dirname, '..', 'extension', 'popup', 'popup.js');
+  const filename = path.join(__dirname, '..', 'popup', 'popup.js');
   vm.runInContext(fs.readFileSync(filename, 'utf8'), context, { filename });
   await new Promise(resolve => setImmediate(resolve));
 
@@ -133,7 +133,7 @@ test('popup enables delivery actions when a later status refresh finds the hub',
 });
 
 test('popup includes the Firefox local-file permission instruction', () => {
-  const popup = fs.readFileSync(path.join(__dirname, '..', 'extension', 'popup', 'popup.js'), 'utf8');
+  const popup = fs.readFileSync(path.join(__dirname, '..', 'popup', 'popup.js'), 'utf8');
   assert.match(popup, /Access local files on your computer/);
   assert.match(popup, /about:addons/);
 });

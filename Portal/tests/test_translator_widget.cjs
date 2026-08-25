@@ -115,7 +115,7 @@ test('worker, relay, styles, and document wiring preserve the offline boundary',
   const framework = fs.readFileSync(path.join(root, 'source', 'widgets.js'), 'utf8');
   const render = fs.readFileSync(path.join(root, 'source', 'render.js'), 'utf8');
   const bridge = fs.readFileSync(path.join(root, 'source', 'bridge.js'), 'utf8');
-  const background = fs.readFileSync(path.join(root, 'extension', 'background.js'), 'utf8');
+  const background = fs.readFileSync(path.join(root, '..', 'Relay', 'background.js'), 'utf8');
   assert.ok(html.indexOf('source/widget-sdk.js') < html.indexOf('source/translator-widget.js'));
   assert.ok(html.indexOf('source/translator-widget.js') < html.indexOf('source/command-palette.js'));
   assert.match(html, /source\/translator-widget\.css/);

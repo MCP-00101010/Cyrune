@@ -9,13 +9,17 @@ This log records repository-wide migration, tooling, and coordinated release cha
 - Established the adjacent `Cyrune` monorepo and the `Portal`, `Arcade`, `Relay`, `Host`, and `Widgets` component roots.
 - Imported the complete Arcade Git history without squashing it.
 - Added verified pre-migration Git bundles, source tags, a hash-only recovery inventory, and an isolated migration branch.
+- Added authoritative TODO, changelog, and README files for every component, plus a repository-wide validation command.
 
 ### Changed
 
 - Moved the existing dashboard source to `Portal/` and the WebExtension source to `Relay/` through history-preserving renames.
 - Renamed and narrowed the migration plan to repository/infrastructure work.
+- Moved existing tests beneath their owning Portal, Relay, and Host roots and repaired cross-component paths and local-page fixtures.
+- Archived the legacy combined TODO and completed Portal/Arcade integration plan, and retired the obsolete `PROJECT.md` after moving durable guidance into current documentation.
 
 ### Validation
 
 - Both recovery bundles pass `git bundle verify`; source commits, runtime counts, selected runtime fingerprints, Host registration, and binding counts are recorded without private contents.
 - The pre-import Arcade health pass succeeds with 62 tests.
+- The migrated baseline passes 339 Portal tests, 6 Relay tests, 42 Host tests plus 11 subtests, and 62 Arcade tests. JavaScript syntax and Relay manifest checks pass; `web-ext lint` reports zero errors with the two expected warnings caused by Host files that have not yet been separated from Relay.

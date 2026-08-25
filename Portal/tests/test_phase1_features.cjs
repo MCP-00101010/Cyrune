@@ -256,10 +256,10 @@ function loadBookmarkTools(fixture, healthResponses = {}) {
   const appSource = fs.readFileSync(path.join(ROOT, 'source', 'app.js'), 'utf8');
   assert(appSource.includes("document.getElementById('aboutBtn').addEventListener('click', () => showSettingsPanel('about'))"), 'the version button should remain the sidebar Settings entry point');
 
-  const manifest = JSON.parse(fs.readFileSync(path.join(ROOT, 'extension', 'manifest.json'), 'utf8'));
+  const manifest = JSON.parse(fs.readFileSync(path.join(ROOT, '..', 'Relay', 'manifest.json'), 'utf8'));
   assert.strictEqual(manifest.commands['open-command-palette'].suggested_key.default, 'Ctrl+Shift+K');
-  const background = fs.readFileSync(path.join(ROOT, 'extension', 'background.js'), 'utf8');
-  const content = fs.readFileSync(path.join(ROOT, 'extension', 'content.js'), 'utf8');
+  const background = fs.readFileSync(path.join(ROOT, '..', 'Relay', 'background.js'), 'utf8');
+  const content = fs.readFileSync(path.join(ROOT, '..', 'Relay', 'content.js'), 'utf8');
   const bridge = fs.readFileSync(path.join(ROOT, 'source', 'bridge.js'), 'utf8');
   assert(background.includes("case 'MW_CHECK_URL':"), 'background should expose bounded URL checks');
   assert(background.includes("command !== 'open-command-palette'"), 'background should route the extension shortcut');

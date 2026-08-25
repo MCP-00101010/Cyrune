@@ -55,7 +55,7 @@ test('known-good idle relay registers and catches the page bridge ping', async (
     setTimeout,
     clearTimeout
   });
-  const filename = path.join(__dirname, '..', 'extension', 'content.js');
+  const filename = path.join(__dirname, '..', 'content.js');
   vm.runInContext(fs.readFileSync(filename, 'utf8'), context, { filename });
   await new Promise(resolve => setImmediate(resolve));
 
@@ -154,7 +154,7 @@ test('known-good idle relay registers and catches the page bridge ping', async (
   assert.equal(targets.boards[0].tabs[0].id, 'tab-1');
   assert.equal(targets.activeBoardId, 'board-1');
 
-  const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'extension', 'manifest.json'), 'utf8'));
+  const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'manifest.json'), 'utf8'));
   assert.equal(manifest.content_scripts[0].run_at, 'document_idle');
   assert.ok(manifest.content_scripts[0].matches.includes('file:///*'));
   assert.equal(manifest.permissions.includes('file:///*'), true);
@@ -188,7 +188,7 @@ test('discovery retries registration after the initial background handshake fail
     }
   };
   const context = vm.createContext({ browser, document, window, Date, Promise, setTimeout, clearTimeout });
-  const filename = path.join(__dirname, '..', 'extension', 'content.js');
+  const filename = path.join(__dirname, '..', 'content.js');
   vm.runInContext(fs.readFileSync(filename, 'utf8'), context, { filename });
   await new Promise(resolve => setImmediate(resolve));
 
@@ -204,7 +204,7 @@ test('EmuGUI file page registers before requesting bounded game delivery', async
   const runtimeMessages = [];
   const posted = [];
   const window = {
-    location: { href: 'file:///F:/Projects/Coding/Morpheus%20EmuGUI/web/index.html', protocol: 'file:', hostname: '', port: '' },
+    location: { href: 'file:///F:/Projects/Coding/Cyrune/Arcade/web/index.html', protocol: 'file:', hostname: '', port: '' },
     addEventListener(type, listener) { if (type === 'message') listeners.push(listener); },
     postMessage(message) { posted.push(message); }
   };
@@ -225,7 +225,7 @@ test('EmuGUI file page registers before requesting bounded game delivery', async
     }
   };
   const context = vm.createContext({ browser, document, window, Date, Promise, setTimeout, clearTimeout });
-  const filename = path.join(__dirname, '..', 'extension', 'content.js');
+  const filename = path.join(__dirname, '..', 'content.js');
   vm.runInContext(fs.readFileSync(filename, 'utf8'), context, { filename });
 
   await listeners[0]({ source: window, data: {
@@ -234,11 +234,11 @@ test('EmuGUI file page registers before requesting bounded game delivery', async
   } });
 
   assert.deepEqual(JSON.parse(JSON.stringify(runtimeMessages[0])), {
-    type: 'MW_EMUGUI_REGISTER', pageUrl: 'file:///F:/Projects/Coding/Morpheus%20EmuGUI/web/index.html'
+    type: 'MW_EMUGUI_REGISTER', pageUrl: 'file:///F:/Projects/Coding/Cyrune/Arcade/web/index.html'
   });
   assert.deepEqual(JSON.parse(JSON.stringify(runtimeMessages[1])), {
     type: 'MW_EMUGUI_SEND_GAME', gameId: 'jetpac', emulatorId: 'eightyone', profileId: 'profile-48k',
-    rebindGameKey: '', deliveryId: '', emuguiSessionToken: 'emugui-session-1', pageUrl: 'file:///F:/Projects/Coding/Morpheus%20EmuGUI/web/index.html'
+    rebindGameKey: '', deliveryId: '', emuguiSessionToken: 'emugui-session-1', pageUrl: 'file:///F:/Projects/Coding/Cyrune/Arcade/web/index.html'
   });
   assert.equal(posted.at(-1)._emuguiRes, true);
   assert.equal(posted.at(-1).persisted, 'shared');
@@ -248,7 +248,7 @@ test('EmuGUI file page relays namespaced API requests through its registered ses
   const listeners = [];
   const runtimeMessages = [];
   const posted = [];
-  const pageUrl = 'file:///F:/Projects/Coding/Morpheus%20EmuGUI/web/index.html';
+  const pageUrl = 'file:///F:/Projects/Coding/Cyrune/Arcade/web/index.html';
   const window = {
     location: { href: pageUrl, protocol: 'file:', hostname: '', port: '' },
     addEventListener(type, listener) { if (type === 'message') listeners.push(listener); },
@@ -271,7 +271,7 @@ test('EmuGUI file page relays namespaced API requests through its registered ses
     }
   };
   const context = vm.createContext({ browser, document, window, Date, Promise, setTimeout, clearTimeout });
-  const filename = path.join(__dirname, '..', 'extension', 'content.js');
+  const filename = path.join(__dirname, '..', 'content.js');
   vm.runInContext(fs.readFileSync(filename, 'utf8'), context, { filename });
 
   await listeners[0]({ source: window, data: {

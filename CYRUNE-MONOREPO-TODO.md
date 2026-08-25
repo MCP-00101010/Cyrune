@@ -246,17 +246,17 @@ No runtime or ignored file is deleted until its purpose and references have been
 
 ## Phase 3 — Repair Paths and Restore the Baseline
 
-- [ ] Update Portal HTML script, stylesheet, asset, worker, vendor, and test-root paths.
-- [ ] Update Arcade test discovery and service-relative paths.
-- [ ] Update Relay source/package paths.
+- [x] Update Portal HTML script, stylesheet, asset, worker, vendor, and test-root paths.
+- [x] Update Arcade test discovery and service-relative paths.
+- [x] Update Relay source/package paths.
 - [ ] Update Host loader paths only as required to reach the newly imported Arcade application.
 - [ ] Update documentation links and setup commands.
-- [ ] Update local page URLs used by integration tests.
+- [x] Update local page URLs used by integration tests.
 - [ ] Verify Portal opens directly from `Portal/index.html`.
 - [ ] Verify Arcade opens directly from `Arcade/web/index.html` through Relay.
-- [ ] Verify no retired HTTP listener or frontend fallback reappears.
-- [ ] Add a root validation command that runs all existing Portal, Arcade, Host, and Relay checks.
-- [ ] Keep component-specific commands usable.
+- [x] Verify no retired HTTP listener or frontend fallback reappears.
+- [x] Add a root validation command that runs all existing Portal, Arcade, Host, and Relay checks.
+- [x] Keep component-specific commands usable.
 
 ### Phase 3 exit gate
 

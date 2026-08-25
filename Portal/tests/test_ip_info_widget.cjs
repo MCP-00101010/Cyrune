@@ -188,7 +188,7 @@ test('the Cloudflare engine resolves API URLs when a file Hub has a null origin'
   const engine = fs.readFileSync(path.join(root, 'vendor/cloudflare-speedtest/speedtest.js'), 'utf8');
   const context = vm.createContext({
     URL,
-    window: { location: { origin: 'null', href: 'file:///F:/Projects/Coding/Morpheus%20WebHub/index.html' } }
+    window: { location: { origin: 'null', href: 'file:///F:/Projects/Coding/Cyrune/Portal/index.html' } }
   });
   vm.runInContext(engine, context, { filename: 'vendor/cloudflare-speedtest/speedtest.js' });
   assert.equal(

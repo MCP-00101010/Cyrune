@@ -215,7 +215,7 @@ async function loadBackground(options = {}) {
               messageListeners.forEach(listener => listener({ ok: true, game: { gameKey: message.gameKey, state: 'ready', title: 'Jetpac' } }));
             } else if (message.type === 'OPEN_GAME_IN_EMUGUI') {
               const suffix = message.rebind ? '&hubRebind=game_abcdefghijklmnop' : '';
-              messageListeners.forEach(listener => listener({ ok: true, url: `file:///F:/Projects/Coding/Morpheus%20EmuGUI/web/index.html?game=jetpac${suffix}` }));
+              messageListeners.forEach(listener => listener({ ok: true, url: `file:///F:/Projects/Coding/Cyrune/Arcade/web/index.html?game=jetpac${suffix}` }));
             } else if (message.type === 'REBIND_GAME') {
               messageListeners.forEach(listener => listener(options.emuguiBinding || { ok: true, game: { gameKey: message.gameKey, state: 'ready', title: 'Jetpac', tags: ['Games', 'ZX Spectrum'], systemId: 'zx-spectrum', systemName: 'ZX Spectrum', emulatorName: 'EightyOne', profileName: 'Spectrum 48K', thumbnailCache: '' } }));
             } else if (message.type === 'LAUNCH_APPROVED_APPLICATION' || message.type === 'LAUNCH_GAME' || message.type === 'REVEAL_GAME' || message.type === 'FORGET_GAME') {
@@ -245,7 +245,7 @@ async function loadBackground(options = {}) {
     },
     clearTimeout
   });
-  const filename = path.join(__dirname, '..', 'extension', 'background.js');
+  const filename = path.join(__dirname, '..', '..', 'Relay', 'background.js');
   vm.runInContext(fs.readFileSync(filename, 'utf8'), context, { filename });
   await new Promise(resolve => setImmediate(resolve));
   return { context, listeners, nativeWrites, nativeRequests, pendingWrites, sentTabs, nativeConnections, executedScripts, createdTabs, updatedTabs, scheduledTimeouts, storageValues, createdAlarms, createdNotifications };
@@ -439,7 +439,7 @@ test('authorized EmuGUI file page creates a native binding and delivers a compac
     resolve
   ));
 
-  const pageUrl = 'file:///F:/Projects/Coding/Morpheus%20EmuGUI/web/index.html';
+  const pageUrl = 'file:///F:/Projects/Coding/Cyrune/Arcade/web/index.html';
   const registration = await new Promise(resolve => harness.listeners.message(
     { type: 'MW_EMUGUI_REGISTER', pageUrl },
     { tab: { id: 20, url: pageUrl } },
@@ -497,7 +497,7 @@ test('configured EmuGUI file page registers once and relays API and asset reques
     emuguiChunkBytes: 8,
     emuguiApi: { ok: true, result: { ok: true, games: [{ title: 'Ghostbusters' }, { title: 'Jetpac' }] } }
   });
-  const pageUrl = 'file:///F:/Projects/Coding/Morpheus%20EmuGUI/web/index.html';
+  const pageUrl = 'file:///F:/Projects/Coding/Cyrune/Arcade/web/index.html';
   const sender = { tab: { id: 21, url: pageUrl } };
   const registration = await new Promise(resolve => harness.listeners.message(
     { type: 'MW_EMUGUI_REGISTER', pageUrl }, sender, resolve
@@ -539,7 +539,7 @@ test('unconfigured EmuGUI file page is denied before RPC reaches the native serv
 
 test('EmuGUI native path picker keeps the relay alive for an interactive choice', async () => {
   const harness = await loadBackground({ usePersistentNative: true });
-  const pageUrl = 'file:///F:/Projects/Coding/Morpheus%20EmuGUI/web/index.html';
+  const pageUrl = 'file:///F:/Projects/Coding/Cyrune/Arcade/web/index.html';
   const sender = { tab: { id: 23, url: pageUrl } };
   const registration = await new Promise(resolve => harness.listeners.message(
     { type: 'MW_EMUGUI_REGISTER', pageUrl }, sender, resolve
@@ -555,7 +555,7 @@ test('EmuGUI native path picker keeps the relay alive for an interactive choice'
 
 test('status discovers an unregistered file hub and injects the root extension relay', async () => {
   const harness = await loadBackground({
-    tabs: [{ id: 42, url: 'file:///F:/Projects/Coding/Morpheus%20WebHub/index.html', active: true }],
+    tabs: [{ id: 42, url: 'file:///F:/Projects/Coding/Cyrune/Portal/index.html', active: true }],
     hubTabIds: [42],
     relayPresent: false
   });
@@ -732,7 +732,7 @@ test('Hub game actions open a focused EmuGUI rebind page and reveal through nati
 
   assert.equal(opened.ok, true);
   assert.equal(revealed.ok, true);
-  assert.match(harness.createdTabs[0].url, /^file:\/\/\/F:\/Projects\/Coding\/Morpheus%20EmuGUI\/web\/index\.html\?game=jetpac&hubRebind=/);
+  assert.match(harness.createdTabs[0].url, /^file:\/\/\/F:\/Projects\/Coding\/Cyrune\/Arcade\/web\/index\.html\?game=jetpac&hubRebind=/);
   assert.deepEqual(harness.nativeConnections[0].messages.map(message => message.type), [
     'PING', 'READ_CONFIG', 'OPEN_GAME_IN_EMUGUI', 'REVEAL_GAME'
   ]);

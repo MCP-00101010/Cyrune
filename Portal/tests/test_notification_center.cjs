@@ -7,9 +7,9 @@ const root = path.join(__dirname, '..');
 const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
 const center = fs.readFileSync(path.join(root, 'source', 'notification-center.js'), 'utf8');
 const bridge = fs.readFileSync(path.join(root, 'source', 'bridge.js'), 'utf8');
-const background = fs.readFileSync(path.join(root, 'extension', 'background.js'), 'utf8');
-const content = fs.readFileSync(path.join(root, 'extension', 'content.js'), 'utf8');
-const manifest = JSON.parse(fs.readFileSync(path.join(root, 'extension', 'manifest.json'), 'utf8'));
+const background = fs.readFileSync(path.join(root, '..', 'Relay', 'background.js'), 'utf8');
+const content = fs.readFileSync(path.join(root, '..', 'Relay', 'content.js'), 'utf8');
+const manifest = JSON.parse(fs.readFileSync(path.join(root, '..', 'Relay', 'manifest.json'), 'utf8'));
 
 test('Hub exposes a local notification inbox with unread controls', () => {
   assert.match(html, /id="quickNotificationsBtn"/);

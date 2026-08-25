@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 
 const port = Number(process.argv[2] || 9223);
-const targetUrl = 'file:///F:/Projects/Coding/Morpheus%20WebHub/index.html';
+const targetUrl = 'file:///F:/Projects/Coding/Cyrune/Portal/index.html';
 const socket = new WebSocket(`ws://127.0.0.1:${port}/session`);
 const pending = new Map();
 let sequence = 0;

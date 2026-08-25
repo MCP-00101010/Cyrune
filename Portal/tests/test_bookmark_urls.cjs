@@ -13,15 +13,15 @@ const context = vm.createContext({ URL });
 vm.runInContext(stateSource.slice(validationStart, validationEnd), context);
 
 test('bookmark URLs accept and canonicalize local file pages', () => {
-  const emuGuiUrl = 'file:///F:/Projects/Coding/Morpheus%20EmuGUI/web/index.html';
+  const emuGuiUrl = 'file:///F:/Projects/Coding/Cyrune/Arcade/web/index.html';
   assert.equal(context.isValidUrl(emuGuiUrl), true);
   assert.equal(context.normalizeUrl(emuGuiUrl), emuGuiUrl);
-  assert.equal(context.isValidUrl('file:///F:/Projects/Coding/Morpheus EmuGUI/web/index.html'), true);
+  assert.equal(context.isValidUrl('file:///F:/Projects/Coding/Cyrune/Arcade/web/index.html'), true);
   assert.equal(
-    context.normalizeUrl('file:///F:/Projects/Coding/Morpheus EmuGUI/web/index.html'),
+    context.normalizeUrl('file:///F:/Projects/Coding/Cyrune/Arcade/web/index.html'),
     emuGuiUrl
   );
-  assert.equal(context.isValidUrl('file://localhost/F:/Projects/Coding/Morpheus%20EmuGUI/web/index.html'), true);
+  assert.equal(context.isValidUrl('file://localhost/F:/Projects/Coding/Cyrune/Arcade/web/index.html'), true);
 });
 
 test('bookmark URLs retain web support and reject privileged or remote file schemes', () => {

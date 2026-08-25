@@ -415,8 +415,8 @@ test('SDK files are ordered and the example manifest covers the contract surface
   assert.ok(manifest.lifecycle.includes('cleanup'));
 });
 
-test('project and SDK rules require meaningful widget UI state to survive reloads locally', () => {
-  const project = fs.readFileSync(path.join(root, 'PROJECT.md'), 'utf8');
+test('widget documentation and SDK rules require meaningful widget UI state to survive reloads locally', () => {
+  const project = fs.readFileSync(path.join(root, '..', 'Widgets', 'README.md'), 'utf8');
   const readme = fs.readFileSync(path.join(root, 'widget-sdk', 'README.md'), 'utf8');
   for (const rules of [project, readme]) {
     assert.match(rules, /Meaningful widget UI state|Meaningful UI state/i);

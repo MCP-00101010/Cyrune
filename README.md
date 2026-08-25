@@ -17,3 +17,13 @@ Shared integration and migration checks live in `tests/`; repository tools live 
 Migration is active on `migration/cyrune-monorepo`. The legacy Portal and Arcade checkouts remain the operational fallback until path repair, Host reinstallation, runtime-data migration, and the complete validation matrix pass. See `CYRUNE-MONOREPO-TODO.md` for the authoritative sequence and rollback gates.
 
 Do not delete or redirect the old checkouts merely because their histories are present here.
+
+## Validation
+
+Run the complete existing baseline from the repository root:
+
+```powershell
+.\tools\validate.ps1
+```
+
+Use `-SkipWebExtLint` only when working offline or when validating code that cannot affect Relay packaging.

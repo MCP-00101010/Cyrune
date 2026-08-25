@@ -1,5 +1,7 @@
 # Cyrune Arcade
 
+Formerly Morpheus EmuGUI. Arcade remains authoritative for game libraries, metadata, artwork, emulator definitions, managed profiles, and launch decisions.
+
 Small local browser launcher and collection manager for emulator libraries.
 
 ## Run

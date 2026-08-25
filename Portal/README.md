@@ -9,3 +9,9 @@ Open `index.html` directly through a browser with local-file access enabled for 
 - Firefox/Zen may require explicit local-file permission for Relay.
 - Windows Explorer drag payloads do not reveal trustworthy absolute paths for executable or binary shortcut files; use the Host-backed application picker. Readable `.url` files and allowlisted launcher URIs can be accepted directly.
 - External bookmark drags do not expose item-specific data until drop, and dragging a browser bookmark folder exposes only one URL. Full-folder import requires Relay interception.
+
+## Tests
+
+```powershell
+node --test "Portal/tests/*.cjs"
+```

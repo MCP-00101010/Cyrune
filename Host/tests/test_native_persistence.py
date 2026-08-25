@@ -9,7 +9,7 @@ import unittest
 from unittest.mock import patch
 
 
-HOST_PATH = Path(__file__).parents[1] / 'extension' / 'native' / 'morpheus_host.py'
+HOST_PATH = Path(__file__).parents[2] / 'Relay' / 'native' / 'morpheus_host.py'
 TEST_TEMP_ROOT = Path(__file__).parents[1] / '.test-tmp'
 TEST_TEMP_ROOT.mkdir(exist_ok=True)
 SPEC = importlib.util.spec_from_file_location('morpheus_host', HOST_PATH)
