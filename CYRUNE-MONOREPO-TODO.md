@@ -2,7 +2,7 @@
 
 ## Status
 
-- **State:** Active; phases 1–4 and the restored runtime baseline are complete. Phase 5 widget regrouping is next.
+- **State:** Active; phases 1–5 and the restored runtime baseline are complete. Host relocation and the verified monorepo development baseline are complete; runtime-data externalisation, packaging recovery, clean-checkout validation, and monitoring remain.
 - **Created:** 2026-08-24
 - **Revised:** 2026-08-25
 - **Objective:** Combine the existing products as Cyrune Portal, Arcade, Relay, Host, and Widgets in one repository while preserving history, runtime data, credentials, bindings, direct-file operation, release workflows, and rollback paths.
@@ -286,14 +286,23 @@ No runtime or ignored file is deleted until its purpose and references have been
 
 This phase is a path-only reorganisation of already shipped widgets.
 
-- [ ] Move SDK/runtime/network/registry/shared action-layout files into `Widgets/core/`.
-- [ ] Move each widget’s JavaScript and CSS together into the directory matching its existing catalogue category.
-- [ ] Move widget-specific tests, fixtures, and static assets with their widget where practical.
-- [ ] Update ordered classic-script and stylesheet paths without changing load order.
-- [ ] Update test discovery, global-symbol checks, manifests, documentation, and local SDK fixtures.
-- [ ] Keep category IDs and persisted widget type IDs unchanged.
-- [ ] Do not split large widget implementations or change their SDK contract during this phase.
-- [ ] Verify direct `file://` loading and every existing widget test after each group move.
+- [x] Move SDK/runtime/network/registry/shared action-layout files into `Widgets/core/`.
+- [x] Move and validate the Coding & Development widget group as the first path-only slice.
+- [x] Move and validate the Gaming widget group.
+- [x] Move and validate the Sports widget group.
+- [x] Move and validate the Content & Feeds widget group.
+- [x] Move and validate the Utilities widget group, including Translator's local worker.
+- [x] Move and validate the System & Network widget group.
+- [x] Move and validate the Space & Astronomy widget group, including the shared astronomy event catalogue.
+- [x] Move and validate the Weather & Hazards widget group.
+- [x] Move and validate the Personal & Productivity widget group.
+- [x] Move each widget’s JavaScript and CSS together into the directory matching its existing catalogue category.
+- [x] Move widget-specific tests, fixtures, and static assets with their widget where practical.
+- [x] Update ordered classic-script and stylesheet paths without changing load order.
+- [x] Update test discovery, global-symbol checks, manifests, documentation, and local SDK fixtures.
+- [x] Keep category IDs and persisted widget type IDs unchanged.
+- [x] Do not split large widget implementations or change their SDK contract during this phase.
+- [x] Verify direct `file://` loading and every existing widget test after each group move.
 
 ### Phase 5 exit gate
 
@@ -334,7 +343,7 @@ This phase is a path-only reorganisation of already shipped widgets.
 ### Local page links
 
 - [ ] Update the user’s Portal and Arcade bookmarks/shortcuts.
-- [ ] Update exact-page authorization and Portal’s Arcade URL construction.
+- [x] Update exact-page authorization and Portal’s Arcade URL construction.
 - [ ] Provide temporary redirect/recovery pages at old locations during validation if needed.
 
 ### Phase 6 exit gate
@@ -351,7 +360,7 @@ This phase is a path-only reorganisation of already shipped widgets.
 - [ ] Ensure archives exclude native host code, installers, tests, local configuration, databases, backups, and credentials.
 - [ ] Preserve the distinction between unsigned AMO upload archives and Mozilla-signed packages.
 - [ ] Update version-alignment validation for independent component versions.
-- [ ] Add repository-wide validation orchestration without removing focused component commands.
+- [x] Add repository-wide validation orchestration without removing focused component commands.
 - [ ] Verify a clean checkout produces the same bounded extension archive as the pre-migration workflow.
 
 ### Phase 7 exit gate
@@ -376,9 +385,9 @@ This phase is a path-only reorganisation of already shipped widgets.
 
 - [ ] Fresh clone into a different absolute directory.
 - [ ] Directory names containing spaces and Unicode.
-- [ ] Existing upgraded checkout.
+- [x] Existing upgraded checkout.
 - [ ] Old local-page bookmark recovery.
-- [ ] Native-host reinstall after relocation.
+- [x] Native-host reinstall after relocation.
 - [ ] No hard-coded legacy checkout path at runtime.
 
 ### Data preservation
@@ -395,7 +404,7 @@ This phase is a path-only reorganisation of already shipped widgets.
 
 - [ ] Firefox and Zen installed extension.
 - [ ] Temporary extension development install.
-- [ ] Relay reload with both pages open.
+- [x] Relay reload with both pages open.
 - [ ] Native-host and browser restart.
 - [ ] Multiple Hub tabs and existing active-target routing.
 - [ ] Existing Portal/Arcade delivery, launch, reveal, rebind, metadata, scraper, POK, incoming, trash, emulator, and profile workflows.

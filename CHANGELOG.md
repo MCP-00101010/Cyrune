@@ -13,6 +13,7 @@ This log records repository-wide migration, tooling, and coordinated release cha
 
 ### Changed
 
+- Completed the Phase 5 widget regrouping across all catalogue categories and shared core, and taught repository validation to discover colocated widget tests and source.
 - Moved the existing dashboard source to `Portal/` and the WebExtension source to `Relay/` through history-preserving renames.
 - Renamed and narrowed the migration plan to repository/infrastructure work.
 - Moved existing tests beneath their owning Portal, Relay, and Host roots and repaired cross-component paths and local-page fixtures.
@@ -29,3 +30,4 @@ This log records repository-wide migration, tooling, and coordinated release cha
 - After Host separation, framed Host and Arcade status requests pass, the migrated Git binding resolves the Cyrune branch, installer syntax checks pass, and `web-ext lint` reports zero errors, notices, or warnings.
 - The exact Portal URL loads all eight boards, and the exact Arcade URL loads 12,933 games, 30 favourites, eight scraped records, five screenshot references, two managed profiles, and Relay-delivered remote artwork in Firefox 154.
 - The restored baseline passes 341 Portal tests, 6 Relay tests, 42 Host tests plus 11 subtests, and 64 Arcade tests; all JavaScript syntax, manifest, and extension lint checks pass.
+- The completed Phase 5 path migration preserves all 341 Portal/Widget tests as 88 Portal-owned and 253 colocated Widget tests; Relay, Host, Arcade, syntax, manifest, and extension lint checks stay green.

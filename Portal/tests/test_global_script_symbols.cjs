@@ -8,7 +8,7 @@ test('classic Hub scripts do not silently override top-level function declaratio
   const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
   const scripts = [...html.matchAll(/<script[^>]+src="([^"]+\.js)"/g)]
     .map(match => match[1])
-    .filter(file => file.startsWith('source/'));
+    .filter(file => file.startsWith('source/') || file.startsWith('../Widgets/'));
   const declarations = new Map();
 
   for (const file of scripts) {

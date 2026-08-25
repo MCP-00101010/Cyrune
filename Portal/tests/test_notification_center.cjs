@@ -40,8 +40,8 @@ test('extension declares alarms and notifications and rehydrates jobs at startup
 });
 
 test('Countdown and Focus route alerts through WidgetSDK notifications', () => {
-  const widgets = fs.readFileSync(path.join(root, 'source', 'widgets.js'), 'utf8');
-  const focus = fs.readFileSync(path.join(root, 'source', 'focus-session-widget.js'), 'utf8');
+  const widgets = fs.readFileSync(path.join(root, '..', 'Widgets', 'core', 'widgets.js'), 'utf8');
+  const focus = fs.readFileSync(path.join(root, '..', 'Widgets', 'personal-productivity', 'focus-session-widget.js'), 'utf8');
   assert.match(widgets, /_countdownSyncNotification/);
   assert.match(widgets, /Notify when complete/);
   assert.match(focus, /_focusSyncNotification/);

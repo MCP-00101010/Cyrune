@@ -8,7 +8,7 @@ Cyrune is the combined home of the Portal dashboard, Arcade game-library fronten
 - `Arcade/` — the emulator-library manager formerly developed as Morpheus EmuGUI.
 - `Relay/` — the Firefox-compatible WebExtension that connects trusted local pages to browser and native capabilities.
 - `Host/` — the relocated native-messaging process, installers, templates, and host-specific tests.
-- `Widgets/` — category-based homes for Portal widgets. Existing widget files remain under `Portal/source/` until the path-only widget regrouping phase.
+- `Widgets/` — category-based homes for Portal widgets and their focused tests, plus the shared widget runtime and SDK under `Widgets/core/`. Portal remains their runtime host.
 
 Shared integration and migration checks live in `tests/`; repository tools live in `tools/`; generated output belongs in the ignored `artifacts/` directory.
 

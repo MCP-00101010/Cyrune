@@ -4,6 +4,30 @@ Historical entries below are preserved from Portal releases whose release notes 
 
 ---
 
+## [Unversioned] — 2026-08-25
+
+### Fixed
+
+- Kept RSS article lists visually anchored during feed refreshes and stable across tab changes by updating the existing view in place and reserving scrollbar space. Remote images now enter the article layout only after loading successfully, so failed images create neither a transient frame nor an empty placeholder.
+
+### Changed
+
+- Began the path-only category regrouping with Git Workspace under `coding-development/`, colocating its JavaScript, CSS, and focused test without changing its widget ID or behaviour.
+- Moved Nexus Mods Tracker and its focused test into `gaming/`, preserving its existing widget identity, provider boundaries, and load order.
+- Moved Football Tracker and its focused test into `sports/`, preserving provider ordering, calendar integration, and the existing widget ID.
+- Moved RSS Reader and Media Watchlist with their focused tests into `content-feeds/`, retaining their Calendar, credential, cache, and Relay boundaries.
+- Moved Calculator and Translator into `utilities/`, including Translator's local worker and focused tests; worker assembly still uses Portal-relative local assets and its inherited-origin blob boundary.
+- Moved IP Info, Service Monitor, System Monitor, and Recent Files with their focused tests into `system-network/`, preserving native capability and shared reload-action contracts.
+- Moved Astronomy & Night Sky, ISS Tracker, and NASA APOD with the astronomy event catalogue and focused tests into `space-astronomy/`.
+- Moved Weather, Weather Map, and Global Hazards with their focused tests into `weather-hazards/`, preserving MapLibre ordering and shared location behaviour.
+- Moved Calendar, Focus Session, Saved Sessions, and Universal Search with their focused tests into `personal-productivity/`, retaining cross-widget Calendar feeds and local-state boundaries.
+- Moved the widget registry and built-ins, network adapter, SDK, shared action layout, SDK examples, and manifest validator into `core/` without changing their global contracts or browser load order.
+- Extended root validation to discover colocated widget tests and syntax-check JavaScript throughout `Widgets/`.
+
+### Validation
+
+- The complete suite passes with 88 Portal tests and 253 colocated Widget tests, retaining the previous 341-test combined coverage. Relay, Host, Arcade, syntax, manifest, and extension lint checks also pass.
+
 ## [0.11.214] — 2026-08-24
 
 ### Added
@@ -1906,4 +1930,3 @@ Historical entries below are preserved from Portal releases whose release notes 
 - `bridge.nativeIsAvailable()` and `bridge.openFilePicker()` added to page bridge
 
 ---
-

@@ -21,6 +21,10 @@ function Invoke-Checked {
 Push-Location $repoRoot
 try {
     Invoke-Checked 'Portal tests' { node --test 'Portal/tests/*.cjs' }
+    $widgetTests = @(Get-ChildItem -LiteralPath (Join-Path $repoRoot 'Widgets') -Filter 'test_*.cjs' -File -Recurse)
+    if ($widgetTests.Count -gt 0) {
+        Invoke-Checked 'Widget tests' { node --test $widgetTests.FullName }
+    }
     Invoke-Checked 'Relay tests' { node --test 'Relay/tests/*.cjs' }
     Invoke-Checked 'Host tests' { python -m pytest -q Host/tests }
 
@@ -33,6 +37,7 @@ try {
 
     $javascript = @(
         Get-ChildItem -LiteralPath (Join-Path $repoRoot 'Portal/source') -Filter '*.js' -File
+        Get-ChildItem -LiteralPath (Join-Path $repoRoot 'Widgets') -Filter '*.js' -File -Recurse
         Get-ChildItem -LiteralPath (Join-Path $repoRoot 'Relay') -Filter '*.js' -File -Recurse
         Get-ChildItem -LiteralPath (Join-Path $repoRoot 'Arcade/web') -Filter '*.js' -File
     )

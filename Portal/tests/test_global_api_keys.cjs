@@ -8,10 +8,10 @@ const root = path.join(__dirname, '..');
 const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
 const stateSource = fs.readFileSync(path.join(root, 'source', 'state.js'), 'utf8');
 const settingsSource = fs.readFileSync(path.join(root, 'source', 'settings.js'), 'utf8');
-const mediaSource = fs.readFileSync(path.join(root, 'source', 'media-watchlist-widget.js'), 'utf8');
-const calendarSource = fs.readFileSync(path.join(root, 'source', 'calendar-widget.js'), 'utf8');
-const footballSource = fs.readFileSync(path.join(root, 'source', 'football-tracker-widget.js'), 'utf8');
-const nexusSource = fs.readFileSync(path.join(root, 'source', 'nexus-mods-tracker-widget.js'), 'utf8');
+const mediaSource = fs.readFileSync(path.join(root, '..', 'Widgets', 'content-feeds', 'media-watchlist-widget.js'), 'utf8');
+const calendarSource = fs.readFileSync(path.join(root, '..', 'Widgets', 'personal-productivity', 'calendar-widget.js'), 'utf8');
+const footballSource = fs.readFileSync(path.join(root, '..', 'Widgets', 'sports', 'football-tracker-widget.js'), 'utf8');
+const nexusSource = fs.readFileSync(path.join(root, '..', 'Widgets', 'gaming', 'nexus-mods-tracker-widget.js'), 'utf8');
 
 test('all provider API keys are presented in the central API Keys settings page', () => {
   for (const id of ['stgApiKeyNasa', 'stgApiKeyTmdb', 'stgApiKeyFootballData', 'stgApiKeySportmonks', 'stgApiKeyApiFootball', 'stgApiKeyNexusMods']) {

@@ -1,8 +1,8 @@
 # Cyrune Widgets
 
-Portal widgets are grouped by their existing catalogue category. Each widget’s JavaScript, CSS, tests, fixtures, and static assets will move together during the path-only widget regrouping phase.
+Portal widgets are grouped by their existing catalogue category. Each widget’s JavaScript, CSS, tests, fixtures, and practical static assets now live together beneath `Widgets/`. The shared registry, built-ins, SDK, network adapter, settings support, action layout, examples, and validator live in `core/`; Portal remains the runtime host.
 
-Shared registry, SDK, network, settings, and action-layout code belongs in `core/`; widget business logic does not.
+Category names and persisted widget type IDs remain unchanged by this layout.
 
 ## Local UI State
 

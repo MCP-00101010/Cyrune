@@ -13,7 +13,7 @@ function registryBlock(source, widgetType, nextMarker) {
 }
 
 test('Clock uses its full Hub presentation and timer in the sidebar', () => {
-  const widgets = fs.readFileSync(path.join(root, 'source/widgets.js'), 'utf8');
+  const widgets = fs.readFileSync(path.join(root, '..', 'Widgets', 'core', 'widgets.js'), 'utf8');
   const block = registryBlock(widgets, 'clock', "WIDGET_REGISTRY['countdown']");
   assert.match(block, /allowedIn: \['column', 'navpane'\]/);
   assert.match(block, /el\.className = 'widget-clock'/);
@@ -24,7 +24,7 @@ test('Clock uses its full Hub presentation and timer in the sidebar', () => {
 });
 
 test('Countdown uses its full Hub presentation and context timer in the sidebar', () => {
-  const widgets = fs.readFileSync(path.join(root, 'source/widgets.js'), 'utf8');
+  const widgets = fs.readFileSync(path.join(root, '..', 'Widgets', 'core', 'widgets.js'), 'utf8');
   const block = registryBlock(widgets, 'countdown', '// ---- Notes widget ----');
   assert.match(block, /allowedIn: \['column', 'navpane'\]/);
   assert.match(block, /el\.className = 'widget-countdown'/);
@@ -35,7 +35,7 @@ test('Countdown uses its full Hub presentation and context timer in the sidebar'
 });
 
 test('Notes persists edits promptly and restores its editing position locally', () => {
-  const widgets = fs.readFileSync(path.join(root, 'source/widgets.js'), 'utf8');
+  const widgets = fs.readFileSync(path.join(root, '..', 'Widgets', 'core', 'widgets.js'), 'utf8');
   const block = registryBlock(widgets, 'notes', '// ---- To-do list widget ----');
   assert.match(widgets, /function _notesReadView\(widgetId\)/);
   assert.match(widgets, /function _notesWriteView\(widgetId, textarea\)/);
@@ -46,7 +46,7 @@ test('Notes persists edits promptly and restores its editing position locally', 
 });
 
 test('sidebar widget host preserves regular widget width and interactions', () => {
-  const widgets = fs.readFileSync(path.join(root, 'source/widgets.js'), 'utf8');
+  const widgets = fs.readFileSync(path.join(root, '..', 'Widgets', 'core', 'widgets.js'), 'utf8');
   const styles = fs.readFileSync(path.join(root, 'source/styles.css'), 'utf8');
   const render = fs.readFileSync(path.join(root, 'source/render.js'), 'utf8');
   assert.match(styles, /\.nav-widget-body\s*\{[^}]*display:\s*block;[^}]*width:\s*100%;[^}]*min-width:\s*0/s);
@@ -66,7 +66,7 @@ test('sidebar widget host preserves regular widget width and interactions', () =
 test('bottom-aligned sidebar widgets form a stable reorderable group', () => {
   const render = fs.readFileSync(path.join(root, 'source/render.js'), 'utf8');
   const styles = fs.readFileSync(path.join(root, 'source/styles.css'), 'utf8');
-  const widgets = fs.readFileSync(path.join(root, 'source/widgets.js'), 'utf8');
+  const widgets = fs.readFileSync(path.join(root, '..', 'Widgets', 'core', 'widgets.js'), 'utf8');
   const contextSource = fs.readFileSync(path.join(root, 'source/context.js'), 'utf8');
   const dnd = fs.readFileSync(path.join(root, 'source/dnd.js'), 'utf8');
   const helperStart = render.indexOf('function _isBottomAlignedNavWidget');

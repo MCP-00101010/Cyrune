@@ -5,6 +5,20 @@ Format: `[version] — date` followed by Added / Changed / Fixed sections.
 
 ---
 
+## [0.11.222] — 2026-08-25
+
+### Changed
+
+- **Cyrune widget layout** — moved the shared widget runtime, SDK, implementations, focused tests, and assets from Portal into category-based directories under `Widgets/`, while preserving widget IDs, load order, storage keys, and Portal hosting.
+
+### Fixed
+
+- **RSS refresh stability** — refreshes and feed-tab changes now preserve the visible article position. Remote images join the layout only after loading successfully, preventing failed images from creating a transient frame or horizontal text jump.
+
+### Validation
+
+- The complete suite passes with 88 Portal tests and 253 colocated Widget tests, retaining the previous 341-test combined coverage. Relay, Host, Arcade, JavaScript/Python syntax, manifest, version-alignment, and extension lint checks also pass. Direct `file://` verification covered every migrated widget group.
+
 ## [0.11.221] — 2026-08-25
 
 ### Changed
