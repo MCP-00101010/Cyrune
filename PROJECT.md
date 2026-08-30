@@ -1,56 +1,107 @@
-# Morpheus WebHub
+# Cyrune Project
 
-Morpheus WebHub is a local-first bookmark workspace built with HTML, CSS, and JavaScript. It runs directly from `file://`, needs no web server, and can use a Firefox extension plus native host for a shared JSON database and OS integrations.
+Cyrune is a local-first personal portal and game-library suite. It combines a configurable dashboard, reusable widgets, a collection-aware arcade launcher, a Firefox bridge, and a narrowly scoped native service in one repository. Portal and Arcade remain directly openable `file://` applications; Relay and Host add authenticated browser and operating-system capabilities without turning the checkout into a web server.
 
-## Product model
+## Components
 
-- The sidebar contains boards, folders, titles, dividers, and compact widgets.
-- Each board has one or more tabs. A tab owns its columns, background, set bar, and Inbox.
-- Board content can contain bookmarks, folders, titles, dividers, and registered widgets.
-- External bookmark deliveries target a tab Inbox or the Import Manager.
-- Sets provide reusable manual or rule-driven bookmark collections.
-- Tags may be assigned directly or inherited through navigation, boards, tabs, and folders.
+- **Portal** is the dashboard shell. It owns boards, tabs, columns, items, the Inbox/Import Manager, appearance, portable exports, and the client side of shared persistence.
+- **Widgets** owns the widget catalogue, SDK, shared widget services, provider integrations, focused tests, and widget-local state. Portal loads this component but does not own its implementations.
+- **Arcade** is the game-library and emulator frontend. It owns collections, metadata, favourites, recent games, managed emulator profiles, scraping, and launch policy.
+- **Relay** is the Firefox WebExtension. It authenticates exact Portal, Arcade, and Nexus pages under separate roles, brokers browser APIs, routes bounded deliveries, and connects those pages to Host.
+- **Host** is the native-messaging service. It owns approved filesystem, process, credential, binding, picker, native Arcade, authoritative Nexus-settings, and sanitized project-metadata operations.
+- **Nexus** is the project control centre. It owns project-status aggregation, typed shared-settings management, sanitized validation receipts, and its own cached view state while Relay and Host retain transport and native authority.
 
-## Current feature status
+The boundaries are intentional: browser privileges stay in Relay, device authority stays in Host, and portable product data does not acquire machine-local paths or credentials.
 
-Implemented areas include multi-tab boards, configurable columns and backgrounds, speed dials, sets and dynamic folders, nested navigation, tag inheritance, Inbox and Import Manager workflows, trash plus Undo/Redo, responsive sidebar sizing, multi-item selection and drag previews, themes, extension relay, atomic shared-database persistence, and a categorized widget library.
+## Repository Layout
 
-The widget library currently includes clocks, countdowns, notes, to-do lists, images, Calculator and Converter, local Bergamot translation, Focus Sessions, a multi-provider Football Tracker for leagues, domestic cups and international tournaments, Global Hazards, Saved Sessions, service and system monitoring, approved Git and recent-file views, Media Watchlist, Universal Search, NASA APOD, basic and mapped weather forecasts, astronomy/night-sky information, an interactive ISS tracker, RSS feeds, a unified read-only Calendar, and IP/VPN information with an optional Cloudflare speed test.
+```text
+Cyrune/
+  Portal/       dashboard application and Portal tests
+  Widgets/      widget runtime, catalogue, SDK, assets, and tests
+  Arcade/       game-library application, service core, and tests
+  Relay/        Firefox WebExtension and Relay tests
+  Host/         native-messaging host, installers, templates, and tests
+  Nexus/        status dashboard, shared-settings UI, metadata, and tests
+  tools/        validation, migration, and packaging tools
+  tests/        repository-level migration and packaging tests
+  docs/         migration, history, and operational records
+```
 
-Outstanding product and platform work is tracked only in `TODO.md`; completed work belongs in `CHANGELOG.md`.
+## Runtime and Data
 
-## Persistence model
+Mutable application data lives outside the repository beneath `%LOCALAPPDATA%\Cyrune` on Windows:
 
-- The Firefox extension and native host provide the primary shared JSON database for large Hubs.
-- Writes use version/hash conflict detection, a native lock, backups, and atomic replacement.
-- Chunked reads reject and retry if the database changes partway through transfer.
-- Browser `localStorage` is a recovery cache and browser-only fallback, not a silent replacement for an unavailable configured shared database.
-- Persisted state carries an explicit schema version. Loading repairs missing navigation references rather than deleting otherwise valid boards.
+- `%LOCALAPPDATA%\Cyrune\Portal` contains the shared Portal database, backups, and managed backgrounds.
+- `%LOCALAPPDATA%\Cyrune\Arcade` contains Arcade configuration, state, managed profiles, logs, and cache.
+- `%LOCALAPPDATA%\Cyrune\Host` contains native-host configuration and other Host-owned runtime state.
+- `%LOCALAPPDATA%\Cyrune\Nexus` contains authoritative shared settings, bounded content-free setting history and backups, and may contain sanitized snapshots and validation receipts. Nexus retains a clearly labelled browser-local cache only for disconnected use.
 
-## Architecture
+Documented environment overrides support portable development and controlled testing. The repository itself should contain source and fixtures, not live databases, credentials, logs, caches, generated packages, or user-specific bindings.
 
-- `source/state-schema.js`: persisted schema version and non-destructive structural repairs.
-- `source/state.js`: normalized state, selectors, mutations, recovery cache, and shared-save coordination.
-- `source/render.js` and `source/render-items.js`: page composition, search, navigation, boards, and item rendering.
-- `source/widgets.js`: shared widget framework plus lightweight built-ins; substantial widgets live in paired standalone `*-widget.js` / `*-widget.css` modules.
-- `source/widget-sdk.js`: descriptor normalization, capability gates, bounded networking, extension and credential gateways, small local-cache quotas, large IndexedDB asset caches, scheduling, managed animation frames, and teardown.
-- `source/calendar-widget.js` / `source/calendar-widget.css`: unified private/public calendar sources, ICS parsing, secure credentials, and agenda/month presentation.
-- `source/*-widget.js` / `source/*-widget.css`: standalone built-ins, including service/system monitoring, approved Git/file views, media tracking, local Bergamot translation, and universal local/web search.
-- `source/widget-network.js`: SDK-routed widget requests and shared Open-Meteo geocoding UI.
-- `source/dnd.js`: navigation, board, sidebar, set, and Import Manager drag/drop adapters.
-- `source/bridge.js`: page-side extension transport.
-- `extension/background.js`: registered-Hub routing and native-service boundary.
-- `extension/native/morpheus_host.py`: atomic file I/O, chunk transport, backup retention, file pickers, downloads, secret storage, aggregate system metrics, opaque directory approvals, fixed Git inspection, and bounded recent-file enumeration/actions.
+Portal and Arcade use durable, atomic JSON persistence where they own files. Credentials remain in the operating system's secure credential store. Device-local application and game targets remain behind opaque Host bindings rather than entering portable JSON.
 
-Scripts run as ordered classic scripts to retain direct local-file operation. Top-level declarations must therefore remain unique; `tests/test_global_script_symbols.cjs` enforces this until remaining code is moved behind explicit namespaces or modules.
+## Compatibility Contract
 
-## Development rules
+The Cyrune rename does not invalidate existing installations or data. Compatibility-sensitive values retain their historical identifiers, including:
 
-- Treat `state.js` as the state/persistence layer, `render.js` as the composition layer, and `app.js` as startup and UI orchestration.
-- Never silently replace a configured shared database with an empty browser cache.
-- Use widget draft state for settings previews; only Done may commit and persist changes.
-- Keep page-originated extension commands bound to the exact registered Hub session.
-- Keep platform-specific behavior behind the bridge/native-host boundary.
-- Preserve consistent drag/drop semantics and the existing folder-depth limit.
-- Prefer targeted rendering for small changes and preserve expensive map/globe instances when their widget state has not changed.
-- Treat meaningful widget UI state as restorable by default. Selected tabs, filters, pages/items, expanded or collapsed panels and provider attribution, map/globe cameras, focus modes, and meaningful scroll positions must survive Hub reloads through bounded per-instance `WidgetSDK.cache` view state. Keep that state browser-local and out of portable `widget.config` / `widget.data`; clear it when the widget is deleted. Only deliberately transient interactions may reset, and that exception should be explicit and tested. Universal Search's unfinished query and keyboard-highlighted result are deliberate transient exceptions; completed recent searches may still be remembered locally when enabled.
+- the Firefox extension ID and native-messaging host ID;
+- native-host launcher and registration names required by installed manifests;
+- Portal and Arcade identifying meta values;
+- extension messages, page events, storage keys, and schema fields where changing them would orphan persisted state;
+- credential targets, opaque application/game bindings, and portable bundle format identifiers.
+
+These values are implementation contracts, not displayed product names. User-facing text should use Cyrune Portal, Cyrune Arcade, Cyrune Relay, Cyrune Host, or Cyrune Widgets as appropriate.
+
+## Development and Validation
+
+Run the coordinated validation suite from the repository root:
+
+```powershell
+.\tools\validate.ps1
+```
+
+It runs Portal, Widgets, Relay, Host, migration, packaging, and Arcade tests; syntax-checks JavaScript; parses the Relay manifest; verifies independent component versions; and runs `web-ext lint`. Use `-SkipWebExtLint` only for an explicitly documented offline or tool-unavailable check.
+
+Component work should remain within its owning directory where practical. Cross-component changes must preserve the public message, data, binding, and storage contracts or include an explicit compatibility migration with regression coverage.
+
+## Agent Guidance
+
+The repository-root `AGENTS.md` contains shared ownership, compatibility, release, and instruction-routing rules. Before acting on a component, Codex must completely read that component's `AGENTS.md`, even when the session started at the repository root:
+
+- `Portal/AGENTS.md`
+- `Widgets/AGENTS.md`
+- `Arcade/AGENTS.md`
+- `Relay/AGENTS.md`
+- `Host/AGENTS.md`
+- `Nexus/AGENTS.md`
+
+For cross-component changes, read every affected component file plus `docs/architecture/component-boundaries.md`. Detailed rules remain in architecture documents and component READMEs; AGENTS files contain the concise constraints that must influence implementation and review.
+
+## Releases and Packaging
+
+Portal, Relay, and Nexus version independently. Product changes bump only the affected component version and update its prefixed changelog. Relay source changes also require an extension manifest bump and `web-ext lint`.
+
+Relay packaging is deterministic and writes ignored artifacts beneath `artifacts/Relay/<version>`. Unsigned AMO upload archives, SHA-256 sidecars, and sanitized reports are separate from validated Mozilla-signed XPI imports. Generated artifacts are not source files and must not be committed.
+
+Repository-wide migration, tooling, and coordinated-release changes belong in the root `CHANGELOG.md`; component-visible changes belong in that component's changelog.
+
+## Documentation Map
+
+- `CYRUNE-MONOREPO-TODO.md` is the authoritative migration and cutover checklist.
+- `Portal/Portal-TODO.md`, `Arcade/Arcade-TODO.md`, `Relay/Relay-TODO.md`, `Host/Host-TODO.md`, `Widgets/Widgets-TODO.md`, and `Nexus/Nexus-TODO.md` own active component work.
+- Each component's `<Component>-CHANGELOG.md` records completed product changes.
+- `CHANGELOG.md` records repository-wide changes.
+- `docs/migration/` contains inventories, receipts, validation records, rollback guidance, and handovers.
+- `docs/architecture/component-boundaries.md` defines durable ownership and authority boundaries.
+- `docs/architecture/portal-ui-guidelines.md` defines Portal and Portal-hosted Widget modal/settings presentation rules.
+- `docs/architecture/portal-arcade-contract.md` defines the current Portal/Arcade/Relay/Host integration and security contract.
+- `docs/architecture/nexus-contract.md` defines Nexus settings, snapshots, documents, authority, redaction, and future theme/tag ownership.
+- `docs/history/` preserves superseded plans and completed legacy work without treating them as active backlog.
+- Root and component `AGENTS.md` files define routed implementation, compatibility, validation, and release rules.
+
+## Migration Status
+
+The source, component histories, tests, Host boundary, widget catalogue, packaging workflow, and active Portal/Arcade runtime data have moved into Cyrune. Portal and Arcade have been verified at their permanent Cyrune paths, with their live data beneath `%LOCALAPPDATA%\Cyrune`. Legacy checkouts remain recovery sources until the remaining manual retirement gates in `CYRUNE-MONOREPO-TODO.md` are explicitly completed.
+
+New work should target this repository and use the Cyrune component names. Legacy names should appear only in compatibility code, historical documentation, migration fixtures, or tests that deliberately verify old data continues to load.

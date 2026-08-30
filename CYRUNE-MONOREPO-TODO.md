@@ -2,7 +2,7 @@
 
 ## Status
 
-- **State:** Planned; permanent suite and repository name selected.
+- **State:** Active; phases 1–7 and all non-interactive Phase 8 audits are complete. Runtime data is external and verified, Relay packaging is deterministic and bounded, and browser-lifecycle plus time-based monitoring gates remain.
 - **Created:** 2026-08-24
 - **Revised:** 2026-08-25
 - **Objective:** Combine the existing products as Cyrune Portal, Arcade, Relay, Host, and Widgets in one repository while preserving history, runtime data, credentials, bindings, direct-file operation, release workflows, and rollback paths.
@@ -18,7 +18,7 @@ This document contains migration and repository-structure work only. Product fea
 - Use “formerly Morpheus WebHub/EmuGUI” only as temporary upgrade and recovery wording where users may otherwise confuse old and new local paths.
 - Keep Portal and Arcade as separate applications with separate interfaces and responsibilities.
 - Keep Relay and Host as separate components and trust boundaries.
-- Give Portal, Arcade, Relay, Host, and Widgets their own `TODO.md` and `CHANGELOG.md`.
+- Give Portal, Arcade, Relay, Host, and Widgets their own clearly named `<Component>-TODO.md` and `<Component>-CHANGELOG.md`.
 - The native host requires its own pair because it is independently versioned, installed, security-sensitive, and released on a different cadence from the extension.
 - Keep the root migration TODO limited to repository/infrastructure work.
 - Keep a small root changelog or release index for repository-wide migration/tooling changes only; do not duplicate component release notes there.
@@ -40,8 +40,8 @@ Cyrune/
     vendor/
     tests/
     README.md
-    TODO.md
-    CHANGELOG.md
+    Portal-TODO.md
+    Portal-CHANGELOG.md
   Arcade/
     web/
     emugui_service.py
@@ -50,8 +50,8 @@ Cyrune/
     tools/
     tests/
     README.md
-    TODO.md
-    CHANGELOG.md
+    Arcade-TODO.md
+    Arcade-CHANGELOG.md
   Relay/
     manifest.json
     background.js
@@ -59,14 +59,14 @@ Cyrune/
     popup/
     icons/
     README.md
-    TODO.md
-    CHANGELOG.md
+    Relay-TODO.md
+    Relay-CHANGELOG.md
   Host/
     native host source, installers, launchers, and manifest templates
     config.example.json
     README.md
-    TODO.md
-    CHANGELOG.md
+    Host-TODO.md
+    Host-CHANGELOG.md
   Widgets/
     core/
     coding-development/
@@ -79,8 +79,8 @@ Cyrune/
     utilities/
     weather-hazards/
     README.md
-    TODO.md
-    CHANGELOG.md
+    Widgets-TODO.md
+    Widgets-CHANGELOG.md
   tests/
     integration/
     migration/
@@ -102,7 +102,7 @@ Do not create speculative `packages/` or a generic shared `core/` during the ini
 
 ## Component Documentation Rules
 
-Each component `TODO.md` contains only outstanding work owned by that component. Each component `CHANGELOG.md` contains only completed changes that materially affected that component.
+Each component `<Component>-TODO.md` contains only outstanding work owned by that component. Each component `<Component>-CHANGELOG.md` contains only completed changes that materially affected that component.
 
 Cross-component work may appear in more than one component changelog when each side changed, but each entry should describe that component’s part and use that component’s version where one exists.
 
@@ -110,21 +110,21 @@ Cross-component work may appear in more than one component changelog when each s
 
 - Current root `TODO.md`: split into Portal, Relay, Host, and Widgets TODOs; move guidance/constraints into the relevant README or `AGENTS.md` rather than leaving them as tasks.
 - Current root `CHANGELOG.md`: preserve every historical release entry, then sort applicable entries into component changelogs. Mixed releases may be represented in multiple component logs without losing their original version/date.
-- Current Arcade-source `TODO.md`: becomes `Arcade/TODO.md` after work owned by other components is removed.
+- Current Arcade-source `TODO.md`: becomes `Arcade/Arcade-TODO.md` after work owned by other components is removed.
 - Current completed `EmuGUI-TODO.md`: archive under `docs/history/` as the completed Portal/Arcade integration record; do not treat it as an active backlog.
-- Current Arcade-source history: create `Arcade/CHANGELOG.md` from its Git history and current health-pass record before or during import.
+- Current Arcade-source history: create `Arcade/Arcade-CHANGELOG.md` from its Git history and current health-pass record before or during import.
 - Current `PROJECT.md`: discard during the documentation cutover. Replace it after migration with root and component READMEs derived from the validated final layout.
 - Current untracked `Infrastructure TODO.md`: use only as source material; do not import it as an active TODO after its migration work and component backlog have been accounted for.
 - Root `CHANGELOG.md`: after the split, retain only monorepo import, path migration, data migration, repository tooling, and coordinated release-index entries.
 
 ### Backlog separation gate
 
-- [ ] Create or confirm the five component TODOs.
-- [ ] Move every product feature, behavioural fix, and component refactor out of this migration plan.
-- [ ] Sort the existing Portal-source TODO by owning component.
-- [ ] Merge Arcade product work into `Arcade/TODO.md` without copying completed migration tasks back into it.
-- [ ] Verify every removed task exists in exactly the appropriate component backlog, with cross-component references only where coordination is required.
-- [ ] Keep this document free of feature implementation phases.
+- [x] Create or confirm the five component TODOs.
+- [x] Move every product feature, behavioural fix, and component refactor out of this migration plan.
+- [x] Sort the existing Portal-source TODO by owning component.
+- [x] Merge Arcade product work into `Arcade/Arcade-TODO.md` without copying completed migration tasks back into it.
+- [x] Verify every removed task exists in exactly the appropriate component backlog, with cross-component references only where coordination is required.
+- [x] Keep this document free of feature implementation phases.
 
 ## Runtime Data Layout
 
@@ -159,39 +159,39 @@ Environment/configuration overrides remain available for portable and developmen
 
 ### Repository recovery
 
-- [ ] Confirm both worktrees are clean apart from explicitly preserved user files.
-- [ ] Finish and commit the current Arcade-source health pass before importing its history.
-- [ ] Record current Portal, Relay, Host, and Arcade versions.
-- [ ] Tag the last pre-monorepo commits in both repositories.
-- [ ] Create a Git bundle of the Arcade source repository because it has no remote.
-- [ ] Confirm the pushed Portal source remote contains the current branch and create an additional local bundle if desired.
-- [ ] Record current commit IDs and branches.
-- [ ] Create a dedicated Cyrune infrastructure branch in the new monorepo clone.
+- [x] Confirm both worktrees are clean apart from explicitly preserved user files.
+- [x] Finish and commit the current Arcade-source health pass before importing its history.
+- [x] Record current Portal, Relay, Host, and Arcade versions.
+- [x] Tag the last pre-monorepo commits in both repositories.
+- [x] Create a Git bundle of the Arcade source repository because it has no remote.
+- [x] Confirm the pushed Portal source remote contains the current branch and create an additional verified local bundle.
+- [x] Record current commit IDs and branches.
+- [x] Create a dedicated Cyrune infrastructure branch in the new monorepo clone.
 
 ### Runtime recovery
 
-- [ ] Inventory ignored/local runtime files without printing credentials, database contents, embedded icons, or browsing data.
-- [ ] Record the active native-host registry manifest and launcher paths.
-- [ ] Record only hashes, sizes, and locations for Portal data/backups, Host configuration, Arcade configuration/state, and managed profiles.
-- [ ] Confirm scraper credentials remain in Windows Credential Manager and absent from JSON.
-- [ ] Record binding/approval counts without exporting their targets.
-- [ ] List user bookmarks or shortcuts pointing to the old local page URLs.
-- [ ] Create verified backups for every runtime source before cleanup or copying.
+- [x] Inventory ignored/local runtime files without printing credentials, database contents, embedded icons, or browsing data.
+- [x] Record the active native-host registry manifest and launcher paths.
+- [x] Record only hashes, sizes, and locations for Portal data/backups, Host configuration, Arcade configuration/state, and managed profiles.
+- [x] Confirm scraper credentials remain in Windows Credential Manager and absent from JSON.
+- [x] Record binding/approval counts without exporting their targets.
+- [x] List user bookmarks or shortcuts pointing to the old local page URLs.
+- [x] Create verified backups for every runtime source before cleanup or copying.
 
 ### Pre-import cleanup audit
 
 No runtime or ignored file is deleted until its purpose and references have been checked.
 
-- [ ] Portal source: exclude `.build/`, `.test-tmp/`, `dist/`, `.mypy_cache/`, `.pytest_cache/`, and other generated caches from the import snapshot.
-- [ ] Portal source: verify the single ignored root `backgrounds/` image is unreferenced before removing it; it is not byte-identical to any current managed background.
-- [ ] Portal source: treat ignored `assets/backgrounds/` as managed runtime data and migrate it with the Portal database rather than importing it as source.
-- [ ] Portal source: copy and verify tracked `extension/native/config.json` externally, then replace it in source with a sanitised `config.example.json` and ignore the live file.
-- [ ] Portal source: keep tracked source assets such as the astronomy image and tracked vendor dependencies.
-- [ ] Portal source: retire `PROJECT.md` during documentation cutover.
-- [ ] Arcade source: exclude `__pycache__/`, `.pytest_cache/`, and ignored runtime logs from the import snapshot.
-- [ ] Arcade source: migrate `data/` as runtime state rather than application source.
-- [ ] Arcade source: remove the hard-coded `test_spectaculator_launch.ps1` after confirming `tools/validate_zx_launch.py` covers its useful launch matrix.
-- [ ] Record each removed path and whether it was generated, runtime, obsolete, or archived.
+- [x] Portal source: exclude `.build/`, `.test-tmp/`, `dist/`, `.mypy_cache/`, `.pytest_cache/`, and other generated caches from the import snapshot.
+- [x] Portal source: verify the single ignored root `backgrounds/` image is unreferenced before removing it; it is not byte-identical to any current managed background. A verified recovery copy now exists and the source remains untouched.
+- [x] Portal source: treat ignored `assets/backgrounds/` as managed runtime data and migrate it with the Portal database rather than importing it as source.
+- [x] Portal source: copy and verify tracked `extension/native/config.json` externally, then replace it in source with a sanitised `config.example.json` and ignore the live file.
+- [x] Portal source: keep tracked source assets such as the astronomy image and tracked vendor dependencies.
+- [x] Portal source: retire `PROJECT.md` during documentation cutover.
+- [x] Arcade source: exclude `__pycache__/`, `.pytest_cache/`, and ignored runtime logs from the import snapshot.
+- [x] Arcade source: migrate `data/` as runtime state rather than application source.
+- [x] Arcade source: remove the hard-coded `test_spectaculator_launch.ps1` after confirming `tools/validate_zx_launch.py` plus focused default-association coverage supersede its useful launch matrix.
+- [x] Record each removed path and whether it was generated, runtime, obsolete, or archived.
 
 ### Phase 0 exit gate
 
@@ -202,16 +202,16 @@ No runtime or ignored file is deleted until its purpose and references have been
 
 ## Phase 1 — Import Histories and Establish Component Roots
 
-- [ ] Clone the Portal source repository into `F:\Projects\Coding\Cyrune` as the initial monorepo to retain its remote and release history while leaving the old checkout intact.
-- [ ] Import the Arcade source repository’s `main` branch beneath `Arcade/` without squashing its history.
-- [ ] Prefer `git subtree` or an equivalent unrelated-history import over copying files without history.
-- [ ] Move Portal product files beneath `Portal/` with `git mv`.
-- [ ] Move Relay source to root `Relay/` without changing behaviour.
-- [ ] Leave Host separation to its dedicated phase so registry/install rollback remains simple.
-- [ ] Create the documented widget group directories but move widget files only in the widget-layout phase.
-- [ ] Add component ownership/path rules to root `AGENTS.md`.
-- [ ] Add a root README explaining component boundaries and focused development commands.
-- [ ] Preserve both old checkouts unchanged until every migration gate passes.
+- [x] Clone the Portal source repository into `F:\Projects\Coding\Cyrune` as the initial monorepo to retain its remote and release history while leaving the old checkout intact.
+- [x] Import the Arcade source repository’s `main` branch beneath `Arcade/` without squashing its history.
+- [x] Prefer `git subtree` or an equivalent unrelated-history import over copying files without history.
+- [x] Move Portal product files beneath `Portal/` with `git mv`.
+- [x] Move Relay source to root `Relay/` without changing behaviour.
+- [x] Leave Host separation to its dedicated phase so registry/install rollback remains simple.
+- [x] Create the documented widget group directories but move widget files only in the widget-layout phase.
+- [x] Add component ownership/path rules to root `AGENTS.md`.
+- [x] Add a root README explaining component boundaries and focused development commands.
+- [x] Preserve both old checkouts unchanged until every migration gate passes.
 
 ### Phase 1 constraints
 
@@ -228,15 +228,15 @@ No runtime or ignored file is deleted until its purpose and references have been
 
 ## Phase 2 — Split and Reconcile Documentation
 
-- [ ] Place one TODO and CHANGELOG in each of Portal, Arcade, Relay, Host, and Widgets.
-- [ ] Sort current TODO content by component ownership.
-- [ ] Sort the complete combined changelog history without dropping version/date/validation information.
-- [ ] Preserve mixed historical releases in every materially changed component log with component-specific wording.
-- [ ] Archive the completed Portal/Arcade integration plan.
-- [ ] Remove `PROJECT.md` and replace its still-accurate content with root/component READMEs.
-- [ ] Convert platform limitations and architectural rules into durable component documentation instead of TODO items.
-- [ ] Make the root changelog an infrastructure/release index rather than another product changelog.
-- [ ] Update repository instructions so release changes touch only the affected component versions and changelogs.
+- [x] Place one TODO and CHANGELOG in each of Portal, Arcade, Relay, Host, and Widgets.
+- [x] Sort current TODO content by component ownership.
+- [x] Sort the complete combined changelog history without dropping version/date/validation information.
+- [x] Preserve mixed historical releases in every materially changed component log with component-specific wording.
+- [x] Archive the completed Portal/Arcade integration plan.
+- [x] Remove `PROJECT.md` and replace its still-accurate content with root/component READMEs.
+- [x] Convert platform limitations and architectural rules into durable component documentation instead of TODO items.
+- [x] Make the root changelog an infrastructure/release index rather than another product changelog.
+- [x] Update repository instructions so release changes touch only the affected component versions and changelogs.
 
 ### Phase 2 exit gate
 
@@ -246,17 +246,17 @@ No runtime or ignored file is deleted until its purpose and references have been
 
 ## Phase 3 — Repair Paths and Restore the Baseline
 
-- [ ] Update Portal HTML script, stylesheet, asset, worker, vendor, and test-root paths.
-- [ ] Update Arcade test discovery and service-relative paths.
-- [ ] Update Relay source/package paths.
-- [ ] Update Host loader paths only as required to reach the newly imported Arcade application.
-- [ ] Update documentation links and setup commands.
-- [ ] Update local page URLs used by integration tests.
-- [ ] Verify Portal opens directly from `Portal/index.html`.
-- [ ] Verify Arcade opens directly from `Arcade/web/index.html` through Relay.
-- [ ] Verify no retired HTTP listener or frontend fallback reappears.
-- [ ] Add a root validation command that runs all existing Portal, Arcade, Host, and Relay checks.
-- [ ] Keep component-specific commands usable.
+- [x] Update Portal HTML script, stylesheet, asset, worker, vendor, and test-root paths.
+- [x] Update Arcade test discovery and service-relative paths.
+- [x] Update Relay source/package paths.
+- [x] Update Host loader paths only as required to reach the newly imported Arcade application.
+- [x] Update documentation links and setup commands.
+- [x] Update local page URLs used by integration tests.
+- [x] Verify Portal opens directly from `Portal/index.html`.
+- [x] Verify Arcade opens directly from `Arcade/web/index.html` through Relay.
+- [x] Verify no retired HTTP listener or frontend fallback reappears.
+- [x] Add a root validation command that runs all existing Portal, Arcade, Host, and Relay checks.
+- [x] Keep component-specific commands usable.
 
 ### Phase 3 exit gate
 
@@ -266,15 +266,15 @@ No runtime or ignored file is deleted until its purpose and references have been
 
 ## Phase 4 — Separate and Reinstall Cyrune Host
 
-- [ ] Move Host source/installers from the Relay tree to root `Host/`.
-- [ ] Keep Host Python, installers, templates, and runtime data out of the WebExtension package.
-- [ ] Update imports and test paths.
-- [ ] Update installers and launchers for the new source location and selected suite identifiers.
-- [ ] Reinstall the native messaging manifest so Firefox/Zen registry entries point to the new launcher.
-- [ ] Preserve accepted installed and temporary-development extension IDs.
-- [ ] Add only the path/config diagnostics needed to validate relocation; further native features stay in its component TODO.
-- [ ] Verify the persistent native process starts from the new path and existing launches/services still work.
-- [ ] Verify extension lint no longer sees native files.
+- [x] Move Host source/installers from the Relay tree to root `Host/`.
+- [x] Keep Host Python, installers, templates, and runtime data out of the WebExtension package.
+- [x] Update imports and test paths.
+- [x] Update installers and launchers for the new source location and selected suite identifiers.
+- [x] Reinstall the native messaging manifest so Firefox/Zen registry entries point to the new launcher.
+- [x] Preserve accepted installed and temporary-development extension IDs.
+- [x] Add only the path/config diagnostics needed to validate relocation; further native features stay in its component TODO.
+- [x] Verify the persistent native process starts from the new path and existing launches/services still work.
+- [x] Verify extension lint no longer sees native files.
 
 ### Phase 4 exit gate
 
@@ -286,14 +286,23 @@ No runtime or ignored file is deleted until its purpose and references have been
 
 This phase is a path-only reorganisation of already shipped widgets.
 
-- [ ] Move SDK/runtime/network/registry/shared action-layout files into `Widgets/core/`.
-- [ ] Move each widget’s JavaScript and CSS together into the directory matching its existing catalogue category.
-- [ ] Move widget-specific tests, fixtures, and static assets with their widget where practical.
-- [ ] Update ordered classic-script and stylesheet paths without changing load order.
-- [ ] Update test discovery, global-symbol checks, manifests, documentation, and local SDK fixtures.
-- [ ] Keep category IDs and persisted widget type IDs unchanged.
-- [ ] Do not split large widget implementations or change their SDK contract during this phase.
-- [ ] Verify direct `file://` loading and every existing widget test after each group move.
+- [x] Move SDK/runtime/network/registry/shared action-layout files into `Widgets/core/`.
+- [x] Move and validate the Coding & Development widget group as the first path-only slice.
+- [x] Move and validate the Gaming widget group.
+- [x] Move and validate the Sports widget group.
+- [x] Move and validate the Content & Feeds widget group.
+- [x] Move and validate the Utilities widget group, including Translator's local worker.
+- [x] Move and validate the System & Network widget group.
+- [x] Move and validate the Space & Astronomy widget group, including the shared astronomy event catalogue.
+- [x] Move and validate the Weather & Hazards widget group.
+- [x] Move and validate the Personal & Productivity widget group.
+- [x] Move each widget’s JavaScript and CSS together into the directory matching its existing catalogue category.
+- [x] Move widget-specific tests, fixtures, and static assets with their widget where practical.
+- [x] Update ordered classic-script and stylesheet paths without changing load order.
+- [x] Update test discovery, global-symbol checks, manifests, documentation, and local SDK fixtures.
+- [x] Keep category IDs and persisted widget type IDs unchanged.
+- [x] Do not split large widget implementations or change their SDK contract during this phase.
+- [x] Verify direct `file://` loading and every existing widget test after each group move.
 
 ### Phase 5 exit gate
 
@@ -304,38 +313,38 @@ This phase is a path-only reorganisation of already shipped widgets.
 
 ### Migration rules
 
-- [ ] Implement one versioned migration coordinator and receipt format.
-- [ ] Copy before switching pointers; do not delete or overwrite a source before destination write, reread, parse, and hash verification.
-- [ ] Preserve timestamps where practical and use atomic replacement at destinations.
-- [ ] Make retries idempotent and distinguish missing, identical, corrupt, divergent, interrupted, and already-migrated states.
-- [ ] Require explicit choice before replacing divergent data.
-- [ ] Keep receipts free of database contents, secrets, and credential locations.
+- [x] Implement one versioned migration coordinator and receipt format.
+- [x] Copy before switching pointers; do not delete or overwrite a source before destination write, reread, parse, and hash verification.
+- [x] Preserve timestamps where practical and use atomic replacement at destinations.
+- [x] Make retries idempotent and distinguish missing, identical, corrupt, divergent, interrupted, and already-migrated states.
+- [x] Require explicit choice before replacing divergent data.
+- [x] Keep receipts free of database contents, secrets, and credential locations.
 
 ### Portal
 
-- [ ] Copy the authoritative Portal database, useful backups, and managed backgrounds to the external Portal data root.
-- [ ] Update native configuration only after every destination rereads successfully.
-- [ ] Verify revision/hash metadata and opaque application/game keys.
-- [ ] Leave intentionally browser-local widget/UI caches and IndexedDB assets unchanged.
+- [x] Copy the authoritative Portal database, useful backups, and managed backgrounds to the external Portal data root.
+- [x] Update native configuration only after every destination rereads successfully.
+- [x] Verify revision/hash metadata and opaque application/game keys.
+- [x] Leave intentionally browser-local widget/UI caches and IndexedDB assets unchanged.
 
 ### Arcade
 
-- [ ] Copy configuration, state, managed profiles, and intended cache/log state to the external Arcade data root.
-- [ ] Change defaults to external runtime data while retaining documented overrides.
-- [ ] Verify collections, favourites, recent history, emulator definitions, profile IDs/hashes, scraper settings, and secure credentials.
+- [x] Copy configuration, state, managed profiles, and intended cache/log state to the external Arcade data root.
+- [x] Change defaults to external runtime data while retaining documented overrides.
+- [x] Verify collections, favourites, recent history, emulator definitions, profile IDs/hashes, scraper settings, and secure credentials.
 
 ### Host
 
-- [ ] Copy native configuration to the external Host data root.
-- [ ] Preserve approved application/game/directory bindings and validate targets without exporting them.
-- [ ] Update the configured Arcade root.
-- [ ] Reapprove repository-scoped directory handles whose root necessarily changed.
+- [x] Copy native configuration to the external Host data root.
+- [x] Preserve approved application/game/directory bindings and validate targets without exporting them.
+- [x] Update the configured Arcade root.
+- [x] Reapprove repository-scoped directory handles whose root necessarily changed.
 
 ### Local page links
 
-- [ ] Update the user’s Portal and Arcade bookmarks/shortcuts.
-- [ ] Update exact-page authorization and Portal’s Arcade URL construction.
-- [ ] Provide temporary redirect/recovery pages at old locations during validation if needed.
+- [x] Update the user’s Portal and Arcade bookmarks/shortcuts.
+- [x] Update exact-page authorization and Portal’s Arcade URL construction.
+- [x] Confirm temporary redirect/recovery pages are not needed after the user updated every legacy bookmark in use.
 
 ### Phase 6 exit gate
 
@@ -345,14 +354,14 @@ This phase is a path-only reorganisation of already shipped widgets.
 
 ## Phase 7 — Restore Packaging and Repository Automation
 
-- [ ] Keep unpackaged Relay source solely in `Relay/`.
-- [ ] Write generated artifacts beneath `artifacts/Relay/<version>/` and ignore them.
-- [ ] Update the existing extension build/lint/package workflow for relocated paths.
-- [ ] Ensure archives exclude native host code, installers, tests, local configuration, databases, backups, and credentials.
-- [ ] Preserve the distinction between unsigned AMO upload archives and Mozilla-signed packages.
-- [ ] Update version-alignment validation for independent component versions.
-- [ ] Add repository-wide validation orchestration without removing focused component commands.
-- [ ] Verify a clean checkout produces the same bounded extension archive as the pre-migration workflow.
+- [x] Keep unpackaged Relay source solely in `Relay/`.
+- [x] Write generated artifacts beneath `artifacts/Relay/<version>/` and ignore them.
+- [x] Update the existing extension build/lint/package workflow for relocated paths.
+- [x] Ensure archives exclude native host code, installers, tests, local configuration, databases, backups, and credentials.
+- [x] Preserve the distinction between unsigned AMO upload archives and Mozilla-signed packages.
+- [x] Update version-alignment validation for independent component versions.
+- [x] Add repository-wide validation orchestration without removing focused component commands.
+- [x] Verify a clean checkout produces the same bounded extension archive as the pre-migration workflow.
 
 ### Phase 7 exit gate
 
@@ -361,56 +370,56 @@ This phase is a path-only reorganisation of already shipped widgets.
 
 ## Phase 8 — Cutover, Monitoring, and Archive
 
-- [ ] Run the complete cross-component validation matrix.
-- [ ] Compare application data counts, hashes, profile IDs, bindings, and representative UI/launch workflows against the pre-migration record.
-- [ ] Confirm no hard-coded old checkout dependency remains.
-- [ ] Document rollback for code, native registration, runtime pointers, and local-page links.
+- [x] Run the complete cross-component validation matrix (2026-08-25: 89 Portal, 253 Widgets, 8 Relay, 42 Host plus 11 subtests, 10 migration, 14 packaging, and 68 Arcade tests; all syntax, manifest, version, and extension-lint checks passed).
+- [x] Compare application data counts, hashes, profile IDs, bindings, and representative UI/launch workflows against the pre-migration record.
+- [x] Confirm no hard-coded old checkout dependency remains. One unused saved legacy Arcade bookmark remains user data, not a runtime pointer.
+- [x] Document rollback for code, native registration, runtime pointers, and local-page links.
 - [ ] Use the monorepo for normal development during an agreed monitoring period.
 - [ ] Keep old checkouts and runtime sources untouched during monitoring.
 - [ ] Archive old checkouts/runtime sources only after explicit confirmation; do not immediately delete them.
-- [ ] Rename the remote repository only after the combined repository works from its permanent path and selected identity.
+- [x] Confirm the configured `origin` already uses the final Cyrune repository identity; no remote rename is required.
 
 ## Validation Matrix
 
 ### Repository and paths
 
-- [ ] Fresh clone into a different absolute directory.
-- [ ] Directory names containing spaces and Unicode.
-- [ ] Existing upgraded checkout.
-- [ ] Old local-page bookmark recovery.
-- [ ] Native-host reinstall after relocation.
-- [ ] No hard-coded legacy checkout path at runtime.
+- [x] Fresh clone into a different absolute directory.
+- [x] Directory names containing spaces and Unicode.
+- [x] Existing upgraded checkout.
+- [x] Old local-page bookmark recovery.
+- [x] Native-host reinstall after relocation.
+- [x] No hard-coded legacy checkout path at runtime.
 
 ### Data preservation
 
-- [ ] Existing 12,933-game Arcade library and all configured collections load unchanged.
-- [ ] Hub boards, tabs, columns, items, and managed backgrounds match.
-- [ ] Application/game keys and local bindings remain paired correctly.
-- [ ] Managed profile IDs and hashes match.
-- [ ] Favourites and recent history match.
-- [ ] Secure credentials remain retrievable and absent from portable/plaintext data.
-- [ ] Existing backups remain readable.
+- [x] Existing 12,933-game Arcade library and all configured collections load unchanged.
+- [x] Hub boards, tabs, columns, items, and managed backgrounds match.
+- [x] Application/game keys and local bindings remain paired correctly.
+- [x] Managed profile IDs and hashes match.
+- [x] Favourites and recent history match.
+- [x] Secure credentials remain retrievable and absent from portable/plaintext data.
+- [x] Existing backups remain readable.
 
 ### Runtime lifecycle
 
 - [ ] Firefox and Zen installed extension.
 - [ ] Temporary extension development install.
-- [ ] Relay reload with both pages open.
+- [x] Relay reload with both pages open.
 - [ ] Native-host and browser restart.
 - [ ] Multiple Hub tabs and existing active-target routing.
 - [ ] Existing Portal/Arcade delivery, launch, reveal, rebind, metadata, scraper, POK, incoming, trash, emulator, and profile workflows.
 
 ### Automated checks
 
-- [ ] Complete Portal JavaScript suite.
-- [ ] Complete Arcade Python suite.
-- [ ] Complete Host Python suite.
-- [ ] Existing integration and migration fixtures.
-- [ ] JavaScript/Python syntax and static correctness checks.
-- [ ] JSON/manifest validation and version alignment.
-- [ ] `web-ext lint` with zero errors.
-- [ ] Relay archive content/hash checks.
-- [ ] Diff checks and secret scan that reports locations only, never values.
+- [x] Complete Portal JavaScript suite.
+- [x] Complete Arcade Python suite.
+- [x] Complete Host Python suite.
+- [x] Existing integration and migration fixtures.
+- [x] JavaScript/Python syntax and static correctness checks.
+- [x] JSON/manifest validation and version alignment.
+- [x] `web-ext lint` with zero errors.
+- [x] Relay archive content/hash checks.
+- [x] Diff checks and secret scan that reports locations only, never values.
 
 ## Rollback Rules
 

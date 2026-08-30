@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="cyrune-nexus" content="1">
+  <title>Cyrune Nexus</title>
+  <link rel="stylesheet" href="source/styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <a class="brand" href="#overview" aria-label="Cyrune Nexus overview">
+        <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
+        <span><strong>Cyrune</strong><small>Nexus</small></span>
+      </a>
+      <nav class="primary-nav" aria-label="Nexus sections">
+        <button class="nav-item is-active" type="button" data-view="overview"><span aria-hidden="true">◈</span>Overview</button>
+        <button class="nav-item" type="button" data-view="variables"><span aria-hidden="true">⌘</span>Variables</button>
+        <button class="nav-item" type="button" data-view="activity"><span aria-hidden="true">↗</span>Activity</button>
+      </nav>
+      <p class="nav-label">Components</p>
+      <nav id="component-nav" class="component-nav" aria-label="Cyrune components"></nav>
+      <div class="sidebar-footer">
+        <span class="connection-dot is-offline" aria-hidden="true"></span>
+        <span><strong>Local draft</strong><small>Relay not connected</small></span>
+      </div>
+    </aside>
+    <main class="main-shell">
+      <header class="topbar">
+        <div><p class="eyebrow" id="view-eyebrow">Project control centre</p><h1 id="view-title">Overview</h1></div>
+        <div class="topbar-actions"><span class="sample-time"><span class="connection-dot is-offline"></span>Live snapshot unavailable</span><button class="icon-button" id="refresh-button" type="button" title="Refresh local view" aria-label="Refresh local view">↻</button></div>
+      </header>
+      <div id="notice-region" class="notice-region" aria-live="polite"></div>
+      <section id="view-root" class="view-root" tabindex="-1"></section>
+    </main>
+  </div>
+  <script src="source/model.js"></script>
+  <script src="source/bridge.js"></script>
+  <script src="source/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,1079 @@
+import importlib.util
+import base64
+import json
+import os
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+from tempfile import TemporaryDirectory
+import unittest
+from unittest.mock import patch
+
+
+HOST_PATH = Path(__file__).parents[1] / 'morpheus_host.py'
+TEST_TEMP_ROOT = Path(__file__).parents[1] / '.test-tmp'
+TEST_TEMP_ROOT.mkdir(exist_ok=True)
+SPEC = importlib.util.spec_from_file_location('morpheus_host', HOST_PATH)
+HOST = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(HOST)
+
+
+class NativePersistenceTests(unittest.TestCase):
+    def test_nexus_settings_are_atomic_revisioned_and_conflict_safe(self):
+        with TemporaryDirectory(dir=TEST_TEMP_ROOT) as directory:
+            root = Path(directory) / 'Nexus'
+            settings_path = root / 'settings.json'
+            history_path = root / 'settings-history.json'
+            validation_path = root / 'validation.json'
+            with patch.object(HOST, 'NEXUS_DATA_ROOT', str(root)), \
+                    patch.object(HOST, 'NEXUS_SETTINGS_PATH', str(settings_path)), \
+                    patch.object(HOST, 'NEXUS_HISTORY_PATH', str(history_path)), \
+                    patch.object(HOST, 'NEXUS_VALIDATION_PATH', str(validation_path)):
+                defaults = HOST.load_nexus_settings()
+                self.assertEqual(defaults['revision'], 0)
+                candidate = json.loads(json.dumps(defaults))
+                candidate['region']['city'] = 'Glasgow'
+                saved = HOST.save_nexus_settings(candidate, 0)
+                self.assertFalse(saved['conflict'])
+                self.assertEqual(saved['settings']['revision'], 1)
+                self.assertEqual(HOST.load_nexus_settings()['region']['city'], 'Glasgow')
+                self.assertIn('region.city', saved['changedKeys'])
+                conflict = HOST.save_nexus_settings(candidate, 0)
+                self.assertTrue(conflict['conflict'])
+                self.assertEqual(conflict['settings']['revision'], 1)
+                history = json.loads(history_path.read_text(encoding='utf-8'))
+                self.assertEqual(history[-1]['revision'], 1)
+
+    def test_nexus_settings_reject_unknown_fields_and_unapproved_location(self):
+        candidate = json.loads(json.dumps(HOST.NEXUS_DEFAULT_SETTINGS))
+        candidate['unexpected'] = {'path': 'C:\\private'}
+        with self.assertRaisesRegex(ValueError, 'Unknown Nexus settings section'):
+            HOST.validate_nexus_settings(candidate)
+        candidate.pop('unexpected')
+        candidate['region']['locationMode'] = 'precise'
+        with self.assertRaisesRegex(ValueError, 'requires its privacy permission'):
+            HOST.validate_nexus_settings(candidate)
+        candidate['region']['locationMode'] = 'manual'
+        candidate['region']['timeZone'] = 'not a time zone'
+        with self.assertRaisesRegex(ValueError, 'IANA time-zone name'):
+            HOST.validate_nexus_settings(candidate)
+
+    def test_nexus_component_settings_are_typed_and_fixed_per_consumer(self):
+        settings = json.loads(json.dumps(HOST.NEXUS_DEFAULT_SETTINGS))
+        settings['revision'] = 7
+        settings['updatedAt'] = 1700000000000
+        settings['region']['city'] = 'Glasgow'
+        with patch.object(HOST, 'load_nexus_settings', return_value=settings):
+            portal = HOST.nexus_component_settings('portal-widgets')
+            arcade = HOST.nexus_component_settings('arcade')
+        self.assertEqual(portal['revision'], 7)
+        self.assertEqual(portal['values']['region']['city'], 'Glasgow')
+        self.assertEqual(portal['values']['accessibility']['scale'], '100')
+        self.assertNotIn('city', arcade['values']['region'])
+        self.assertNotIn('allowPreciseLocation', arcade['values']['privacy'])
+        self.assertNotIn('path', json.dumps(portal).lower())
+        with self.assertRaisesRegex(ValueError, 'Unsupported Cyrune settings consumer'):
+            HOST.nexus_component_settings('../portal')
+
+    def test_nexus_schema_one_migrates_to_schema_two_without_component_overrides(self):
+        candidate = json.loads(json.dumps(HOST.NEXUS_DEFAULT_SETTINGS))
+        candidate['schemaVersion'] = 1
+        candidate.pop('overrides')
+        candidate['revision'] = 9
+        candidate['updatedAt'] = 1700000000000
+        candidate['region']['city'] = 'Bristol'
+        migrated = HOST.validate_nexus_settings(candidate)
+        self.assertEqual(migrated['schemaVersion'], 2)
+        self.assertEqual(migrated['region']['city'], 'Bristol')
+        self.assertEqual(migrated['overrides'], {'portal-widgets': {}, 'arcade': {}})
+
+    def test_nexus_component_overrides_are_sparse_typed_and_source_annotated(self):
+        settings = json.loads(json.dumps(HOST.NEXUS_DEFAULT_SETTINGS))
+        settings['region']['city'] = 'London'
+        settings['overrides']['portal-widgets'] = {
+            'region': {'city': 'Edinburgh'},
+            'units': {'system': 'imperial', 'temperature': 'fahrenheit'}
+        }
+        validated = HOST.validate_nexus_settings(settings)
+        with patch.object(HOST, 'load_nexus_settings', return_value=validated):
+            portal = HOST.nexus_component_settings('portal-widgets')
+            arcade = HOST.nexus_component_settings('arcade')
+        self.assertEqual(portal['profileSchemaVersion'], 2)
+        self.assertEqual(portal['values']['region']['city'], 'Edinburgh')
+        self.assertEqual(portal['sources']['region.city'], 'component')
+        self.assertEqual(portal['sources']['region.timeZone'], 'global')
+        self.assertNotIn('city', arcade['values']['region'])
+
+    def test_nexus_precise_coordinates_are_permission_gated_and_portal_only(self):
+        settings = json.loads(json.dumps(HOST.NEXUS_DEFAULT_SETTINGS))
+        settings['privacy']['allowPreciseLocation'] = True
+        settings['region'].update({'locationMode': 'precise', 'latitude': 51.5074, 'longitude': -0.1278})
+        validated = HOST.validate_nexus_settings(settings)
+        with patch.object(HOST, 'load_nexus_settings', return_value=validated):
+            portal = HOST.nexus_component_settings('portal-widgets')
+            arcade = HOST.nexus_component_settings('arcade')
+        self.assertEqual(portal['values']['region']['latitude'], 51.5074)
+        self.assertNotIn('latitude', arcade['values']['region'])
+
+        settings['privacy']['allowPreciseLocation'] = False
+        with self.assertRaisesRegex(ValueError, 'precise location mode requires'):
+            HOST.validate_nexus_settings(settings)
+
+    def test_nexus_overrides_reject_unknown_paths_and_permission_relaxation(self):
+        settings = json.loads(json.dumps(HOST.NEXUS_DEFAULT_SETTINGS))
+        settings['overrides']['arcade'] = {'region': {'city': 'Leeds'}}
+        with self.assertRaisesRegex(ValueError, 'Unsupported Nexus settings override'):
+            HOST.validate_nexus_settings(settings)
+        settings['overrides']['arcade'] = {'privacy': {'allowOptionalNetwork': True}}
+        settings['privacy']['allowOptionalNetwork'] = False
+        with self.assertRaisesRegex(ValueError, 'cannot relax'):
+            HOST.validate_nexus_settings(settings)
+
+    def test_nexus_page_and_documents_are_exactly_allowlisted(self):
+        expected = (Path(HOST.CYRUNE_REPO_ROOT) / 'Nexus' / 'index.html').resolve().as_uri()
+        self.assertTrue(HOST.authorize_nexus_page(expected))
+        self.assertFalse(HOST.authorize_nexus_page((Path(HOST.CYRUNE_REPO_ROOT) / 'Portal' / 'index.html').resolve().as_uri()))
+        self.assertFalse(HOST.authorize_nexus_page('https://example.com/Nexus/index.html'))
+        self.assertTrue(HOST.authorize_nexus_page(expected + '#overview'))
+        self.assertTrue(HOST.authorize_nexus_page(expected + '#variables'))
+        self.assertFalse(HOST.authorize_nexus_page(expected + '?unexpected=1'))
+        document = HOST.read_nexus_document('Portal', 'todo')
+        self.assertEqual(document['component'], 'portal')
+        self.assertIn('# Cyrune Portal TODO', document['markdown'])
+        with self.assertRaisesRegex(ValueError, 'Unsupported Nexus component document'):
+            HOST.read_nexus_document('../Portal', 'todo')
+
+    def test_nexus_todo_opens_only_an_allowlisted_file_in_vscode(self):
+        with patch.object(HOST, '_find_vscode_executable', return_value='C:\\Program Files\\Microsoft VS Code\\Code.exe'), \
+                patch.object(HOST.subprocess, 'Popen') as launch:
+            result = HOST.open_nexus_todo('Portal')
+        self.assertEqual(result, {'opened': True, 'component': 'portal', 'editor': 'Visual Studio Code'})
+        arguments = launch.call_args.args[0]
+        self.assertEqual(arguments[:2], ['C:\\Program Files\\Microsoft VS Code\\Code.exe', '--reuse-window'])
+        self.assertEqual(Path(arguments[2]).resolve(), (Path(HOST.CYRUNE_REPO_ROOT) / 'Portal' / 'Portal-TODO.md').resolve())
+        self.assertNotIn('path', result)
+        with self.assertRaisesRegex(ValueError, 'Unsupported Nexus component document'):
+            HOST.open_nexus_todo('../Portal')
+
+    def test_nexus_remote_check_uses_only_current_branch_and_fixed_origin(self):
+        local_head = 'a' * 40
+        tracking_head = 'b' * 40
+        remote_head = 'b' * 40
+
+        def local_git(_path, arguments):
+            if arguments == ['branch', '--show-current']:
+                return 'migration/cyrune-monorepo\n'
+            if arguments == ['rev-parse', 'HEAD']:
+                return local_head + '\n'
+            if arguments == ['rev-parse', '--verify', 'refs/remotes/origin/migration/cyrune-monorepo']:
+                return tracking_head + '\n'
+            raise AssertionError(arguments)
+
+        with patch.object(HOST, '_run_git', side_effect=local_git), \
+                patch.object(HOST, '_run_git_remote', return_value=(
+                    remote_head + '\trefs/heads/migration/cyrune-monorepo\n'
+                )) as remote_git:
+            result = HOST.nexus_repository_remote_status()
+
+        remote_git.assert_called_once_with(
+            HOST.CYRUNE_REPO_ROOT,
+            ['ls-remote', 'origin', 'refs/heads/migration/cyrune-monorepo']
+        )
+        self.assertFalse(result['headMatchesRemote'])
+        self.assertTrue(result['trackingCurrent'])
+        self.assertEqual(result['remoteHead'], remote_head[:12])
+        self.assertNotIn('path', result)
+        self.assertNotIn('remoteUrl', result)
+
+        with patch.object(HOST, '_run_git', side_effect=local_git), \
+                patch.object(HOST, '_run_git_remote', return_value=''):
+            missing = HOST.nexus_repository_remote_status()
+        self.assertFalse(missing['branchAvailable'])
+        self.assertEqual(missing['remoteHead'], '')
+
+    def test_nexus_status_sanitizes_repository_and_reports_runtime_locations(self):
+        with TemporaryDirectory(dir=TEST_TEMP_ROOT) as directory:
+            portal = Path(directory) / 'portal.json'
+            portal.write_text('{"schemaVersion":2,"boards":[],"sets":[],"tags":[],"settings":{}}', encoding='utf-8')
+            arcade = Path(directory) / 'Arcade'
+            arcade.mkdir()
+            (arcade / 'state.json').write_text('{"favourites":[]}', encoding='utf-8')
+
+            def git_output(_path, args):
+                if args[:2] == ['status', '--porcelain=v2']:
+                    return '# branch.head migration/nexus\n# branch.ab +2 -1\n? draft.txt\n'
+                if args[:2] == ['log', '-1'] and '--' in args:
+                    return '1700000000\n'
+                if args[:2] == ['log', '-1']:
+                    return 'abcdef\x1fabc123\x1f1700000000\x1fNexus service\n'
+                if args[:2] == ['remote', 'get-url']:
+                    return 'git@github.com:example/cyrune.git\n'
+                raise AssertionError(args)
+
+            with patch.object(HOST, '_run_git', side_effect=git_output), \
+                    patch.object(HOST, 'load_config', return_value={'databasePath': str(portal)}), \
+                    patch.object(HOST, '_default_arcade_data_root', return_value=str(arcade)), \
+                    patch.object(HOST, 'emugui_service_status', return_value={'available': True, 'collectionCount': 3}), \
+                    patch.object(HOST, 'NEXUS_DATA_ROOT', str(Path(directory) / 'Nexus')), \
+                    patch.object(HOST, 'NEXUS_SETTINGS_PATH', str(Path(directory) / 'Nexus' / 'settings.json')), \
+                    patch.object(HOST, 'NEXUS_VALIDATION_PATH', str(Path(directory) / 'Nexus' / 'validation.json')):
+                snapshot = HOST.nexus_project_status()
+            self.assertEqual(snapshot['repository']['branch'], 'migration/nexus')
+            self.assertTrue(snapshot['repository']['available'])
+            self.assertEqual(snapshot['repository']['remoteUrl'], 'https://github.com/example/cyrune')
+            self.assertNotIn('path', snapshot['repository'])
+            self.assertEqual(snapshot['schemaVersion'], 2)
+            self.assertEqual(snapshot['data']['portal']['schema'], {'valid': True, 'version': 2})
+            self.assertEqual(snapshot['data']['portal']['health']['code'], 'portal-backup-missing')
+            self.assertEqual(snapshot['data']['arcade']['health']['code'], 'arcade-data-healthy')
+            self.assertEqual(snapshot['data']['arcade']['schema'], {'valid': True, 'version': None})
+            self.assertEqual(snapshot['data']['nexus']['health']['code'], 'nexus-settings-defaults')
+            self.assertEqual(snapshot['services']['host']['health']['code'], 'host-healthy')
+            self.assertEqual(snapshot['data']['portal']['location'], str(portal))
+            self.assertEqual(snapshot['data']['arcade']['service']['collectionCount'], 3)
+            self.assertNotIn('activeCollection', snapshot['data']['arcade']['service'])
+
+    def test_nexus_status_keeps_partial_health_failures_sanitized_and_independent(self):
+        with TemporaryDirectory(dir=TEST_TEMP_ROOT) as directory:
+            root = Path(directory)
+            portal = root / 'portal.json'
+            portal.write_text('{broken', encoding='utf-8')
+            arcade = root / 'Arcade'
+            arcade.mkdir()
+            (arcade / 'state.json').write_text('[]', encoding='utf-8')
+            nexus = root / 'Nexus'
+            nexus.mkdir()
+            settings_path = nexus / 'settings.json'
+            settings_path.write_text('{broken', encoding='utf-8')
+
+            def git_output(_path, args):
+                if args[:2] == ['status', '--porcelain=v2']:
+                    return '# branch.head main\n'
+                if args[:2] == ['log', '-1'] and '--' in args:
+                    return '1700000000\n'
+                if args[:2] == ['log', '-1']:
+                    return 'abcdef\x1fabc123\x1f1700000000\x1fHealth adapters\n'
+                if args[:2] == ['remote', 'get-url']:
+                    return ''
+                raise AssertionError(args)
+
+            with patch.object(HOST, '_run_git', side_effect=git_output), \
+                    patch.object(HOST, 'load_config', return_value={'databasePath': str(portal)}), \
+                    patch.object(HOST, '_default_arcade_data_root', return_value=str(arcade)), \
+                    patch.object(HOST, 'emugui_service_status', side_effect=RuntimeError('private path')), \
+                    patch.object(HOST, 'NEXUS_DATA_ROOT', str(nexus)), \
+                    patch.object(HOST, 'NEXUS_SETTINGS_PATH', str(settings_path)), \
+                    patch.object(HOST, 'NEXUS_VALIDATION_PATH', str(nexus / 'validation.json')):
+                snapshot = HOST.nexus_project_status()
+
+            self.assertEqual(snapshot['data']['portal']['health']['code'], 'portal-database-invalid')
+            self.assertEqual(snapshot['data']['arcade']['health']['code'], 'arcade-service-unavailable')
+            self.assertEqual(snapshot['data']['nexus']['health']['code'], 'nexus-settings-invalid')
+            self.assertTrue(snapshot['repository']['available'])
+            serialized = json.dumps(snapshot)
+            self.assertNotIn('private path', serialized)
+            self.assertNotIn(str(root), json.dumps({
+                'portalHealth': snapshot['data']['portal']['health'],
+                'arcadeHealth': snapshot['data']['arcade']['health'],
+                'nexusHealth': snapshot['data']['nexus']['health']
+            }))
+
+    def test_nexus_remote_and_validation_receipt_remove_secrets_and_unknown_fields(self):
+        self.assertEqual(
+            HOST._git_remote_link('https://user:token@example.com/owner/repo.git?private=1#fragment'),
+            'https://example.com/owner/repo'
+        )
+        with TemporaryDirectory(dir=TEST_TEMP_ROOT) as directory:
+            receipt_path = Path(directory) / 'validation.json'
+            receipt_path.write_text(json.dumps({
+                'schemaVersion': 1,
+                'timestamp': 1700000000000,
+                'commit': 'abcdef1234567',
+                'versions': {'Nexus': '0.1.1', 'Secret': 'C:\\private'},
+                'tests': {'Nexus': {'passed': 8, 'output': 'private'}, 'Tooling': {'passed': 3}, 'Secret': 1},
+                'checks': {'lint': 'passed', 'command': 'private'},
+                'path': 'C:\\private'
+            }), encoding='utf-8')
+            with patch.object(HOST, 'NEXUS_VALIDATION_PATH', str(receipt_path)):
+                sanitized = HOST._sanitized_validation_receipt()
+        self.assertEqual(sanitized['versions'], {'Nexus': '0.1.1'})
+        self.assertEqual(sanitized['tests'], {'Nexus': {'passed': 8}, 'Tooling': {'passed': 3}})
+        self.assertEqual(sanitized['checks'], {'lint': 'passed'})
+        self.assertNotIn('path', sanitized)
+
+    def test_conditional_write_accepts_metadata_only_change(self):
+        with TemporaryDirectory(dir=TEST_TEMP_ROOT) as directory:
+            path = Path(directory) / 'hub.json'
+            path.write_text('{"value":1}', encoding='utf-8')
+            baseline = HOST.get_file_info(path, include_hash=True)
+            next_mtime = (path.stat().st_mtime_ns + 2_000_000_000) / 1_000_000_000
+            os.utime(path, (next_mtime, next_mtime))
+
+            result = HOST.write_file_if_unchanged(
+                path,
+                '{"value":2}',
+                expected_version=baseline['version'],
+                expected_hash=baseline['contentHash']
+            )
+
+            self.assertFalse(result['conflict'])
+            self.assertEqual(path.read_text(encoding='utf-8'), '{"value":2}')
+
+    def test_conditional_write_rejects_changed_content(self):
+        with TemporaryDirectory(dir=TEST_TEMP_ROOT) as directory:
+            path = Path(directory) / 'hub.json'
+            path.write_text('{"value":1}', encoding='utf-8')
+            baseline = HOST.get_file_info(path, include_hash=True)
+            HOST.atomic_write_text(path, '{"external":true}')
+
+            result = HOST.write_file_if_unchanged(
+                path,
+                '{"value":2}',
+                expected_version=baseline['version'],
+                expected_hash=baseline['contentHash']
+            )
+
+            self.assertTrue(result['conflict'])
+            self.assertEqual(path.read_text(encoding='utf-8'), '{"external":true}')
+
+    def test_identical_content_is_already_current(self):
+        with TemporaryDirectory(dir=TEST_TEMP_ROOT) as directory:
+            path = Path(directory) / 'hub.json'
+            path.write_text('{"value":1}', encoding='utf-8')
+            baseline = HOST.get_file_info(path, include_hash=True)
+            HOST.atomic_write_text(path, '{"value":200}')
+
+            result = HOST.write_file_if_unchanged(
+                path,
+                '{"value":200}',
+                expected_version=baseline['version'],
+                expected_hash=baseline['contentHash']
+            )
+
+            self.assertFalse(result['conflict'])
+            self.assertTrue(result['alreadyCurrent'])
+
+    def test_concurrent_writers_cannot_both_replace_same_baseline(self):
+        with TemporaryDirectory(dir=TEST_TEMP_ROOT) as directory:
+            path = Path(directory) / 'hub.json'
+            path.write_text('{"value":0}', encoding='utf-8')
+            baseline = HOST.get_file_info(path, include_hash=True)
+
+            def write(value):
+                return HOST.write_file_if_unchanged(
+                    path,
+                    f'{{"value":{value}}}',
+                    expected_version=baseline['version'],
+                    expected_hash=baseline['contentHash']
+                )
+
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                results = list(executor.map(write, (1, 2)))
+
+            self.assertEqual(sum(result['conflict'] is False for result in results), 1)
+            self.assertEqual(sum(result['conflict'] is True for result in results), 1)
+            self.assertIn(path.read_text(encoding='utf-8'), ('{"value":1}', '{"value":2}'))
+
+    def test_chunk_read_rejects_a_different_file_version(self):
+        with TemporaryDirectory(dir=TEST_TEMP_ROOT) as directory:
+            path = Path(directory) / 'hub.json'
+            path.write_text('x' * 2048, encoding='utf-8')
+            fixed_ns = 1_700_000_000_000_000_000
+            os.utime(path, ns=(fixed_ns, fixed_ns))
+            first = HOST.read_file_chunk(path, 0, 256)
+            self.assertIn(first['fileInfo']['contentHash'], first['readVersion'])
+            HOST.atomic_write_text(path, 'y' * 2048)
+            os.utime(path, ns=(fixed_ns, fixed_ns))
+            self.assertEqual(HOST.get_file_info(path)['version'], first['fileInfo']['version'])
+            with self.assertRaisesRegex(RuntimeError, 'changed during chunked read'):
+                HOST.read_file_chunk(path, 256, 256, first['readVersion'])
+
+    def test_theme_paths_are_confined_to_the_theme_directory(self):
+        with TemporaryDirectory(dir=TEST_TEMP_ROOT) as directory:
+            target = HOST.resolve_theme_path(directory, 'safe-theme')
+            self.assertEqual(Path(target).name, 'safe-theme.json')
+            with self.assertRaises(ValueError):
+                HOST.resolve_theme_path(directory, '../escape')
+
+    def test_database_backups_are_coalesced_within_one_minute(self):
+        with TemporaryDirectory(dir=TEST_TEMP_ROOT) as directory:
+            path = Path(directory) / 'hub.json'
+            path.write_text('{"value":1}', encoding='utf-8')
+            first = HOST.backup_database_file(path)
+            second = HOST.backup_database_file(path)
+            self.assertEqual(first, second)
+            self.assertEqual(len(list((Path(directory) / 'backups').glob('*.json'))), 1)
+
+    def test_backup_timeline_reports_integrity_and_summary(self):
+        with TemporaryDirectory(dir=TEST_TEMP_ROOT) as directory:
+            path = Path(directory) / 'hub.json'
+            path.write_text('{"schemaVersion":2,"boards":[{"tabs":[{}]}],"sets":[],"tags":[],"settings":{}}', encoding='utf-8')
+            first = HOST.backup_database_file(path, force=True)
+            second = HOST.backup_database_file(path, force=True)
+            self.assertNotEqual(first, second)
+            backups = HOST.list_database_backups(path)
+            self.assertEqual(len(backups), 2)
+            self.assertEqual(backups[0]['integrity'], 'ok')
+            self.assertEqual(backups[0]['summary']['schemaVersion'], 2)
+            self.assertEqual(backups[0]['summary']['tabs'], 1)
+
+    def test_backup_paths_are_confined_to_configured_backup_directory(self):
+        with TemporaryDirectory(dir=TEST_TEMP_ROOT) as directory:
+            path = Path(directory) / 'hub.json'
+            path.write_text('{}', encoding='utf-8')
+            backup = Path(HOST.backup_database_file(path, force=True))
+            resolved = HOST.resolve_database_backup_path(path, backup.name)
+            self.assertEqual(Path(resolved), backup)
+            with self.assertRaises(ValueError):
+                HOST.resolve_database_backup_path(path, '../outside.json')
+
+    def test_corrupt_backup_is_visible_but_not_marked_safe(self):
+        with TemporaryDirectory(dir=TEST_TEMP_ROOT) as directory:
+            path = Path(directory) / 'hub.json'
+            path.write_text('{}', encoding='utf-8')
+            backup = Path(HOST.backup_database_file(path, force=True))
+            backup.write_text('{broken', encoding='utf-8')
+            listed = HOST.list_database_backups(path)
+            self.assertEqual(listed[0]['integrity'], 'invalid-json')
+
+    def test_backup_chunk_read_detects_mid_read_change(self):
+        with TemporaryDirectory(dir=TEST_TEMP_ROOT) as directory:
+            path = Path(directory) / 'hub.json'
+            path.write_text('{"value":"' + ('x' * 2048) + '"}', encoding='utf-8')
+            backup = Path(HOST.backup_database_file(path, force=True))
+            first = HOST.read_database_backup_chunk(path, backup.name, 0, 256)
+            HOST.atomic_write_text(backup, '{"changed":true}')
+            with self.assertRaisesRegex(RuntimeError, 'changed during chunked read'):
+                HOST.read_database_backup_chunk(path, backup.name, 256, 256, first['readVersion'])
+
+    def test_system_metrics_return_only_requested_aggregate_fields(self):
+        metrics = HOST.collect_system_metrics(['memory', 'uptime', 'unknown', 'memory'])
+        self.assertIn('sampledAt', metrics)
+        self.assertIn('memory', metrics)
+        self.assertIn('uptime', metrics)
+        self.assertNotIn('cpu', metrics)
+        self.assertNotIn('unknown', metrics)
+        if metrics['memory'] is not None:
+            self.assertGreater(metrics['memory']['totalBytes'], 0)
+
+    def test_approved_directory_handles_do_not_expose_paths_in_portable_config(self):
+        with TemporaryDirectory(dir=TEST_TEMP_ROOT) as directory:
+            config_path = Path(directory) / 'native-config.json'
+            repository = Path(directory) / 'repo'
+            repository.mkdir()
+            original = HOST.CONFIG_PATH
+            HOST.CONFIG_PATH = str(config_path)
+            try:
+                approved = HOST.approve_directory('git', selected_path=str(repository))
+                self.assertRegex(approved['handle'], r'^dir_[A-Za-z0-9_-]+$')
+                resolved, entry = HOST.resolve_approved_directory(approved['handle'], 'git')
+                self.assertEqual(Path(resolved), repository)
+                self.assertEqual(entry['purpose'], 'git')
+                HOST.save_config({'databasePath': str(Path(directory) / 'hub.json')})
+                self.assertIn(approved['handle'], HOST.load_config()['approvedDirectories'])
+                with self.assertRaisesRegex(ValueError, 'does not grant'):
+                    HOST.resolve_approved_directory(approved['handle'], 'recent-files')
+            finally:
+                HOST.CONFIG_PATH = original
+
+    def test_git_workspace_parses_branch_changes_and_remote_safely(self):
+        with TemporaryDirectory(dir=TEST_TEMP_ROOT) as directory:
+            config_path = Path(directory) / 'native-config.json'
+            repository = Path(directory) / 'repo'
+            repository.mkdir()
+            original = HOST.CONFIG_PATH
+            HOST.CONFIG_PATH = str(config_path)
+            try:
+                approved = HOST.approve_directory('git', selected_path=str(repository))
+                outputs = iter([
+                    '# branch.head feature\n# branch.ab +2 -1\n1 MM N... 100644 100644 100644 a b file.txt\n? new.txt\n',
+                    'abcdef\x1fabc123\x1f1700000000\x1fUseful commit\n',
+                    'git@github.com:example/project.git\n'
+                ])
+                with patch.object(HOST, '_run_git', side_effect=lambda *args, **kwargs: next(outputs)):
+                    result = HOST.git_workspace_status(approved['handle'])
+                self.assertEqual(result['branch'], 'feature')
+                self.assertEqual((result['ahead'], result['behind']), (2, 1))
+                self.assertEqual((result['staged'], result['unstaged'], result['untracked']), (1, 2, 1))
+                self.assertEqual(result['remoteUrl'], 'https://github.com/example/project')
+            finally:
+                HOST.CONFIG_PATH = original
+
+    def test_windows_terminal_launch_uses_approved_directory_without_shell_text(self):
+        approved_path = r'F:\Projects\Repository & Notes'
+        terminal_path = r'C:\Users\tester\AppData\Local\Microsoft\WindowsApps\wt.exe'
+        with patch.object(HOST, 'resolve_approved_directory', return_value=(approved_path, {})), \
+                patch.object(HOST.sys, 'platform', 'win32'), \
+                patch.object(HOST.shutil, 'which', side_effect=lambda name: terminal_path if name == 'wt.exe' else None), \
+                patch.object(HOST.subprocess, 'Popen') as popen:
+            self.assertTrue(HOST.open_approved_directory('dir_abcdefghijklmnop', 'git', 'terminal'))
+
+        popen.assert_called_once_with(
+            [terminal_path, '-d', approved_path], cwd=approved_path, close_fds=True
+        )
+
+    def test_windows_terminal_launch_falls_back_to_visible_powershell(self):
+        approved_path = r'F:\Projects\Repository'
+        powershell_path = r'C:\Program Files\PowerShell\7\pwsh.exe'
+        with patch.object(HOST.sys, 'platform', 'win32'), \
+                patch.object(HOST.shutil, 'which', side_effect=lambda name: powershell_path if name == 'pwsh.exe' else None), \
+                patch.object(HOST.subprocess, 'Popen') as popen:
+            HOST._launch_terminal(approved_path)
+
+        popen.assert_called_once_with(
+            [powershell_path, '-NoExit', '-NoLogo'], cwd=approved_path, close_fds=True,
+            creationflags=getattr(HOST.subprocess, 'CREATE_NEW_CONSOLE', 0)
+        )
+
+    def test_recent_files_are_bounded_filtered_and_path_relative(self):
+        with TemporaryDirectory(dir=TEST_TEMP_ROOT) as directory:
+            config_path = Path(directory) / 'native-config.json'
+            root = Path(directory) / 'downloads'
+            nested = root / 'nested'
+            nested.mkdir(parents=True)
+            (root / 'recent.pdf').write_text('pdf', encoding='utf-8')
+            (root / 'ignored.txt').write_text('txt', encoding='utf-8')
+            (nested / 'nested.pdf').write_text('nested', encoding='utf-8')
+            original = HOST.CONFIG_PATH
+            HOST.CONFIG_PATH = str(config_path)
+            try:
+                approved = HOST.approve_directory('recent-files', selected_path=str(root))
+                result = HOST.list_recent_files(approved['handle'], ['pdf'], 24, 10, recursive=True)
+                self.assertEqual({item['relativePath'] for item in result['files']}, {'recent.pdf', 'nested/nested.pdf'})
+                self.assertTrue(all('path' not in item for item in result['files']))
+                with self.assertRaisesRegex(ValueError, 'escapes'):
+                    HOST._approved_child_path(approved['handle'], 'recent-files', '../outside.txt')
+            finally:
+                HOST.CONFIG_PATH = original
+
+    def test_application_approval_keeps_paths_native_and_rebinds_by_key(self):
+        with TemporaryDirectory(dir=TEST_TEMP_ROOT) as directory:
+            config_path = Path(directory) / 'native-config.json'
+            executable = Path(directory) / 'Useful App.exe'
+            executable.write_bytes(b'MZ')
+            replacement = Path(directory) / 'Useful App 2.exe'
+            replacement.write_bytes(b'MZ')
+            original = HOST.CONFIG_PATH
+            HOST.CONFIG_PATH = str(config_path)
+            try:
+                with patch.object(HOST.sys, 'platform', 'win32'), \
+                        patch.object(HOST, '_application_icon_data_url', return_value='data:image/png;base64,aWNvbg=='):
+                    approved = HOST.approve_application(selected_path=str(executable))
+                    self.assertRegex(approved['appKey'], r'^app_[A-Za-z0-9_-]+$')
+                    self.assertNotIn('path', approved)
+                    self.assertEqual(approved['state'], 'ready')
+                    self.assertEqual(HOST.application_status(approved['appKey'])['state'], 'ready')
+                    rebound = HOST.approve_application(approved['appKey'], selected_path=str(replacement))
+                    self.assertEqual(rebound['appKey'], approved['appKey'])
+                    resolved, _ = HOST.resolve_approved_application(approved['appKey'])
+                    self.assertEqual(Path(resolved), replacement)
+                stored = json.loads(config_path.read_text(encoding='utf-8'))
+                self.assertIn(str(replacement), stored['approvedApplications'][approved['appKey']]['path'])
+            finally:
+                HOST.CONFIG_PATH = original
+
+    def test_application_launch_uses_only_the_approved_path(self):
+        approved_path = r'F:\Apps\Useful & Safe.exe'
+        with patch.object(HOST, 'resolve_approved_application', return_value=(approved_path, {'kind': 'executable'})), \
+                patch.object(HOST.sys, 'platform', 'win32'), \
+                patch.object(HOST.subprocess, 'Popen') as popen:
+            self.assertTrue(HOST.launch_approved_application('app_abcdefghijklmnop'))
+        popen.assert_called_once_with([approved_path], cwd=r'F:\Apps', close_fds=True)
+
+    def test_dropped_protocol_link_is_stored_without_a_page_visible_path(self):
+        with TemporaryDirectory(dir=TEST_TEMP_ROOT) as directory:
+            config_path = Path(directory) / 'native-config.json'
+            original = HOST.CONFIG_PATH
+            HOST.CONFIG_PATH = str(config_path)
+            try:
+                with patch.object(HOST, '_application_link_icon_data_url', return_value=''):
+                    approved = HOST.approve_application_link(
+                        title="Baldur's Gate 3", target_uri='steam://rungameid/1086940'
+                    )
+                self.assertEqual(approved['kind'], 'protocol-link')
+                self.assertNotIn('path', approved)
+                stored = json.loads(config_path.read_text(encoding='utf-8'))['approvedApplications'][approved['appKey']]
+                self.assertNotIn('path', stored)
+                self.assertEqual(stored['targetUri'], 'steam://rungameid/1086940')
+                with patch.object(HOST.sys, 'platform', 'win32'), \
+                        patch.object(HOST.subprocess, 'Popen') as popen:
+                    self.assertTrue(HOST.launch_approved_application(approved['appKey']))
+                popen.assert_called_once_with(
+                    ['explorer.exe', 'steam://rungameid/1086940'], close_fds=True,
+                    creationflags=getattr(HOST.subprocess, 'CREATE_NO_WINDOW', 0)
+                )
+            finally:
+                HOST.CONFIG_PATH = original
+
+    def test_steam_protocol_link_accepts_only_a_steam_icon_cache_hint(self):
+        with TemporaryDirectory(dir=TEST_TEMP_ROOT) as directory:
+            config_path = Path(directory) / 'native-config.json'
+            icon_dir = Path(directory) / 'steam' / 'games'
+            icon_dir.mkdir(parents=True)
+            icon_path = icon_dir / 'bg3.ico'
+            icon_path.write_bytes(b'icon')
+            original = HOST.CONFIG_PATH
+            HOST.CONFIG_PATH = str(config_path)
+            try:
+                with patch.object(HOST.sys, 'platform', 'win32'), \
+                        patch.object(HOST, '_application_icon_data_url', return_value='data:image/png;base64,aWNvbg=='), \
+                        patch.object(HOST, '_steam_cached_app_icon_data_url', return_value=''), \
+                        patch.object(HOST, '_steam_store_art_data_url', return_value=''):
+                    approved = HOST.approve_application_link(
+                        title="Baldur's Gate 3", target_uri='steam://rungameid/1086940', icon_hint=str(icon_path)
+                    )
+                    rejected_hint = HOST._application_link_icon_data_url(
+                        'steam://rungameid/1086940', str(Path(directory) / 'private.ico')
+                    )
+                self.assertEqual(approved['iconDataUrl'], 'data:image/png;base64,aWNvbg==')
+                self.assertEqual(rejected_hint, '')
+                stored = json.loads(config_path.read_text(encoding='utf-8'))['approvedApplications'][approved['appKey']]
+                self.assertNotIn('iconHint', stored)
+                self.assertNotIn('iconSourcePath', stored)
+            finally:
+                HOST.CONFIG_PATH = original
+
+    def test_steam_protocol_link_uses_the_bounded_local_app_cache_icon(self):
+        with TemporaryDirectory(dir=TEST_TEMP_ROOT) as directory:
+            cache_dir = Path(directory) / 'librarycache'
+            app_dir = cache_dir / '977400'
+            app_dir.mkdir(parents=True)
+            image = b'\xff\xd8\xff' + b'cell-icon'
+            (app_dir / '130a3091d6e6ae68e7204b21bfa2b4fec02c3d8d.jpg').write_bytes(image)
+            with patch.object(HOST.sys, 'platform', 'win32'), \
+                    patch.object(HOST, '_steam_library_cache_dir', return_value=str(cache_dir)), \
+                    patch.object(HOST, '_steam_store_art_data_url') as store_art:
+                result = HOST._application_link_icon_data_url('steam://rungameid/977400')
+            self.assertEqual(result, 'data:image/jpeg;base64,' + base64.b64encode(image).decode('ascii'))
+            store_art.assert_not_called()
+
+    def test_steam_protocol_link_uses_official_store_art_when_local_cache_is_empty(self):
+        expected = 'data:image/jpeg;base64,c3RlYW0='
+        with patch.object(HOST.sys, 'platform', 'win32'), \
+                patch.object(HOST, '_steam_cached_app_icon_data_url', return_value=''), \
+                patch.object(HOST, '_download_favicon_candidate', return_value={'dataUrl': expected}) as download:
+            result = HOST._application_link_icon_data_url('steam://rungameid/977400')
+        self.assertEqual(result, expected)
+        self.assertEqual(
+            download.call_args.args[0],
+            'https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/977400/library_600x900.jpg'
+        )
+
+    def test_application_status_backfills_a_missing_protocol_link_icon(self):
+        with TemporaryDirectory(dir=TEST_TEMP_ROOT) as directory:
+            config_path = Path(directory) / 'native-config.json'
+            app_key = 'app_abcdefghijklmnop'
+            original = HOST.CONFIG_PATH
+            HOST.CONFIG_PATH = str(config_path)
+            try:
+                HOST.save_config({'approvedApplications': {app_key: {
+                    'targetUri': 'steam://rungameid/977400',
+                    'kind': 'protocol-link',
+                    'label': 'Cell to Singularity',
+                    'iconDataUrl': ''
+                }}})
+                with patch.object(HOST, '_application_link_icon_data_url', return_value='data:image/jpeg;base64,Y2VsbA=='):
+                    status = HOST.application_status(app_key)
+                self.assertEqual(status['iconDataUrl'], 'data:image/jpeg;base64,Y2VsbA==')
+                stored = json.loads(config_path.read_text(encoding='utf-8'))
+                self.assertEqual(
+                    stored['approvedApplications'][app_key]['iconDataUrl'],
+                    'data:image/jpeg;base64,Y2VsbA=='
+                )
+            finally:
+                HOST.CONFIG_PATH = original
+
+    def test_windows_icon_extraction_passes_the_path_over_stdin(self):
+        encoded = base64.b64encode(b'\x89PNG\r\n\x1a\nicon').decode('ascii')
+        completed = type('Completed', (), {'stdout': encoded})()
+        path = r'F:\Apps\Useful & Safe.exe'
+        with patch.object(HOST.sys, 'platform', 'win32'), \
+                patch.object(HOST.subprocess, 'run', return_value=completed) as run:
+            result = HOST._application_icon_data_url(path)
+        self.assertEqual(result, f'data:image/png;base64,{encoded}')
+        self.assertNotIn(path, run.call_args.args[0])
+        self.assertEqual(run.call_args.kwargs['input'], path)
+
+    def test_dropped_protocol_link_rejects_web_and_arbitrary_schemes(self):
+        for target in ('https://example.com/', 'file:///C:/Windows/System32/cmd.exe', 'javascript:alert(1)'):
+            with self.subTest(target=target):
+                with self.assertRaisesRegex(ValueError, 'approved game and application protocol'):
+                    HOST.approve_application_link(title='Unsafe', target_uri=target)
+
+    def test_windows_game_uri_shortcut_can_be_approved(self):
+        with TemporaryDirectory(dir=TEST_TEMP_ROOT) as directory:
+            config_path = Path(directory) / 'native-config.json'
+            shortcut = Path(directory) / "Baldur's Gate 3.url"
+            shortcut.write_text('[InternetShortcut]\nURL=steam://rungameid/1086940\n', encoding='utf-8')
+            original = HOST.CONFIG_PATH
+            HOST.CONFIG_PATH = str(config_path)
+            try:
+                with patch.object(HOST.sys, 'platform', 'win32'), \
+                        patch.object(HOST, '_application_icon_data_url', return_value=''):
+                    approved = HOST.approve_application(selected_path=str(shortcut))
+                    self.assertEqual(approved['kind'], 'uri-shortcut')
+                    self.assertNotIn('path', approved)
+                    self.assertEqual(HOST.application_status(approved['appKey'])['state'], 'ready')
+            finally:
+                HOST.CONFIG_PATH = original
+
+    def test_windows_web_url_shortcut_is_not_an_application(self):
+        with TemporaryDirectory(dir=TEST_TEMP_ROOT) as directory:
+            shortcut = Path(directory) / 'Website.url'
+            shortcut.write_text('[InternetShortcut]\nURL=https://example.com/\n', encoding='utf-8')
+            with patch.object(HOST.sys, 'platform', 'win32'):
+                with self.assertRaisesRegex(ValueError, 'approved game and application protocol'):
+                    HOST._application_kind(str(shortcut))
+
+    def test_windows_uri_shortcut_rejects_conflicting_targets(self):
+        with TemporaryDirectory(dir=TEST_TEMP_ROOT) as directory:
+            shortcut = Path(directory) / 'Conflicting.url'
+            shortcut.write_text(
+                '[InternetShortcut]\nURL=steam://rungameid/1086940\nURL=https://example.com/\n',
+                encoding='utf-8'
+            )
+            with patch.object(HOST.sys, 'platform', 'win32'):
+                with self.assertRaisesRegex(ValueError, 'one application target'):
+                    HOST._application_kind(str(shortcut))
+
+    def test_application_status_is_unbound_without_native_mapping(self):
+        with TemporaryDirectory(dir=TEST_TEMP_ROOT) as directory:
+            original = HOST.CONFIG_PATH
+            HOST.CONFIG_PATH = str(Path(directory) / 'native-config.json')
+            try:
+                status = HOST.application_status('app_abcdefghijklmnop')
+                self.assertEqual(status['state'], 'unbound')
+                self.assertNotIn('path', status)
+            finally:
+                HOST.CONFIG_PATH = original
+
+    def test_windows_application_picker_passes_titles_as_data(self):
+        hostile_title = "Select Bob's app'; Write-Output injected; #"
+        completed = type('Completed', (), {'stdout': r'C:\Apps\Editor.exe'})()
+        with patch.object(HOST.sys, 'platform', 'win32'), \
+                patch.dict(HOST.sys.modules, {'tkinter': None}), \
+                patch.object(HOST.subprocess, 'run', return_value=completed) as run:
+            selected = HOST.open_file_picker('application', hostile_title)
+        arguments = run.call_args.args[0]
+        self.assertEqual(selected, r'C:\Apps\Editor.exe')
+        self.assertNotIn(hostile_title, arguments[4])
+        self.assertEqual(arguments[-2], hostile_title)
+
+    def test_emugui_status_loads_configured_service_without_exposing_paths(self):
+        with TemporaryDirectory(dir=TEST_TEMP_ROOT) as directory:
+            root = Path(directory) / 'EmuGUI'
+            root.mkdir()
+            (root / 'emugui_service.py').write_text(
+                "def dispatch_emugui_read(method):\n"
+                "    assert method == 'STATUS'\n"
+                "    return {\n"
+                "        'serviceVersion': 1,\n"
+                "        'active': {'id': 'spectrum', 'name': 'ZX Spectrum', 'root': 'C:/private'},\n"
+                "        'collections': [{}, {}],\n"
+                "        'emulators': [{}],\n"
+                "        'profiles': [{}, {}, {}]\n"
+                "    }\n",
+                encoding='utf-8'
+            )
+            config_path = Path(directory) / 'native-config.json'
+            original_path = HOST.CONFIG_PATH
+            original_module = HOST.EMUGUI_MODULE
+            original_module_path = HOST.EMUGUI_MODULE_PATH
+            HOST.CONFIG_PATH = str(config_path)
+            HOST.EMUGUI_MODULE = None
+            HOST.EMUGUI_MODULE_PATH = ''
+            try:
+                HOST.save_config({'databasePath': '', 'emuguiRoot': str(root)})
+                status = HOST.emugui_service_status()
+                stored = HOST.load_config()
+                self.assertEqual(status['activeCollection'], {'id': 'spectrum', 'name': 'ZX Spectrum'})
+                self.assertEqual(status['collectionCount'], 2)
+                self.assertEqual(status['emulatorCount'], 1)
+                self.assertEqual(status['profileCount'], 3)
+                self.assertNotIn('root', json.dumps(status).lower())
+                self.assertEqual(stored['emuguiRoot'], str(root.resolve()))
+            finally:
+                HOST.CONFIG_PATH = original_path
+                HOST.EMUGUI_MODULE = original_module
+                HOST.EMUGUI_MODULE_PATH = original_module_path
+
+    def test_emugui_status_requires_an_explicit_configuration(self):
+        with TemporaryDirectory(dir=TEST_TEMP_ROOT) as directory:
+            original = HOST.CONFIG_PATH
+            HOST.CONFIG_PATH = str(Path(directory) / 'native-config.json')
+            try:
+                with self.assertRaisesRegex(RuntimeError, 'not configured'):
+                    HOST.emugui_service_status()
+            finally:
+                HOST.CONFIG_PATH = original
+
+    def test_emugui_service_receives_existing_native_secret_boundary(self):
+        with TemporaryDirectory(dir=TEST_TEMP_ROOT) as directory:
+            root = Path(directory) / 'EmuGUI'
+            root.mkdir()
+            (root / 'emugui_service.py').write_text(
+                "secret_hooks = {}\n"
+                "def configure_native_secret_service(**hooks):\n"
+                "    secret_hooks.update(hooks)\n"
+                "def dispatch_emugui_read(method):\n"
+                "    return {'serviceVersion': 1, 'active': {}, 'collections': [], 'emulators': [], 'profiles': []}\n",
+                encoding='utf-8'
+            )
+            config_path = Path(directory) / 'native-config.json'
+            original_path = HOST.CONFIG_PATH
+            original_module = HOST.EMUGUI_MODULE
+            original_module_path = HOST.EMUGUI_MODULE_PATH
+            HOST.CONFIG_PATH = str(config_path)
+            HOST.EMUGUI_MODULE = None
+            HOST.EMUGUI_MODULE_PATH = ''
+            try:
+                HOST.save_config({'databasePath': '', 'emuguiRoot': str(root)})
+                module = HOST._load_emugui_module()
+                self.assertIs(module.secret_hooks['get_secret'], HOST.secret_get)
+                self.assertIs(module.secret_hooks['set_secret'], HOST.secret_set)
+                self.assertIs(module.secret_hooks['delete_secret'], HOST.secret_delete)
+                self.assertIs(module.secret_hooks['status'], HOST.secret_status)
+            finally:
+                HOST.CONFIG_PATH = original_path
+                HOST.EMUGUI_MODULE = original_module
+                HOST.EMUGUI_MODULE_PATH = original_module_path
+
+    def test_emugui_game_binding_is_opaque_reused_and_launchable(self):
+        with TemporaryDirectory(dir=TEST_TEMP_ROOT) as directory:
+            root = Path(directory)
+            (root / 'emugui_service.py').write_text('# test service\n', encoding='utf-8')
+            (root / 'web').mkdir()
+            (root / 'web' / 'index.html').write_text('<meta name="morpheus-emugui">', encoding='utf-8')
+            image = root / 'cover.png'
+            image.write_bytes(b'\x89PNG\r\n\x1a\nsmall-cover')
+            (root / 'Jetpac.tap').write_bytes(b'game')
+            launches = []
+
+            class FakeEmuGui:
+                COLLECTION = root
+
+                @staticmethod
+                def dispatch_emugui_read(method, params=None):
+                    if method == 'STATUS':
+                        return {
+                            'active': {'id': 'spectrum', 'name': 'ZX Spectrum'},
+                            'emulators': [{'id': 'eightyone', 'name': 'EightyOne', 'available': True}],
+                            'profiles': [{'id': 'profile-48k', 'name': 'Spectrum 48K', 'emulator_id': 'eightyone'}]
+                        }
+                    if method == 'GET_GAME' and params.get('gameId') == 'jetpac':
+                        return {'game': {
+                            'id': 'jetpac', 'title': 'Jetpac', 'default_emulator': 'eightyone',
+                            'loading_screen': 'cover.png', 'path': str(root / 'Jetpac.tap')
+                        }}
+                    raise ValueError('Unknown game')
+
+                @staticmethod
+                def launch_game(game_id, emulator_id, profile_id=''):
+                    launches.append((game_id, emulator_id, profile_id))
+                    return {'ok': True}
+
+            config_path = root / 'native-config.json'
+            original = HOST.CONFIG_PATH
+            HOST.CONFIG_PATH = str(config_path)
+            try:
+                HOST.save_config({'databasePath': '', 'emuguiRoot': str(root)})
+                with patch.object(HOST, '_load_emugui_module', return_value=FakeEmuGui):
+                    first = HOST.create_emugui_game_binding('jetpac', 'eightyone', 'profile-48k')
+                    second = HOST.create_emugui_game_binding('jetpac', 'eightyone', 'profile-48k')
+                    stored = HOST.load_config()['approvedGames'][first['gameKey']]
+                    self.assertEqual(first['gameKey'], second['gameKey'])
+                    self.assertEqual(first['state'], 'ready')
+                    self.assertEqual(first['systemId'], 'zx-spectrum')
+                    self.assertEqual(first['systemName'], 'ZX Spectrum')
+                    self.assertEqual(first['tags'], ['Games', 'ZX Spectrum'])
+                    self.assertEqual(first['emulatorName'], 'EightyOne')
+                    self.assertEqual(first['profileName'], 'Spectrum 48K')
+                    self.assertEqual(stored['systemId'], 'zx-spectrum')
+                    self.assertEqual(stored['emulatorName'], 'EightyOne')
+                    self.assertEqual(stored['profileName'], 'Spectrum 48K')
+                    self.assertTrue(first['thumbnailCache'].startswith('data:image/png;base64,'))
+                    self.assertNotIn('path', json.dumps(first).lower())
+                    self.assertNotIn('path', json.dumps(stored).lower())
+                    self.assertTrue(HOST.launch_emugui_game(first['gameKey']))
+                    self.assertEqual(launches, [('jetpac', 'eightyone', 'profile-48k')])
+                    self.assertEqual(HOST.emugui_game_status(first['gameKey'])['state'], 'ready')
+                    self.assertTrue(HOST.emugui_game_status(first['gameKey'], True)['thumbnailCache'].startswith('data:image/png;base64,'))
+                    link = HOST.emugui_game_link(first['gameKey'], rebind=True)
+                    self.assertTrue(link.startswith('file:'))
+                    self.assertIn('/web/index.html?', link)
+                    self.assertIn('game=jetpac', link)
+                    self.assertIn(f'hubRebind={first["gameKey"]}', link)
+                    self.assertNotIn('Jetpac.tap', link)
+                    rebound = HOST.rebind_emugui_game(first['gameKey'], 'jetpac', 'eightyone', 'profile-48k')
+                    self.assertEqual(rebound['gameKey'], first['gameKey'])
+                    with patch.object(HOST.subprocess, 'Popen') as opened, patch.object(HOST.sys, 'platform', 'win32'):
+                        self.assertTrue(HOST.reveal_emugui_game(first['gameKey']))
+                        self.assertEqual(opened.call_args.args[0][:2], ['explorer.exe', '/select,'])
+                    self.assertTrue(HOST.forget_emugui_game(first['gameKey']))
+                    self.assertEqual(HOST.emugui_game_status(first['gameKey'])['state'], 'unbound')
+            finally:
+                HOST.CONFIG_PATH = original
+
+    def test_emugui_game_status_reports_actionable_binding_failures(self):
+        with TemporaryDirectory(dir=TEST_TEMP_ROOT) as directory:
+            root = Path(directory)
+            (root / 'emugui_service.py').write_text('# test service\n', encoding='utf-8')
+            (root / 'web').mkdir()
+            (root / 'web' / 'index.html').write_text('<meta name="morpheus-emugui">', encoding='utf-8')
+            config_path = root / 'native-config.json'
+            original = HOST.CONFIG_PATH
+            HOST.CONFIG_PATH = str(config_path)
+            game_key = 'game_abcdefghijklmnop'
+            entry = {
+                'libraryId': 'spectrum', 'gameId': 'jetpac', 'emulatorId': 'eightyone',
+                'profileId': 'profile-48k', 'label': 'Jetpac'
+            }
+            HOST.save_config({'emuguiRoot': str(root), 'approvedGames': {game_key: entry}})
+            control = {'active': 'other', 'game': True, 'emulator': True, 'profile': True}
+
+            class FakeEmuGui:
+                COLLECTION = root
+
+                @staticmethod
+                def dispatch_emugui_read(method, params=None):
+                    if method == 'STATUS':
+                        return {
+                            'active': {'id': control['active']},
+                            'emulators': ([{'id': 'eightyone', 'name': 'EightyOne', 'available': True}] if control['emulator'] else []),
+                            'profiles': ([{'id': 'profile-48k', 'name': '48K', 'emulator_id': 'eightyone'}] if control['profile'] else [])
+                        }
+                    if method == 'GET_GAME' and control['game']:
+                        return {'game': {'id': 'jetpac', 'title': 'Jetpac', 'path': str(root / 'Jetpac.tap')}}
+                    raise ValueError('Unknown game')
+
+            try:
+                with patch.object(HOST, '_load_emugui_module', return_value=FakeEmuGui):
+                    self.assertEqual(HOST.emugui_game_status(game_key)['state'], 'library-missing')
+                    control['active'] = 'spectrum'
+                    control['game'] = False
+                    self.assertEqual(HOST.emugui_game_status(game_key)['state'], 'game-missing')
+                    control['game'] = True
+                    control['emulator'] = False
+                    self.assertEqual(HOST.emugui_game_status(game_key)['state'], 'emulator-missing')
+                    control['emulator'] = True
+                    control['profile'] = False
+                    self.assertEqual(HOST.emugui_game_status(game_key)['state'], 'profile-missing')
+                    self.assertIn('game=jetpac', HOST.emugui_game_link(game_key))
+            finally:
+                HOST.CONFIG_PATH = original
+
+    def test_emugui_file_page_authorization_is_exact_and_query_safe(self):
+        with TemporaryDirectory(dir=TEST_TEMP_ROOT) as directory:
+            root = Path(directory) / 'EmuGUI'
+            (root / 'web').mkdir(parents=True)
+            (root / 'web' / 'index.html').write_text('<meta name="morpheus-emugui">', encoding='utf-8')
+            (root / 'emugui_service.py').write_text('# test service\n', encoding='utf-8')
+            original = HOST.CONFIG_PATH
+            HOST.CONFIG_PATH = str(Path(directory) / 'native-config.json')
+            try:
+                HOST.save_config({'emuguiRoot': str(root)})
+                page_url = (root / 'web' / 'index.html').as_uri()
+                self.assertTrue(HOST.authorize_emugui_page(page_url + '?game=jetpac'))
+                self.assertFalse(HOST.authorize_emugui_page((root / 'web' / 'other.html').as_uri()))
+                self.assertFalse(HOST.authorize_emugui_page('https://example.com/web/index.html'))
+            finally:
+                HOST.CONFIG_PATH = original
+
+    def test_emugui_api_and_asset_requests_use_the_transport_contract(self):
+        calls = []
+
+        class FakeEmuGui:
+            @staticmethod
+            def dispatch_emugui_api(method, path, query, body):
+                calls.append(('api', method, path, query, body))
+                return {'ok': True, 'games': []}
+
+            @staticmethod
+            def read_emugui_asset(path, max_bytes):
+                calls.append(('asset', path, max_bytes))
+                return {'dataUrl': 'data:image/png;base64,cG5n', 'contentType': 'image/png'}
+
+        with patch.object(HOST, '_load_emugui_module', return_value=FakeEmuGui):
+            result = HOST.emugui_api_request('get', '/api/games', {'collection': 'spectrum'}, {})
+            asset = HOST.emugui_asset('screenshots/jetpac.png')
+        self.assertEqual(result['games'], [])
+        self.assertEqual(asset['contentType'], 'image/png')
+        self.assertEqual(calls[0], ('api', 'GET', '/api/games', {'collection': 'spectrum'}, {}))
+        self.assertEqual(calls[1], ('asset', 'screenshots/jetpac.png', HOST.MAX_EMUGUI_ASSET_BYTES))
+
+    def test_large_emugui_results_are_delivered_in_bounded_native_chunks(self):
+        payload = {'ok': True, 'games': [{'title': 'Ghostbusters'}, {'title': 'Jetpac'}]}
+        chunks = []
+        HOST.EMUGUI_TRANSFERS.clear()
+        with patch.object(HOST, 'MAX_EMUGUI_TRANSFER_CHUNK_BYTES', 12):
+            transfer = HOST.start_emugui_transfer(payload)
+            transfer_id = transfer['transferId']
+            while True:
+                chunks.append(base64.b64decode(transfer['chunk']))
+                if transfer['done']:
+                    break
+                transfer = HOST.read_emugui_transfer_chunk(transfer_id, transfer['nextOffset'])
+        rebuilt = json.loads(b''.join(chunks).decode('utf-8'))
+        self.assertEqual(rebuilt, payload)
+        self.assertGreater(len(chunks), 1)
+        self.assertNotIn(transfer_id, HOST.EMUGUI_TRANSFERS)
+
+    def test_game_system_identity_covers_planned_emulator_families(self):
+        cases = (
+            ({'system': 'ZX Spectrum 128K'}, {}, ('zx-spectrum', 'ZX Spectrum')),
+            ({'system': '48K-128K'}, {}, ('zx-spectrum', 'ZX Spectrum')),
+            ({}, {'emulatorId': 'hatari'}, ('atari-st', 'Atari ST')),
+            ({'platform': 'Game Boy Color'}, {}, ('game-boy', 'Game Boy')),
+            ({}, {'emulatorId': 'snes9x'}, ('snes', 'Super Nintendo')),
+            ({}, {'emulatorId': 'scummvm'}, ('scummvm', 'ScummVM')),
+            ({}, {'emulatorId': 'dosbox-staging'}, ('dosbox', 'DOSBox')),
+            ({'system': 'Arcade'}, {}, ('mame', 'Arcade / MAME')),
+        )
+        for game, entry, expected in cases:
+            with self.subTest(expected=expected[0]):
+                self.assertEqual(HOST._game_system_info(game, entry), expected)
+
+    def test_remote_emugui_artwork_is_bounded_and_https_only(self):
+        game = {
+            'loading_screen': 'https://cdn.thegamesdb.net/images/original/boxart/front/17951-1.jpg',
+            'screenshot': 'https://example.com/fallback.png'
+        }
+        downloaded = {
+            'contentType': 'image/jpeg',
+            'dataUrl': 'data:image/jpeg;base64,aW1hZ2U=',
+            'bytes': 5
+        }
+        with patch.object(HOST, '_download_favicon_candidate', return_value=downloaded) as fetch:
+            self.assertEqual(HOST._emugui_binding_thumbnail(object(), game), downloaded['dataUrl'])
+            fetch.assert_called_once_with(game['loading_screen'], HOST.MAX_APPLICATION_ICON_BYTES)
+        with patch.object(HOST, '_download_favicon_candidate') as fetch:
+            self.assertEqual(HOST._emugui_binding_thumbnail(object(), {'screenshot': 'http://example.com/image.png'}), '')
+            fetch.assert_not_called()
+
+    def test_emugui_artwork_can_fall_back_to_an_exact_same_system_sibling(self):
+        class FakeEmuGui:
+            COLLECTION = ''
+
+            @staticmethod
+            def dispatch_emugui_read(method, params=None):
+                self.assertEqual(method, 'SEARCH_GAMES')
+                return {'games': [
+                    {'id': 'other-system', 'title': 'Ghostbusters', 'system': 'Atari ST', 'loading_screen': 'https://example.com/atari.jpg'},
+                    {'id': 'spectrum-art', 'title': 'Ghostbusters', 'system': '128K', 'loading_screen': 'https://example.com/spectrum.jpg'},
+                ]}
+
+        game = {'id': 'bound-game', 'title': 'Ghostbusters', 'system': '48K'}
+        downloaded = {'contentType': 'image/jpeg', 'dataUrl': 'data:image/jpeg;base64,c3BlY3RydW0=', 'bytes': 8}
+        with patch.object(HOST, '_download_favicon_candidate', return_value=downloaded) as fetch:
+            self.assertEqual(HOST._emugui_binding_thumbnail(FakeEmuGui(), game), downloaded['dataUrl'])
+            fetch.assert_called_once_with('https://example.com/spectrum.jpg', HOST.MAX_APPLICATION_ICON_BYTES)
+
+
+def tearDownModule():
+    try:
+        TEST_TEMP_ROOT.rmdir()
+    except OSError:
+        pass
+
+
+if __name__ == '__main__':
+    unittest.main()

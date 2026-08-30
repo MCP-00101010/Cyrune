@@ -1,0 +1,275 @@
+import importlib.util
+import json
+import sys
+import threading
+from pathlib import Path
+
+SERVICE_PATH = Path(__file__).resolve().parents[1] / "emugui_service.py"
+
+
+def load_server():
+    module_name = "emugui_service_under_test"
+    spec = importlib.util.spec_from_file_location(module_name, SERVICE_PATH)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    sys.modules[module_name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_import_does_not_index_the_game_library():
+    server = load_server()
+
+    assert server.LIBRARY is None
+
+
+def test_native_service_has_no_http_server_lifecycle():
+    source = SERVICE_PATH.read_text(encoding="utf-8")
+    for retired in ("BaseHTTPRequestHandler", "ThreadingHTTPServer", "serve_forever", "--no-browser", "PORT = 8765"):
+        assert retired not in source
+
+    service = load_server()
+    assert not hasattr(service, "Handler")
+    assert not hasattr(service, "main")
+
+
+def test_library_is_constructed_once_on_first_use():
+    server = load_server()
+    created = []
+
+    class FakeLibrary:
+        def __init__(self):
+            created.append(self)
+
+    server.Library = FakeLibrary
+
+    first = server.get_library()
+    second = server.get_library()
+
+    assert first is second
+    assert created == [first]
+
+
+def test_explicit_profile_binding_overrides_automatic_profile_selection():
+    server = load_server()
+    server.get_profile_service().profiles = lambda: [
+        {"id": "automatic", "emulator_id": "eightyone", "priority": 1, "rule": {}},
+        {"id": "hub-choice", "emulator_id": "eightyone", "priority": 99, "rule": {}},
+    ]
+    game = type("GameStub", (), {"emulator_profile": "", "system": "ZX Spectrum 48K", "tags": ()})()
+
+    assert server.select_managed_profile("eightyone", game, "hub-choice")["id"] == "hub-choice"
+    assert server.select_managed_profile("eightyone", game, "missing") is None
+
+
+def test_transport_neutral_api_routes_existing_read_operations():
+    server = load_server()
+
+    class FakeLibrary:
+        def list_games(self, view):
+            return [{"id": "jetpac", "view": view}]
+
+    server.get_library = lambda: FakeLibrary()
+    server.collections_payload = lambda: {"active": {"id": "spectrum"}, "collections": []}
+
+    games = server.dispatch_emugui_api("GET", "/api/games", {"view": "all"}, {})
+    collections = server.dispatch_emugui_api("GET", "/api/collections", {}, {})
+
+    assert games == {"games": [{"id": "jetpac", "view": "all"}]}
+    assert collections["active"]["id"] == "spectrum"
+
+
+def test_transport_neutral_api_rejects_unknown_operations():
+    server = load_server()
+    try:
+        server.dispatch_emugui_api("POST", "/api/arbitrary-command", {}, {})
+    except server.ServiceContractError as error:
+        assert "Unsupported" in str(error)
+    else:
+        raise AssertionError("Unknown API operation was accepted")
+
+
+def test_native_asset_reader_is_bounded_to_supported_collection_images(tmp_path):
+    server = load_server()
+    server.COLLECTION = tmp_path
+    image = tmp_path / "_assets" / "cover.png"
+    image.parent.mkdir()
+    image.write_bytes(b"\x89PNG\r\n\x1a\nsmall")
+    outside = tmp_path.parent / "outside.png"
+    outside.write_bytes(b"\x89PNG\r\n\x1a\nprivate")
+
+    result = server.read_emugui_asset("_assets/cover.png", 1024)
+
+    assert result["dataUrl"].startswith("data:image/png;base64,")
+    try:
+        server.read_emugui_asset("../outside.png", 1024)
+    except server.ServiceContractError as error:
+        assert "escapes" in str(error)
+    else:
+        raise AssertionError("Out-of-collection asset was accepted")
+
+
+def test_file_transport_preserves_launch_choices_and_profile_routes():
+    server = load_server()
+    calls = []
+    server.launch_game = lambda game_id, emulator, launch_action, force_new, profile_id: calls.append(
+        ("launch", game_id, emulator, launch_action, force_new, profile_id)
+    ) or {"ok": False, "needs_choice": True, "supports_new": True}
+    server.import_emulator_profile = lambda data: calls.append(("import", data)) or {"ok": True, "profile": {"id": "48k"}}
+    server.update_emulator_profile = lambda data: calls.append(("update", data)) or {"ok": True}
+    server.delete_emulator_profile = lambda profile_id: calls.append(("delete", profile_id)) or {"ok": True}
+    server.update_emulator_profile_from_source = lambda profile_id: calls.append(("source", profile_id)) or {"ok": True}
+
+    launch = server.dispatch_emugui_api("POST", "/api/launch", {}, {
+        "game_id": "jetpac", "emulator": "eightyone", "launch_action": "new", "force_new": True,
+        "profile_id": "spectrum-48k",
+    })
+    imported = server.dispatch_emugui_api("POST", "/api/emulator-profiles/import", {}, {"name": "48K"})
+    server.dispatch_emugui_api("POST", "/api/emulator-profiles/update", {}, {"profile_id": "48k"})
+    server.dispatch_emugui_api("POST", "/api/emulator-profiles/delete", {}, {"profile_id": "48k"})
+    server.dispatch_emugui_api("POST", "/api/emulator-profiles/update-source", {}, {"profile_id": "48k"})
+
+    assert launch["needs_choice"] is True
+    assert imported["profile"]["id"] == "48k"
+    assert calls == [
+        ("launch", "jetpac", "eightyone", "new", True, "spectrum-48k"),
+        ("import", {"name": "48K"}),
+        ("update", {"profile_id": "48k"}),
+        ("delete", "48k"),
+        ("source", "48k"),
+    ]
+
+
+def test_service_launch_function_remains_a_compatibility_facade():
+    server = load_server()
+    calls = []
+
+    class FakeLaunchService:
+        def launch_game(self, game_id, emulator_id, launch_action, force_new, profile_id):
+            calls.append((game_id, emulator_id, launch_action, force_new, profile_id))
+            return {"ok": True, "pid": 42}
+
+    server.get_launch_service = lambda: FakeLaunchService()
+
+    result = server.launch_game("jetpac", "eightyone", "new", True, "spectrum-48k")
+
+    assert result == {"ok": True, "pid": 42}
+    assert calls == [("jetpac", "eightyone", "new", True, "spectrum-48k")]
+
+
+def test_state_updates_do_not_lose_concurrent_favourites(tmp_path):
+    server = load_server()
+    server.DATA = tmp_path
+    server.STATE_FILE = tmp_path / "state.json"
+
+    threads = [threading.Thread(target=server.set_favourite, args=(f"game-{index}", True)) for index in range(20)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert set(server.load_state()["favourites"]) == {f"game-{index}" for index in range(20)}
+
+
+def test_persisted_root_and_collection_shapes_are_validated(tmp_path):
+    server = load_server()
+    server.DATA = tmp_path
+    server.STATE_FILE = tmp_path / "state.json"
+    server.CONFIG_FILE = tmp_path / "config.json"
+    server.METADATA_FILE = tmp_path / "collection-metadata.json"
+    server.discover_collections = lambda: []
+    server.STATE_FILE.write_text("[]", encoding="utf-8")
+    server.CONFIG_FILE.write_text(json.dumps({
+        "collections": ["wrong"],
+        "emulators": {"broken": []},
+        "emulator_profiles": ["wrong"],
+        "scrapers": {"broken": []},
+    }), encoding="utf-8")
+    server.METADATA_FILE.write_text(json.dumps({"games": {}, "poks": "wrong"}), encoding="utf-8")
+
+    assert server.load_state() == {"favourites": [], "recent": []}
+    assert server.load_config()["collections"] == []
+    assert server.load_config()["emulators"] == {}
+    assert server.load_config()["emulator_profiles"] == []
+    assert server.load_config()["scrapers"] == {}
+    assert server.load_metadata()["games"] == []
+    assert server.load_metadata()["poks"] == []
+
+
+def test_scraper_base_urls_require_clean_https_endpoints():
+    server = load_server()
+
+    assert server.normalize_scraper_base_url("https://API.Example.test/v1/", "https://fallback.test") == (
+        "https://api.example.test/v1"
+    )
+    for unsafe in (
+        "http://api.example.test/v1",
+        "file:///private/data",
+        "https://user:secret@example.test/v1",
+        "https://api.example.test/v1?token=secret",
+        "https://api.example.test/v1#fragment",
+        "https://api.example.test/bad path",
+        "https://api.example.test\\@evil.test/v1",
+    ):
+        try:
+            server.normalize_scraper_base_url(unsafe, "https://fallback.test")
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"Unsafe scraper endpoint was accepted: {unsafe}")
+
+    server.load_config = lambda: (_ for _ in ()).throw(AssertionError("validation happened too late"))
+    rejected = server.update_scraper_config({
+        "screenscraper": {"base_url": "http://api.example.test", "password": "secret"},
+    })
+    assert rejected == {"ok": False, "error": "Scraper base URL must use HTTPS"}
+
+
+def test_failed_collection_switch_restores_previous_collection():
+    server = load_server()
+    state = {"active_collection_id": "old"}
+    activations = []
+
+    server.load_config = lambda: {
+        "collections": [
+            {"id": "old", "name": "Old"},
+            {"id": "new", "name": "New"},
+        ]
+    }
+    server.load_active_collection_id = lambda: state["active_collection_id"]
+    server.activate_collection = lambda collection_id: activations.append(collection_id) or {
+        "id": collection_id,
+        "name": collection_id.title(),
+    }
+
+    def update_state(mutator):
+        mutator(state)
+        return state
+
+    class Library:
+        attempts = 0
+
+        def rebuild(self, _progress=None):
+            self.attempts += 1
+            if self.attempts == 1:
+                raise OSError("unreadable collection")
+
+    library = Library()
+    server.update_state = update_state
+    server.get_library = lambda: library
+    captured = {}
+
+    def run_now(_title, work):
+        try:
+            work(lambda *_args: None)
+        except Exception as exc:
+            captured["error"] = str(exc)
+        return "job"
+
+    server.start_index_job = run_now
+
+    assert server.start_select_collection_job("new") == "job"
+    assert captured["error"] == "unreadable collection"
+    assert activations == ["new", "old"]
+    assert state["active_collection_id"] == "old"
+    assert library.attempts == 2
