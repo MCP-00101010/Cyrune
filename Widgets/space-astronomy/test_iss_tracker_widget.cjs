@@ -171,7 +171,7 @@ test('globe projection waits until the MapLibre style has loaded', () => {
   assert.match(loadedSetup, /catch \(error\)[\s\S]*?Unable to finish initialising the ISS globe/);
 });
 
-test('Focus ISS state is browser-local and recentres every live update', () => {
+test('Focus ISS state is browser-local and recentres live updates except during an active drag', () => {
   const { context } = loadIssWidgets();
   context.map = {
     getCenter: () => ({ lng: 10, lat: 20 }),
@@ -185,7 +185,9 @@ test('Focus ISS state is browser-local and recentres every live update', () => {
   const widgets = fs.readFileSync(path.join(__dirname, 'iss-tracker-widget.js'), 'utf8');
   const styles = fs.readFileSync(path.join(__dirname, 'iss-tracker-widget.css'), 'utf8');
   assert.match(widgets, /focusButton\.className = 'widget-iss-focus-button'/);
-  assert.match(widgets, /instance\.focusOnIss && instance\.mapReady[\s\S]*?instance\.map\.jumpTo\(\{ center:/);
+  assert.match(widgets, /instance\.focusOnIss && instance\.mapReady && !instance\.mapDragging[\s\S]*?instance\.map\.jumpTo\(\{ center:/);
+  assert.match(widgets, /map\.on\('dragstart',[\s\S]*?instance\.mapDragging = true/);
+  assert.match(widgets, /map\.on\('dragend',[\s\S]*?instance\.mapDragging = false/);
   assert.match(widgets, /focusButton\.setAttribute\('aria-pressed'/);
   assert.match(styles, /\.widget-iss-focus-button\s*\{[^}]*top:\s*10px;[^}]*left:\s*10px/s);
   assert.match(styles, /\.widget-iss-focus-button\.active/);

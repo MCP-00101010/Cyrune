@@ -86,7 +86,8 @@ function _footballTrackerNormalizeView(widget, value) {
   return {
     competitionCode: config.competitionCode,
     view: ['matches', 'standings'].includes(source.view) && _footballTrackerCompetition(widget).hasStandings !== false ? source.view : config.defaultView,
-    roundKey: String(source.roundKey || '').slice(0, 100), historyTabKey: String(source.historyTabKey || '').slice(0, 120), selectedTeam
+    roundKey: String(source.roundKey || '').slice(0, 100), historyTabKey: String(source.historyTabKey || '').slice(0, 120),
+    historySort: source.historySort === 'oldest' ? 'oldest' : 'newest', selectedTeam
   };
 }
 
@@ -112,7 +113,7 @@ function _footballTrackerState(widget) {
   let runtime = _footballTrackerRuntime.get(widget.id);
   if (!runtime) {
     const view = _footballTrackerReadView(widget);
-    runtime = { view: view?.view || config.defaultView, competitionCode: config.competitionCode, dateKey: _footballTrackerLocalDateKey(), roundKey: view?.roundKey || '', historyTabKey: view?.historyTabKey || '', selectedTeam: view?.selectedTeam || null, loading: {}, errors: {}, data: {}, providers: {} };
+    runtime = { view: view?.view || config.defaultView, competitionCode: config.competitionCode, dateKey: _footballTrackerLocalDateKey(), roundKey: view?.roundKey || '', historyTabKey: view?.historyTabKey || '', historySort: view?.historySort || 'newest', selectedTeam: view?.selectedTeam || null, loading: {}, errors: {}, data: {}, providers: {} };
     _footballTrackerRuntime.set(widget.id, runtime);
   }
   if (runtime.competitionCode !== config.competitionCode) {
@@ -187,7 +188,7 @@ function _footballTrackerMatch(value) {
   return {
     id: Number(value?.id) || 0,
     utcDate,
-    status: String(value?.status || 'SCHEDULED').slice(0, 30),
+    status: _footballTrackerProviderStatus(value?.status),
     stage: String(value?.stage || '').slice(0, 60),
     group: String(value?.group || '').slice(0, 60),
     matchday: Math.max(0, Number.parseInt(value?.matchday, 10) || 0),
@@ -379,7 +380,7 @@ function _footballTrackerHistoryTeamSide(match, team, providerTeamIds = {}) {
   return '';
 }
 
-function _footballTrackerBuildTeamHistory(matches, team, providerTeamIds, currentCompetitionCode) {
+function _footballTrackerBuildTeamHistory(matches, team, providerTeamIds, currentCompetitionCode, now = Date.now()) {
   const buckets = new Map();
   (Array.isArray(matches) ? matches : []).forEach(match => {
     if (!_footballTrackerOfficialCompetition(match?.competition)) return;
@@ -393,26 +394,36 @@ function _footballTrackerBuildTeamHistory(matches, team, providerTeamIds, curren
   });
   const groups = [...buckets.values()].map(bucket => {
     const preferredProvider = bucket.canonical.known?.provider;
-    const provider = (preferredProvider && bucket.providers.has(preferredProvider))
-      ? preferredProvider
-      : (bucket.providers.has(team.provider) ? team.provider : bucket.providers.keys().next().value);
-    const rows = (bucket.providers.get(provider) || []).filter(match => ['FINISHED', 'AWARDED'].includes(match?.status)).map(match => {
+    const selectProvider = predicate => {
+      if (preferredProvider && (bucket.providers.get(preferredProvider) || []).some(predicate)) return preferredProvider;
+      if ((bucket.providers.get(team.provider) || []).some(predicate)) return team.provider;
+      return [...bucket.providers.entries()].find(([, providerMatches]) => providerMatches.some(predicate))?.[0] || '';
+    };
+    const completed = match => ['FINISHED', 'AWARDED'].includes(match?.status);
+    const scheduled = match => ['SCHEDULED', 'POSTPONED'].includes(match?.status) && Number(match?.utcDate) >= now;
+    const completedProvider = selectProvider(completed); const upcomingProvider = selectProvider(scheduled);
+    const toRow = match => {
       const side = _footballTrackerHistoryTeamSide(match, team, providerTeamIds);
       const isHome = side === 'home'; const forScore = isHome ? match.homeScore : match.awayScore; const againstScore = isHome ? match.awayScore : match.homeScore;
       return {
         id: match.id, utcDate: match.utcDate, venue: isHome ? 'H' : 'A', opponent: isHome ? match.away : match.home,
         homeScore: match.homeScore, awayScore: match.awayScore, forScore, againstScore,
+        status: match.status,
         result: forScore === null || againstScore === null ? '' : (forScore > againstScore ? 'W' : (forScore < againstScore ? 'L' : 'D'))
       };
-    }).sort((left, right) => right.utcDate - left.utcDate);
-    return { key: bucket.canonical.key, name: bucket.canonical.name, area: bucket.canonical.area, provider, matches: rows };
+    };
+    const rows = (bucket.providers.get(completedProvider) || []).filter(completed).map(toRow).sort((left, right) => right.utcDate - left.utcDate);
+    const upcoming = (bucket.providers.get(upcomingProvider) || []).filter(scheduled).map(toRow).sort((left, right) => left.utcDate - right.utcDate);
+    const providers = [...new Set([completedProvider, upcomingProvider].filter(Boolean))];
+    return { key: bucket.canonical.key, name: bucket.canonical.name, area: bucket.canonical.area, provider: completedProvider || upcomingProvider, providers, matches: rows, upcoming };
   }).sort((left, right) => {
     if (left.key === currentCompetitionCode) return -1;
     if (right.key === currentCompetitionCode) return 1;
-    const recent = (right.matches[0]?.utcDate || 0) - (left.matches[0]?.utcDate || 0);
-    return recent || left.name.localeCompare(right.name);
+    const leftActivity = left.upcoming[0]?.utcDate || left.matches[0]?.utcDate || 0;
+    const rightActivity = right.upcoming[0]?.utcDate || right.matches[0]?.utcDate || 0;
+    return rightActivity - leftActivity || left.name.localeCompare(right.name);
   });
-  return { team, groups, providers: [...new Set(groups.map(group => group.provider))] };
+  return { team, groups, providers: [...new Set(groups.flatMap(group => group.providers))] };
 }
 
 function _footballTrackerDateKey(timestamp) { return new Date(timestamp).toISOString().slice(0, 10); }
@@ -627,16 +638,29 @@ async function _footballTrackerResolveTheSportsDbTeam(widget, team) {
 
 async function _footballTrackerTheSportsDbRecentMatches(widget, team, seasonYear) {
   const resolved = await _footballTrackerResolveTheSportsDbTeam(widget, team);
-  const season = `${seasonYear}-${seasonYear + 1}`; const cacheKey = `theSportsDb:team:${resolved.id}:matches:season:${seasonYear}`;
+  const season = `${seasonYear}-${seasonYear + 1}`; const cacheKey = `theSportsDb:team:${resolved.id}:completed:season:${seasonYear}:v2`;
   const accumulated = WidgetSDK.cache.get('footballTracker', widget.id, cacheKey) || [];
-  const url = `https://www.thesportsdb.com/api/v1/json/123/eventslast.php?id=${encodeURIComponent(resolved.id)}`;
-  const payload = await _footballTrackerPublicJsonRequest(widget, url, `theSportsDb:last:${resolved.id}`);
-  const entries = (Array.isArray(payload?.results) ? payload.results : []).filter(item => !item?.strSeason || item.strSeason === season);
-  const latest = _footballTrackerTheSportsDbMatches({ results: entries }); const merged = new Map();
-  [...accumulated, ...latest].forEach(match => merged.set(`${match?.competition?.provider || ''}:${match?.id || 0}:${match?.utcDate || 0}`, match));
-  const matches = [...merged.values()].sort((left, right) => left.utcDate - right.utcDate).slice(-100);
-  try { WidgetSDK.cache.set('footballTracker', widget.id, cacheKey, matches, { ttlMs: FOOTBALL_TRACKER_TEAM_LINK_TTL_MS }); } catch {}
-  return { resolved, matches: _footballTrackerMatchesForTeam(matches, team) };
+  const endpoints = [['eventslast.php', 'last'], ['eventsnext.php', 'next']];
+  const settled = await Promise.allSettled(endpoints.map(([endpoint, label]) => {
+    const url = `https://www.thesportsdb.com/api/v1/json/123/${endpoint}?id=${encodeURIComponent(resolved.id)}`;
+    return _footballTrackerPublicJsonRequest(widget, url, `theSportsDb:${label}:${resolved.id}`);
+  }));
+  if (!settled.some(result => result.status === 'fulfilled')) throw settled.find(result => result.status === 'rejected')?.reason || new Error('TheSportsDB team schedule failed.');
+  const payloadMatches = settled.flatMap(result => {
+    if (result.status !== 'fulfilled') return [];
+    const entries = result.value?.results || result.value?.events || result.value?.event;
+    return _footballTrackerTheSportsDbMatches({ events: (Array.isArray(entries) ? entries : []).filter(item => !item?.strSeason || item.strSeason === season) });
+  });
+  const completed = new Map();
+  [...accumulated, ...payloadMatches.filter(match => ['FINISHED', 'AWARDED'].includes(match.status))]
+    .forEach(match => completed.set(`${match?.competition?.provider || ''}:${match?.id || 0}:${match?.utcDate || 0}`, match));
+  const completedMatches = [...completed.values()].sort((left, right) => left.utcDate - right.utcDate).slice(-100);
+  const upcomingByFixture = new Map();
+  payloadMatches.filter(match => ['SCHEDULED', 'POSTPONED'].includes(match.status))
+    .forEach(match => upcomingByFixture.set(`${match?.competition?.provider || ''}:${match?.id || 0}:${match?.utcDate || 0}`, match));
+  const upcoming = [...upcomingByFixture.values()].sort((left, right) => left.utcDate - right.utcDate).slice(0, 100);
+  try { WidgetSDK.cache.set('footballTracker', widget.id, cacheKey, completedMatches, { ttlMs: FOOTBALL_TRACKER_TEAM_LINK_TTL_MS }); } catch {}
+  return { resolved, matches: _footballTrackerMatchesForTeam([...completedMatches, ...upcoming], team) };
 }
 
 async function _footballTrackerProviderTeamMatches(widget, team, seasonYear) {
@@ -644,7 +668,7 @@ async function _footballTrackerProviderTeamMatches(widget, team, seasonYear) {
   let payload;
   if (team.provider === 'sportmonks') payload = await _footballTrackerProviderRequest(widget, competition, `schedules/teams/${team.id}`);
   else if (team.provider === 'apiFootball') payload = await _footballTrackerProviderRequest(widget, competition, `fixtures?team=${team.id}&season=${seasonYear}`);
-  else payload = await _footballTrackerProviderRequest(widget, competition, `teams/${team.id}/matches?season=${seasonYear}&status=FINISHED&limit=500`);
+  else payload = await _footballTrackerProviderRequest(widget, competition, `teams/${team.id}/matches?season=${seasonYear}&limit=500`);
   return _footballTrackerNormalize(payload, team.provider, 'matches');
 }
 
@@ -679,7 +703,7 @@ function _footballTrackerTeamHistoryCoverage(team) {
 }
 
 function _footballTrackerTeamHistoryCacheKey(team, coverage = _footballTrackerTeamHistoryCoverage(team), seasonYear = _footballTrackerSeasonYear()) {
-  return `team-history:v2:${team.provider}:${team.id}:${seasonYear}:${coverage}`;
+  return `team-history:v3:${team.provider}:${team.id}:${seasonYear}:${coverage}`;
 }
 
 async function _footballTrackerFetchTeamHistory(widget, team, force = false) {
@@ -850,6 +874,17 @@ function _footballTrackerScore(match) {
   return new Date(match.utcDate).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
 }
 
+function _footballTrackerSortHistoryMatches(matches, direction = 'newest') {
+  const order = direction === 'oldest' ? 1 : -1;
+  return [...(Array.isArray(matches) ? matches : [])].sort((left, right) => {
+    const timestamp = value => Number.isFinite(Number(value)) ? Number(value) : Date.parse(value);
+    const leftTime = timestamp(left?.utcDate); const rightTime = timestamp(right?.utcDate);
+    if (!Number.isFinite(leftTime)) return Number.isFinite(rightTime) ? 1 : 0;
+    if (!Number.isFinite(rightTime)) return -1;
+    return (leftTime - rightTime) * order;
+  });
+}
+
 function _footballTrackerRenderMatches(widget, runtime, body) {
   const matches = runtime.data.matches || _footballTrackerCached(widget, 'matches');
   if (!matches) {
@@ -918,7 +953,10 @@ function _footballTrackerRenderTeamHistory(widget, runtime, element) {
   }
   const header = document.createElement('div'); header.className = 'football-tracker-history-header';
   const back = document.createElement('button'); back.type = 'button'; back.className = 'football-tracker-history-back'; back.textContent = '‹'; back.title = 'Back to competition'; back.setAttribute('aria-label', back.title); back.addEventListener('click', () => _footballTrackerCloseTeamHistory(widget));
-  const identity = document.createElement('div'); identity.className = 'football-tracker-identity'; const eyebrow = document.createElement('span'); eyebrow.textContent = 'Current season'; const title = document.createElement('strong'); title.textContent = team.name; identity.append(eyebrow, title); header.append(back, identity); element.appendChild(header);
+  const identity = document.createElement('div'); identity.className = 'football-tracker-identity'; const eyebrow = document.createElement('span'); eyebrow.textContent = 'Current season'; const title = document.createElement('strong'); title.textContent = team.name; identity.append(eyebrow, title);
+  const sort = document.createElement('button'); sort.type = 'button'; sort.className = 'football-tracker-history-sort'; sort.textContent = runtime.historySort === 'oldest' ? 'Oldest first' : 'Newest first'; sort.title = runtime.historySort === 'oldest' ? 'Show newest matches first' : 'Show oldest matches first'; sort.setAttribute('aria-label', sort.title);
+  sort.addEventListener('click', () => { runtime.historySort = runtime.historySort === 'oldest' ? 'newest' : 'oldest'; _footballTrackerWriteView(widget, runtime); _refreshWidget(widget.id, 'column'); _refreshWidget(widget.id, 'navpane'); });
+  header.append(back, identity, sort); element.appendChild(header);
   const body = document.createElement('div'); body.className = 'football-tracker-body football-tracker-history-body'; element.appendChild(body);
   if (!history) {
     const state = document.createElement('div'); state.className = runtime.errors.teamHistory ? 'football-tracker-history-note is-error' : 'widget-empty-state'; state.textContent = runtime.errors.teamHistory || 'Loading team history…'; body.appendChild(state);
@@ -926,30 +964,47 @@ function _footballTrackerRenderTeamHistory(widget, runtime, element) {
     element.appendChild(_footballTrackerRenderHistoryAttribution({ providers: [team.provider] })); return;
   }
   if (!history.groups.length) {
-    const empty = document.createElement('div'); empty.className = 'widget-empty-state'; empty.textContent = 'No completed matches are available for this team in the current season.'; body.appendChild(empty);
+    const empty = document.createElement('div'); empty.className = 'widget-empty-state'; empty.textContent = 'No supported current-season matches are available for this team.'; body.appendChild(empty);
   } else {
     const tabs = document.createElement('div'); tabs.className = 'football-tracker-history-tabs'; tabs.setAttribute('role', 'tablist'); tabs.setAttribute('aria-label', `${team.name} competitions`);
     let selected = history.groups.find(group => group.key === runtime.historyTabKey) || history.groups[0];
     if (runtime.historyTabKey !== selected.key) { runtime.historyTabKey = selected.key; _footballTrackerWriteView(widget, runtime); }
     history.groups.forEach(group => {
       const tab = document.createElement('button'); tab.type = 'button'; tab.classList.toggle('active', group.key === selected.key); tab.setAttribute('role', 'tab'); tab.setAttribute('aria-selected', group.key === selected.key ? 'true' : 'false'); tab.textContent = group.name;
-      const count = document.createElement('span'); count.textContent = String(group.matches.length); tab.appendChild(count);
+      const count = document.createElement('span'); count.textContent = String(group.matches.length + (group.upcoming?.length || 0)); tab.appendChild(count);
       tab.addEventListener('click', () => { runtime.historyTabKey = group.key; _footballTrackerWriteView(widget, runtime); _refreshWidget(widget.id, 'column'); _refreshWidget(widget.id, 'navpane'); }); tabs.appendChild(tab);
     });
     body.appendChild(tabs);
-    if (!selected.matches.length) {
-      const empty = document.createElement('div'); empty.className = 'widget-empty-state'; empty.textContent = `No completed ${selected.name} matches are available yet.`; body.appendChild(empty);
+    const upcoming = Array.isArray(selected.upcoming) ? selected.upcoming : [];
+    if (!selected.matches.length && !upcoming.length) {
+      const empty = document.createElement('div'); empty.className = 'widget-empty-state'; empty.textContent = `No ${selected.name} matches are available yet.`; body.appendChild(empty);
     } else {
-      const list = document.createElement('div'); list.className = 'football-tracker-history-matches';
-      selected.matches.forEach(match => {
-        const row = document.createElement('div'); row.className = 'football-tracker-history-match';
-        const date = document.createElement('time'); date.dateTime = new Date(match.utcDate).toISOString(); date.textContent = new Date(match.utcDate).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
-        const venue = document.createElement('span'); venue.className = 'football-tracker-history-venue'; venue.textContent = match.venue; venue.title = match.venue === 'H' ? 'Home' : 'Away';
-        const opponent = _footballTrackerTeamNode(widget, match.opponent, false);
-        const score = document.createElement('strong'); score.className = 'football-tracker-history-score'; score.textContent = match.homeScore === null || match.awayScore === null ? '—' : `${match.homeScore}–${match.awayScore}`;
-        const result = document.createElement('span'); result.className = `football-tracker-history-result result-${String(match.result || 'none').toLowerCase()}`; result.textContent = match.result || '–'; result.title = match.result === 'W' ? 'Win' : (match.result === 'L' ? 'Loss' : (match.result === 'D' ? 'Draw' : 'Result unavailable'));
-        row.append(date, venue, opponent, score, result); list.appendChild(row);
-      }); body.appendChild(list);
+      if (upcoming.length) {
+        const heading = document.createElement('strong'); heading.className = 'football-tracker-history-section-heading'; heading.textContent = 'Upcoming'; body.appendChild(heading);
+        const list = document.createElement('div'); list.className = 'football-tracker-history-matches football-tracker-history-upcoming';
+        _footballTrackerSortHistoryMatches(upcoming, runtime.historySort).forEach(match => {
+          const row = document.createElement('div'); row.className = 'football-tracker-history-match is-upcoming';
+          const kickoff = new Date(match.utcDate); const date = document.createElement('time'); date.dateTime = kickoff.toISOString(); date.textContent = kickoff.toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+          const venue = document.createElement('span'); venue.className = 'football-tracker-history-venue'; venue.textContent = match.venue; venue.title = match.venue === 'H' ? 'Home' : 'Away';
+          const opponent = _footballTrackerTeamNode(widget, match.opponent, false);
+          const time = document.createElement('strong'); time.className = 'football-tracker-history-score'; time.textContent = match.status === 'POSTPONED' ? 'TBC' : kickoff.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+          const status = document.createElement('span'); status.className = 'football-tracker-history-result is-upcoming'; status.textContent = match.status === 'POSTPONED' ? 'P' : '→'; status.title = match.status === 'POSTPONED' ? 'Postponed' : 'Scheduled';
+          row.append(date, venue, opponent, time, status); list.appendChild(row);
+        }); body.appendChild(list);
+      }
+      if (selected.matches.length) {
+        const heading = document.createElement('strong'); heading.className = 'football-tracker-history-section-heading'; heading.textContent = 'Results'; body.appendChild(heading);
+        const list = document.createElement('div'); list.className = 'football-tracker-history-matches';
+        _footballTrackerSortHistoryMatches(selected.matches, runtime.historySort).forEach(match => {
+          const row = document.createElement('div'); row.className = 'football-tracker-history-match';
+          const date = document.createElement('time'); date.dateTime = new Date(match.utcDate).toISOString(); date.textContent = new Date(match.utcDate).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+          const venue = document.createElement('span'); venue.className = 'football-tracker-history-venue'; venue.textContent = match.venue; venue.title = match.venue === 'H' ? 'Home' : 'Away';
+          const opponent = _footballTrackerTeamNode(widget, match.opponent, false);
+          const score = document.createElement('strong'); score.className = 'football-tracker-history-score'; score.textContent = match.homeScore === null || match.awayScore === null ? '—' : `${match.homeScore}–${match.awayScore}`;
+          const result = document.createElement('span'); result.className = `football-tracker-history-result result-${String(match.result || 'none').toLowerCase()}`; result.textContent = match.result || '–'; result.title = match.result === 'W' ? 'Win' : (match.result === 'L' ? 'Loss' : (match.result === 'D' ? 'Draw' : 'Result unavailable'));
+          row.append(date, venue, opponent, score, result); list.appendChild(row);
+        }); body.appendChild(list);
+      }
     }
   }
   element.appendChild(_footballTrackerRenderHistoryAttribution(history));

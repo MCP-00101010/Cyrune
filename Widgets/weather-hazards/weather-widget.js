@@ -1,12 +1,15 @@
 // --- Weather widget --------------------------------------------------------
 
 const _weatherMemoryCache = new Map();
+const _weatherAirQualityMemoryCache = new Map();
 const _weatherViewMemory = new Map();
 const _weatherRuntime = new Map();
 
 const WEATHER_CACHE_PREFIX = 'morpheus-webhub-weather:';
 const WEATHER_CACHE_SCHEMA_VERSION = 'hourly-v1';
+const WEATHER_AIR_QUALITY_CACHE_SCHEMA_VERSION = 'current-v1';
 const WEATHER_CACHE_TTL_MS = 30 * 60 * 1000;
+const WEATHER_AIR_QUALITY_CACHE_TTL_MS = 60 * 60 * 1000;
 const WEATHER_RETRY_DELAY_MS = 5 * 60 * 1000;
 
 function _normalizeWeatherDays(value) {
@@ -20,6 +23,10 @@ function _normalizeWeatherUnits(value) {
 
 function _normalizeWeatherLayout(value) {
   return value === 'horizontal' ? 'horizontal' : 'vertical';
+}
+
+function _normalizeWeatherAirQualityIndex(value) {
+  return value === 'us' ? 'us' : 'european';
 }
 
 function _weatherSharedResolution(path, localValue, inherit) {
@@ -65,6 +72,15 @@ function _weatherCacheKey(widgetId) {
   return `${WEATHER_CACHE_PREFIX}${widgetId}`;
 }
 
+function _weatherAirQualitySignature(widget) {
+  const c = _weatherEffectiveConfig(widget);
+  if (c.latitude === '' || c.latitude == null || c.longitude === '' || c.longitude == null) return '';
+  const latitude = Number(c.latitude);
+  const longitude = Number(c.longitude);
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) return '';
+  return `${latitude.toFixed(5)}:${longitude.toFixed(5)}:${WEATHER_AIR_QUALITY_CACHE_SCHEMA_VERSION}`;
+}
+
 function _readWeatherCache(widget) {
   const key = _weatherCacheKey(widget.id);
   let cache = _weatherMemoryCache.get(widget.id) || null;
@@ -85,6 +101,26 @@ function _writeWeatherCache(widget, payload) {
   };
   _weatherMemoryCache.set(widget.id, cache);
   try { WidgetSDK.cache.set('weather', widget.id, 'forecast', cache); } catch {}
+  return cache;
+}
+
+function _readWeatherAirQualityCache(widget) {
+  let cache = _weatherAirQualityMemoryCache.get(widget.id) || null;
+  if (!cache) {
+    cache = WidgetSDK.cache.get('weather', widget.id, 'air-quality');
+    if (cache) _weatherAirQualityMemoryCache.set(widget.id, cache);
+  }
+  return cache?.signature === _weatherAirQualitySignature(widget) && cache?.payload ? cache : null;
+}
+
+function _writeWeatherAirQualityCache(widget, payload) {
+  const cache = {
+    signature: _weatherAirQualitySignature(widget),
+    fetchedAt: Date.now(),
+    payload
+  };
+  _weatherAirQualityMemoryCache.set(widget.id, cache);
+  try { WidgetSDK.cache.set('weather', widget.id, 'air-quality', cache); } catch {}
   return cache;
 }
 
@@ -112,6 +148,10 @@ function _writeWeatherView(widgetId, updates = {}) {
 
 function _isWeatherCacheFresh(cache) {
   return !!cache && Date.now() - Number(cache.fetchedAt || 0) < WEATHER_CACHE_TTL_MS;
+}
+
+function _isWeatherAirQualityCacheFresh(cache) {
+  return !!cache && Date.now() - Number(cache.fetchedAt || 0) < WEATHER_AIR_QUALITY_CACHE_TTL_MS;
 }
 
 function _weatherRefreshHour(now = Date.now()) {
@@ -169,6 +209,16 @@ function _weatherForecastUrl(widget) {
   return url.toString();
 }
 
+function _weatherAirQualityUrl(widget) {
+  const c = _weatherEffectiveConfig(widget);
+  const url = new URL('https://air-quality-api.open-meteo.com/v1/air-quality');
+  url.searchParams.set('latitude', String(c.latitude));
+  url.searchParams.set('longitude', String(c.longitude));
+  url.searchParams.set('current', 'european_aqi,us_aqi,pm2_5,pm10,nitrogen_dioxide,ozone');
+  url.searchParams.set('timezone', c.timezone || 'auto');
+  return url.toString();
+}
+
 function _ensureWeatherData(widget, options = {}) {
   const signature = _weatherSignature(widget);
   if (!signature) return null;
@@ -213,6 +263,49 @@ function _ensureWeatherData(widget, options = {}) {
   return request;
 }
 
+function _ensureWeatherAirQualityData(widget, options = {}) {
+  const signature = _weatherAirQualitySignature(widget);
+  if (!signature || widget?.config?.showAirQuality === false) return null;
+  const force = options.force === true;
+
+  const cache = _readWeatherAirQualityCache(widget);
+  if (!force && _isWeatherAirQualityCacheFresh(cache)) return null;
+
+  const runtime = _getWeatherRuntime(widget);
+  const fetchKey = `weather:air-quality:${widget.id}`;
+  if (_widgetFetches.has(fetchKey)) return _widgetFetches.get(fetchKey);
+  if (!force && Number(runtime.airQualityNextRetryAt || 0) > Date.now()) return null;
+
+  runtime.airQualityStatus = 'loading';
+  runtime.airQualityError = '';
+  const request = _fetchWithTimeout(_weatherAirQualityUrl(widget), { widgetFetchKey: fetchKey, widgetType: 'weather' })
+    .then(async response => {
+      let payload = null;
+      try { payload = await response.json(); } catch { payload = null; }
+      if (!response.ok) throw new Error(payload?.reason || `Open-Meteo returned ${response.status}`);
+      if (!payload?.current || typeof payload.current !== 'object') {
+        throw new Error('Open-Meteo returned incomplete air-quality data.');
+      }
+      _writeWeatherAirQualityCache(widget, payload);
+      runtime.airQualityStatus = 'ready';
+      runtime.airQualityError = '';
+      runtime.airQualityNextRetryAt = 0;
+    })
+    .catch(error => {
+      if (error?.name === 'AbortError') return;
+      runtime.airQualityStatus = 'error';
+      runtime.airQualityError = error?.message || 'Unable to load air quality.';
+      runtime.airQualityNextRetryAt = Date.now() + WEATHER_RETRY_DELAY_MS;
+    })
+    .finally(() => {
+      _widgetFetches.delete(fetchKey);
+      _refreshWidget(widget.id, 'column');
+    });
+
+  _widgetFetches.set(fetchKey, request);
+  return request;
+}
+
 function _weatherDayLabel(isoDate, index) {
   if (index === 0) return 'Today';
   try {
@@ -231,6 +324,43 @@ function _weatherNumber(value) {
   if (value == null || value === '') return null;
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
+}
+
+function _weatherAqiDetails(value, standard = 'european') {
+  const number = _weatherNumber(value);
+  if (number == null) return null;
+  const normalizedStandard = _normalizeWeatherAirQualityIndex(standard);
+  const bands = normalizedStandard === 'us'
+    ? [
+        [50, 'Good', 'is-good'],
+        [100, 'Moderate', 'is-moderate'],
+        [150, 'Unhealthy for sensitive groups', 'is-poor'],
+        [200, 'Unhealthy', 'is-very-poor'],
+        [300, 'Very unhealthy', 'is-extremely-poor'],
+        [Infinity, 'Hazardous', 'is-extremely-poor']
+      ]
+    : [
+        [20, 'Good', 'is-good'],
+        [40, 'Fair', 'is-fair'],
+        [60, 'Moderate', 'is-moderate'],
+        [80, 'Poor', 'is-poor'],
+        [100, 'Very poor', 'is-very-poor'],
+        [Infinity, 'Extremely poor', 'is-extremely-poor']
+      ];
+  const band = bands.find(([maximum]) => number <= maximum) || bands[bands.length - 1];
+  return {
+    value: Math.max(0, Math.round(number)),
+    standard: normalizedStandard === 'us' ? 'US AQI' : 'European AQI',
+    label: band[1],
+    className: band[2]
+  };
+}
+
+function _formatWeatherMeasurement(value, suffix = '') {
+  const number = _weatherNumber(value);
+  if (number == null) return '—';
+  const rounded = Math.round(number * 10) / 10;
+  return `${rounded}${suffix}`;
 }
 
 function _weatherHourlyForecast(payload, limit = 24) {
@@ -323,7 +453,7 @@ function _enableWeatherHourlyDragScroll(viewport) {
 WIDGET_REGISTRY['weather'] = {
   name: 'Weather',
   category: 'Weather & Hazards',
-  description: 'Current conditions and a multi-day forecast from Open-Meteo',
+  description: 'Current weather, air quality and a multi-day forecast from Open-Meteo',
   allowedIn: ['column'],
   defaultConfig: {
     locationName: '',
@@ -335,7 +465,9 @@ WIDGET_REGISTRY['weather'] = {
     inheritCyruneLocation: false,
     inheritCyruneUnits: false,
     forecastLayout: 'vertical',
-    showHourly24: false
+    showHourly24: false,
+    showAirQuality: true,
+    airQualityIndex: 'european'
   },
   defaultData: {},
   settingsSchema: {
@@ -350,7 +482,9 @@ WIDGET_REGISTRY['weather'] = {
       inheritCyruneLocation: { type: 'boolean' },
       inheritCyruneUnits: { type: 'boolean' },
       forecastLayout: { type: 'string', enum: ['vertical', 'horizontal'] },
-      showHourly24: { type: 'boolean' }
+      showHourly24: { type: 'boolean' },
+      showAirQuality: { type: 'boolean' },
+      airQualityIndex: { type: 'string', enum: ['european', 'us'] }
     },
     additionalProperties: false
   },
@@ -359,13 +493,17 @@ WIDGET_REGISTRY['weather'] = {
     const cacheKey = _weatherCacheKey(widget.id);
     _weatherRuntime.delete(widget.id);
     _weatherMemoryCache.delete(widget.id);
+    _weatherAirQualityMemoryCache.delete(widget.id);
     _weatherViewMemory.delete(widget.id);
     WidgetSDK.cache.remove('weather', widget.id, 'forecast', { legacyKeys: [cacheKey] });
+    WidgetSDK.cache.remove('weather', widget.id, 'air-quality');
     WidgetSDK.cache.remove('weather', widget.id, 'view');
   },
 
   reload(widget) {
-    return _ensureWeatherData(widget, { force: true });
+    const requests = [_ensureWeatherData(widget, { force: true })];
+    if (widget?.config?.showAirQuality !== false) requests.push(_ensureWeatherAirQualityData(widget, { force: true }));
+    return Promise.all(requests);
   },
 
   render(widget, el, context) {
@@ -392,21 +530,31 @@ WIDGET_REGISTRY['weather'] = {
     }
 
     let cache = _readWeatherCache(widget);
+    let airQualityCache = c.showAirQuality !== false ? _readWeatherAirQualityCache(widget) : null;
     const runtime = _getWeatherRuntime(widget);
     if (_claimWeatherRefreshHour(runtime)) {
       _ensureWeatherData(widget, { force: true });
+      if (c.showAirQuality !== false) _ensureWeatherAirQualityData(widget, { force: true });
     } else if (!_isWeatherCacheFresh(cache)) {
       _ensureWeatherData(widget);
+    }
+    if (c.showAirQuality !== false && !_isWeatherAirQualityCacheFresh(airQualityCache)) {
+      _ensureWeatherAirQualityData(widget);
     }
     _setWidgetTimer(widget.id, context, () => {
       const currentRuntime = _getWeatherRuntime(widget);
       if (_claimWeatherRefreshHour(currentRuntime)) {
         _ensureWeatherData(widget, { force: true });
+        if (widget?.config?.showAirQuality !== false) _ensureWeatherAirQualityData(widget, { force: true });
       } else if (!_isWeatherCacheFresh(_readWeatherCache(widget))) {
         _ensureWeatherData(widget);
       }
+      if (widget?.config?.showAirQuality !== false && !_isWeatherAirQualityCacheFresh(_readWeatherAirQualityCache(widget))) {
+        _ensureWeatherAirQualityData(widget);
+      }
     }, 60 * 1000);
     cache = _readWeatherCache(widget);
+    airQualityCache = c.showAirQuality !== false ? _readWeatherAirQualityCache(widget) : null;
     const payload = cache?.payload;
 
     if (!payload) {
@@ -453,6 +601,56 @@ WIDGET_REGISTRY['weather'] = {
       ].join(' · ');
       header.appendChild(details);
       el.appendChild(header);
+
+      if (c.showAirQuality !== false) {
+        const airQuality = airQualityCache?.payload?.current || null;
+        const airQualityUnits = airQualityCache?.payload?.current_units || {};
+        const airQualityIndex = _normalizeWeatherAirQualityIndex(c.airQualityIndex);
+        const aqi = _weatherAqiDetails(
+          airQuality?.[airQualityIndex === 'us' ? 'us_aqi' : 'european_aqi'],
+          airQualityIndex
+        );
+        const airSection = document.createElement('section');
+        airSection.className = 'widget-weather-air-quality';
+        const airHeader = document.createElement('div');
+        airHeader.className = 'widget-weather-air-quality-header';
+        const airTitle = document.createElement('span');
+        airTitle.className = 'widget-weather-air-quality-title';
+        airTitle.textContent = 'Air quality';
+        airHeader.appendChild(airTitle);
+
+        if (aqi) {
+          const airBadge = document.createElement('span');
+          airBadge.className = `widget-weather-aqi ${aqi.className}`;
+          airBadge.textContent = `${aqi.standard} ${aqi.value} · ${aqi.label}`;
+          airHeader.appendChild(airBadge);
+
+          const airDetails = document.createElement('div');
+          airDetails.className = 'widget-weather-air-quality-details';
+          airDetails.textContent = [
+            `PM2.5 ${_formatWeatherMeasurement(airQuality.pm2_5, ` ${airQualityUnits.pm2_5 || 'μg/m³'}`)}`,
+            `PM10 ${_formatWeatherMeasurement(airQuality.pm10, ` ${airQualityUnits.pm10 || 'μg/m³'}`)}`,
+            `NO₂ ${_formatWeatherMeasurement(airQuality.nitrogen_dioxide, ` ${airQualityUnits.nitrogen_dioxide || 'μg/m³'}`)}`,
+            `O₃ ${_formatWeatherMeasurement(airQuality.ozone, ` ${airQualityUnits.ozone || 'μg/m³'}`)}`
+          ].join(' · ');
+          airSection.append(airHeader, airDetails);
+          if (runtime.airQualityStatus === 'error') {
+            const airStatus = document.createElement('div');
+            airStatus.className = 'widget-weather-air-quality-status is-error';
+            airStatus.textContent = `Showing saved reading · ${runtime.airQualityError}`;
+            airSection.appendChild(airStatus);
+          }
+        } else {
+          const airStatus = document.createElement('span');
+          airStatus.className = `widget-weather-air-quality-status${runtime.airQualityStatus === 'error' ? ' is-error' : ''}`;
+          airStatus.textContent = runtime.airQualityStatus === 'error'
+            ? `Unavailable · ${runtime.airQualityError}`
+            : 'Loading…';
+          airHeader.appendChild(airStatus);
+          airSection.appendChild(airHeader);
+        }
+        el.appendChild(airSection);
+      }
 
       if (c.showHourly24) {
         const hours = _weatherHourlyForecast(payload, 24);
@@ -543,13 +741,27 @@ WIDGET_REGISTRY['weather'] = {
       }
     }
 
-    const attribution = document.createElement('a');
+    const attribution = document.createElement('div');
     attribution.className = 'widget-weather-attribution';
-    attribution.href = 'https://open-meteo.com/';
-    attribution.target = '_blank';
-    attribution.rel = 'noreferrer noopener';
-    attribution.textContent = 'Weather data by Open-Meteo.com';
-    attribution.addEventListener('mousedown', event => event.stopPropagation());
+    const openMeteoLink = document.createElement('a');
+    openMeteoLink.href = 'https://open-meteo.com/';
+    openMeteoLink.target = '_blank';
+    openMeteoLink.rel = 'noreferrer noopener';
+    openMeteoLink.textContent = c.showAirQuality !== false
+      ? 'Weather and air-quality data by Open-Meteo.com'
+      : 'Weather data by Open-Meteo.com';
+    openMeteoLink.addEventListener('mousedown', event => event.stopPropagation());
+    attribution.appendChild(openMeteoLink);
+    if (c.showAirQuality !== false) {
+      const separator = document.createTextNode(' · ');
+      const camsLink = document.createElement('a');
+      camsLink.href = 'https://ads.atmosphere.copernicus.eu/';
+      camsLink.target = '_blank';
+      camsLink.rel = 'noreferrer noopener';
+      camsLink.textContent = 'Air quality by CAMS';
+      camsLink.addEventListener('mousedown', event => event.stopPropagation());
+      attribution.append(separator, camsLink);
+    }
     el.appendChild(attribution);
   },
 
@@ -602,6 +814,17 @@ WIDGET_REGISTRY['weather'] = {
       <div class="settings-row">
         <span>24-hour forecast</span>
         <label class="settings-toggle"><input type="checkbox" data-cfg="showHourly24" ${c.showHourly24 ? 'checked' : ''}/><span class="toggle-track"></span></label>
+      </div>
+      <div class="settings-row">
+        <span>Air quality</span>
+        <label class="settings-toggle"><input type="checkbox" data-cfg="showAirQuality" ${c.showAirQuality !== false ? 'checked' : ''}/><span class="toggle-track"></span></label>
+      </div>
+      <div class="settings-row">
+        <span>Air-quality index</span>
+        <div class="board-fit-radios weather-option-radios">
+          <label class="board-fit-label"><input type="radio" name="weatherAirQualityIndex" data-cfg="airQualityIndex" value="european" ${_normalizeWeatherAirQualityIndex(c.airQualityIndex) === 'european' ? 'checked' : ''}/><span>European</span></label>
+          <label class="board-fit-label"><input type="radio" name="weatherAirQualityIndex" data-cfg="airQualityIndex" value="us" ${_normalizeWeatherAirQualityIndex(c.airQualityIndex) === 'us' ? 'checked' : ''}/><span>US</span></label>
+        </div>
       </div>`;
 
     const input = container.querySelector('.weather-location-search');

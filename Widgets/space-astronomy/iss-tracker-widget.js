@@ -413,7 +413,7 @@ function _updateIssTracker(instance, date = new Date(), forceGeometry = false) {
   if (!position) return null;
   instance.currentPosition = position;
   instance.marker?.setLngLat([position.longitude, position.latitude]);
-  if (instance.focusOnIss && instance.mapReady) {
+  if (instance.focusOnIss && instance.mapReady && !instance.mapDragging) {
     instance.map.jumpTo({ center: [position.longitude, position.latitude] });
   }
   instance.latitudeValue.textContent = `${Math.abs(position.latitude).toFixed(2)}° ${position.latitude >= 0 ? 'N' : 'S'}`;
@@ -634,6 +634,7 @@ WIDGET_REGISTRY['issTracker'] = {
       attributionExpanded: savedView?.attributionExpanded,
       attributionButton: null,
       mapReady: false,
+      mapDragging: false,
       geometryMinute: null,
       refreshCheckMinute: null,
       resizeFrame: 0,
@@ -717,6 +718,14 @@ WIDGET_REGISTRY['issTracker'] = {
       if (_issTrackerInstances.get(widget.id) === instance && !instance.focusOnIss) {
         _writeIssView(widget.id, map);
       }
+    });
+
+    map.on('dragstart', () => {
+      if (_issTrackerInstances.get(widget.id) === instance) instance.mapDragging = true;
+    });
+
+    map.on('dragend', () => {
+      if (_issTrackerInstances.get(widget.id) === instance) instance.mapDragging = false;
     });
 
     focusButton.addEventListener('click', event => {

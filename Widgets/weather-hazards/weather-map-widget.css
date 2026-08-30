@@ -103,13 +103,23 @@
 .widget-weather-map-shell {
   position: relative;
   width: 100%;
+  aspect-ratio: 16 / 9;
   min-width: 0;
-  height: 310px;
+  min-height: 320px;
+  max-height: 480px;
   overflow: hidden;
   border: 1px solid var(--border);
   border-radius: 9px;
   background: var(--panel-muted);
   cursor: default;
+}
+.widget-weather-map-origin-marker {
+  width: 12px;
+  height: 12px;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--accent) 20%, transparent), 0 2px 5px rgba(0, 0, 0, 0.5);
 }
 .widget-weather-map-canvas {
   position: absolute;
@@ -380,6 +390,18 @@
   50% {
     opacity: 1;
     transform: rotate(var(--wind-direction, 0deg)) translateX(3px) scale(1.04);
+  }
+}
+
+@container (max-width: 620px) {
+  .widget-weather-map-shell {
+    min-height: 320px;
+  }
+}
+
+@container (max-width: 480px) {
+  .widget-weather-map-shell {
+    min-height: 280px;
   }
 }
 

@@ -29,7 +29,7 @@ const WIDGET_BUILTIN_MANIFEST = Object.freeze({
     responsive: { minWidth: 240, preferredWidth: 420 }
   },
   weather: {
-    capabilities: { network: { domains: ['api.open-meteo.com', 'geocoding-api.open-meteo.com'] }, timers: true, localCache: { quotaBytes: 256 * 1024 } },
+    capabilities: { network: { domains: ['api.open-meteo.com', 'air-quality-api.open-meteo.com', 'geocoding-api.open-meteo.com'] }, timers: true, localCache: { quotaBytes: 256 * 1024 } },
     responsive: { minWidth: 260, preferredWidth: 460, compactBelow: 340 }
   },
   weatherMap: {

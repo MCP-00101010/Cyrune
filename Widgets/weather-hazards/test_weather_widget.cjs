@@ -57,7 +57,9 @@ test('weather widget is registered as a column widget with basic defaults', () =
       inheritCyruneLocation: false,
       inheritCyruneUnits: false,
       forecastLayout: 'vertical',
-      showHourly24: false
+      showHourly24: false,
+      showAirQuality: true,
+      airQualityIndex: 'european'
     }
   });
 });
@@ -126,13 +128,18 @@ test('weather automatic refresh is claimed once per clock hour', () => {
 
 test('weather refresh requests the configured forecast and stays out of shared state', async () => {
   const requests = [];
-  const payload = {
+  const forecastPayload = {
     current: { time: '2026-08-03T12:00', temperature_2m: 18, weather_code: 2 },
     hourly: { time: ['2026-08-03T12:00'] },
     daily: { time: ['2026-08-03'] }
   };
+  const airQualityPayload = {
+    current: { time: '2026-08-03T12:00', european_aqi: 24, us_aqi: 38, pm2_5: 7.2, pm10: 12.4, nitrogen_dioxide: 9.1, ozone: 63 },
+    current_units: { pm2_5: 'μg/m³', pm10: 'μg/m³', nitrogen_dioxide: 'μg/m³', ozone: 'μg/m³' }
+  };
   const { context, storage } = loadWidgets(async url => {
     requests.push(String(url));
+    const payload = new URL(String(url)).hostname === 'air-quality-api.open-meteo.com' ? airQualityPayload : forecastPayload;
     return { ok: true, json: async () => payload };
   });
   context.widget = {
@@ -144,29 +151,39 @@ test('weather refresh requests the configured forecast and stays out of shared s
       timezone: 'Europe/London',
       days: 7,
       units: 'imperial',
-      forecastLayout: 'horizontal'
+      forecastLayout: 'horizontal',
+      showAirQuality: true,
+      airQualityIndex: 'european'
     }
   };
 
   vm.runInContext('_ensureWeatherData(widget)', context);
+  vm.runInContext('_ensureWeatherAirQualityData(widget)', context);
   await vm.runInContext("_widgetFetches.get('weather:weather-one')", context);
+  await vm.runInContext("_widgetFetches.get('weather:air-quality:weather-one')", context);
 
-  assert.equal(requests.length, 1);
-  const url = new URL(requests[0]);
-  assert.equal(url.hostname, 'api.open-meteo.com');
-  assert.equal(url.searchParams.get('forecast_days'), '7');
-  assert.equal(url.searchParams.get('timezone'), 'Europe/London');
-  assert.equal(url.searchParams.get('temperature_unit'), 'fahrenheit');
-  assert.equal(url.searchParams.get('wind_speed_unit'), 'mph');
-  assert.equal(url.searchParams.get('precipitation_unit'), 'inch');
-  assert.match(url.searchParams.get('current'), /temperature_2m/);
-  assert.match(url.searchParams.get('hourly'), /temperature_2m/);
-  assert.match(url.searchParams.get('hourly'), /precipitation_probability/);
-  assert.match(url.searchParams.get('hourly'), /weather_code/);
-  assert.equal(url.searchParams.get('forecast_hours'), '24');
-  assert.match(url.searchParams.get('daily'), /precipitation_probability_max/);
-  const cached = JSON.parse(storage.get('morpheus-widget-sdk-cache:v1:weather:weather-one:forecast')).value;
-  assert.deepEqual(cached.payload, payload);
+  assert.equal(requests.length, 2);
+  const forecastUrl = new URL(requests.find(request => new URL(request).hostname === 'api.open-meteo.com'));
+  assert.equal(forecastUrl.searchParams.get('forecast_days'), '7');
+  assert.equal(forecastUrl.searchParams.get('timezone'), 'Europe/London');
+  assert.equal(forecastUrl.searchParams.get('temperature_unit'), 'fahrenheit');
+  assert.equal(forecastUrl.searchParams.get('wind_speed_unit'), 'mph');
+  assert.equal(forecastUrl.searchParams.get('precipitation_unit'), 'inch');
+  assert.match(forecastUrl.searchParams.get('current'), /temperature_2m/);
+  assert.match(forecastUrl.searchParams.get('hourly'), /temperature_2m/);
+  assert.match(forecastUrl.searchParams.get('hourly'), /precipitation_probability/);
+  assert.match(forecastUrl.searchParams.get('hourly'), /weather_code/);
+  assert.equal(forecastUrl.searchParams.get('forecast_hours'), '24');
+  assert.match(forecastUrl.searchParams.get('daily'), /precipitation_probability_max/);
+  const airQualityUrl = new URL(requests.find(request => new URL(request).hostname === 'air-quality-api.open-meteo.com'));
+  assert.equal(airQualityUrl.searchParams.get('timezone'), 'Europe/London');
+  assert.match(airQualityUrl.searchParams.get('current'), /european_aqi/);
+  assert.match(airQualityUrl.searchParams.get('current'), /us_aqi/);
+  assert.match(airQualityUrl.searchParams.get('current'), /pm2_5/);
+  const cachedForecast = JSON.parse(storage.get('morpheus-widget-sdk-cache:v1:weather:weather-one:forecast')).value;
+  const cachedAirQuality = JSON.parse(storage.get('morpheus-widget-sdk-cache:v1:weather:weather-one:air-quality')).value;
+  assert.deepEqual(cachedForecast.payload, forecastPayload);
+  assert.deepEqual(cachedAirQuality.payload, airQualityPayload);
 });
 
 test('weather manual reload bypasses a fresh cache', async () => {
@@ -182,7 +199,7 @@ test('weather manual reload bypasses a fresh cache', async () => {
   });
   context.widget = {
     id: 'weather-manual-reload',
-    config: { latitude: 51.5, longitude: -0.1, timezone: 'Europe/London', days: 5, units: 'metric' }
+    config: { latitude: 51.5, longitude: -0.1, timezone: 'Europe/London', days: 5, units: 'metric', showAirQuality: false }
   };
   vm.runInContext("_writeWeatherCache(widget, { current: { time: 'old' }, hourly: { time: [] }, daily: { time: [] } })", context);
   assert.equal(vm.runInContext('_ensureWeatherData(widget)', context), null);
@@ -201,7 +218,7 @@ test('basic Weather exposes a reload action beside widget settings', () => {
   assert.match(widgets, /if \(typeof def\.reload !== 'function'\) return;/);
   assert.match(widgets, /widget-action-btn widget-action-btn--reload/);
   assert.match(widgets, /appendChild\(icon\('icon-reload'\)\)/);
-  assert.match(weather, /reload\(widget\) \{\s*return _ensureWeatherData\(widget, \{ force: true \}\);/);
+  assert.match(weather, /reload\(widget\) \{[\s\S]*?_ensureWeatherData\(widget, \{ force: true \}\)[\s\S]*?_ensureWeatherAirQualityData\(widget, \{ force: true \}\)[\s\S]*?Promise\.all/);
   const frameworkStyles = fs.readFileSync(path.join(portalRoot, 'source', 'styles.css'), 'utf8');
   assert.match(frameworkStyles, /\.widget-action-btn--reload\s*\{[^}]*right:\s*26px/s);
   assert.match(styles, /\.widget-weather-location\s*\{[^}]*padding-right:\s*50px/s);
@@ -227,6 +244,62 @@ test('weather response cache tracks data-affecting options but not display layou
   assert.equal(vm.runInContext("widget.config.forecastLayout = 'horizontal'; !!_readWeatherCache(widget)", context), true);
   assert.equal(vm.runInContext("widget.config.showHourly24 = true; !!_readWeatherCache(widget)", context), true);
   assert.equal(vm.runInContext("widget.config.units = 'imperial'; !!_readWeatherCache(widget)", context), false);
+});
+
+test('air-quality cache follows effective location but not weather display or unit options', () => {
+  const { context } = loadWidgets();
+  context.widget = {
+    id: 'weather-air-cache',
+    config: { latitude: 52.5, longitude: 13.4, timezone: 'Europe/Berlin', days: 5, units: 'metric', showAirQuality: true, airQualityIndex: 'european' }
+  };
+  assert.equal(vm.runInContext("_writeWeatherAirQualityCache(widget, { current: { european_aqi: 18 } }); !!_readWeatherAirQualityCache(widget)", context), true);
+  assert.equal(vm.runInContext("widget.config.units = 'imperial'; widget.config.days = 10; widget.config.airQualityIndex = 'us'; !!_readWeatherAirQualityCache(widget)", context), true);
+  assert.equal(vm.runInContext("widget.config.latitude = 53; !!_readWeatherAirQualityCache(widget)", context), false);
+});
+
+test('air-quality index helpers apply the published European and US bands', () => {
+  const { context } = loadWidgets();
+  const details = vm.runInContext(`({
+    europeanGood: _weatherAqiDetails(20, 'european'),
+    europeanFair: _weatherAqiDetails(21, 'european'),
+    europeanExtreme: _weatherAqiDetails(101, 'european'),
+    usModerate: _weatherAqiDetails(75, 'us'),
+    usSensitive: _weatherAqiDetails(125, 'us'),
+    missing: _weatherAqiDetails(null, 'us')
+  })`, context);
+  assert.deepEqual(JSON.parse(JSON.stringify(details)), {
+    europeanGood: { value: 20, standard: 'European AQI', label: 'Good', className: 'is-good' },
+    europeanFair: { value: 21, standard: 'European AQI', label: 'Fair', className: 'is-fair' },
+    europeanExtreme: { value: 101, standard: 'European AQI', label: 'Extremely poor', className: 'is-extremely-poor' },
+    usModerate: { value: 75, standard: 'US AQI', label: 'Moderate', className: 'is-moderate' },
+    usSensitive: { value: 125, standard: 'US AQI', label: 'Unhealthy for sensitive groups', className: 'is-poor' },
+    missing: null
+  });
+});
+
+test('air-quality failure remains independent from a successful weather refresh', async () => {
+  const forecastPayload = {
+    current: { time: '2026-08-03T12:00', temperature_2m: 18, weather_code: 2 },
+    hourly: { time: ['2026-08-03T12:00'] },
+    daily: { time: ['2026-08-03'] }
+  };
+  const { context } = loadWidgets(async input => {
+    const hostname = new URL(String(input)).hostname;
+    if (hostname === 'air-quality-api.open-meteo.com') return { ok: false, status: 503, json: async () => ({ reason: 'Air service unavailable' }) };
+    return { ok: true, json: async () => forecastPayload };
+  });
+  context.widget = {
+    id: 'weather-independent-air',
+    config: { latitude: 51.5, longitude: -0.1, timezone: 'Europe/London', days: 5, units: 'metric', showAirQuality: true }
+  };
+  await Promise.all([
+    vm.runInContext('_ensureWeatherData(widget)', context),
+    vm.runInContext('_ensureWeatherAirQualityData(widget)', context)
+  ]);
+  assert.deepEqual(JSON.parse(JSON.stringify(vm.runInContext('_readWeatherCache(widget).payload', context))), forecastPayload);
+  assert.equal(vm.runInContext('_readWeatherAirQualityCache(widget)', context), null);
+  assert.equal(vm.runInContext('_getWeatherRuntime(widget).airQualityStatus', context), 'error');
+  assert.equal(vm.runInContext('_getWeatherRuntime(widget).status', context), 'ready');
 });
 
 test('weather hourly position survives runtime recreation', () => {
@@ -316,7 +389,13 @@ test('weather styling includes current conditions, forecast rows and location re
   assert.match(styles, /\.widget-weather-hourly-grid\s*\{[^}]*display:\s*flex/s);
   assert.match(styles, /calc\(\(100% - 21px\) \/ 8\)/);
   assert.match(styles, /\.widget-weather-hourly-viewport\s*\{[^}]*cursor:\s*grab/s);
+  assert.match(styles, /\.widget-weather-air-quality\s*\{/);
+  assert.match(styles, /\.widget-weather-aqi\.is-good\s*\{/);
   assert.match(styles, /\.weather-location-result\s*\{/);
+  const weatherSource = fs.readFileSync(path.join(__dirname, 'weather-widget.js'), 'utf8');
+  assert.match(weatherSource, /data-cfg="showAirQuality"/);
+  assert.match(weatherSource, /data-cfg="airQualityIndex"/);
+  assert.match(weatherSource, /Air quality by CAMS/);
 });
 
 test('weather map widget is registered with regional map defaults', () => {
@@ -718,6 +797,11 @@ test('weather map styling covers controls, timeline, legends and wind markers', 
   const styles = fs.readFileSync(path.join(__dirname, 'weather-map-widget.css'), 'utf8');
   const widgets = fs.readFileSync(path.join(__dirname, 'weather-map-widget.js'), 'utf8');
   assert.match(styles, /\.widget-weather-map-shell\s*\{/);
+  assert.match(styles, /\.widget-weather-map-shell\s*\{[^}]*aspect-ratio:\s*16\s*\/\s*9;[^}]*min-height:\s*320px;[^}]*max-height:\s*480px/s);
+  assert.match(styles, /\.widget-weather-map-origin-marker\s*\{[^}]*background:\s*var\(--accent\)[^}]*box-shadow:/s);
+  assert.match(widgets, /originMarkerElement\.className = 'widget-weather-map-origin-marker'/);
+  assert.match(widgets, /instance\.originMarker = new maplibregl\.Marker[\s\S]*?\.setLngLat\(\[Number\(c\.longitude\), Number\(c\.latitude\)\]\)/);
+  assert.match(widgets, /instance\.originMarker\?\.remove\(\)/);
   assert.match(styles, /\.widget-weather-map-timeline\s*\{/);
   assert.match(styles, /\.widget-weather-map-legend\.is-rain/);
   assert.match(styles, /\.widget-weather-map-wind-marker\s*\{/);

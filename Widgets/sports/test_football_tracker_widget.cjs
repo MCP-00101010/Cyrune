@@ -66,9 +66,10 @@ test('match normalization keeps bounded display data and full-time scores', () =
   assert.equal(matches[0].homeScore, 2);
   assert.equal(matches[0].awayScore, 1);
   assert.equal(matches[0].matchday, 3);
-  context.payload.matches[0].status = 'SCHEDULED';
+  context.payload.matches[0].status = 'TIMED';
   context.payload.matches[0].score.fullTime = { home: null, away: null };
   const scheduled = vm.runInContext('_footballTrackerMatches(payload)', context);
+  assert.equal(scheduled[0].status, 'SCHEDULED');
   assert.equal(scheduled[0].homeScore, null);
   assert.equal(scheduled[0].awayScore, null);
 });
@@ -109,19 +110,28 @@ test('football view, round and team-history navigation survive runtime recreatio
   const context = createContext(); context.widget = widget({ competitionCode: 'SCO-PL' });
   const restored = vm.runInContext(`(() => {
     const first = _footballTrackerState(widget);
-    first.view = 'standings'; first.roundKey = 'round-4'; first.historyTabKey = 'CL';
+    first.view = 'standings'; first.roundKey = 'round-4'; first.historyTabKey = 'CL'; first.historySort = 'oldest';
     first.selectedTeam = { id: 53, name: 'Celtic', crest: 'https://example.test/celtic.png', provider: 'sportmonks', area: 'Scotland', competitionCode: 'SCO-PL' };
     _footballTrackerWriteView(widget, first);
     _footballTrackerRuntime.clear(); _footballTrackerViewMemory.clear();
     const next = _footballTrackerState(widget);
-    return { view: next.view, roundKey: next.roundKey, historyTabKey: next.historyTabKey, selectedTeam: next.selectedTeam };
+    return { view: next.view, roundKey: next.roundKey, historyTabKey: next.historyTabKey, historySort: next.historySort, selectedTeam: next.selectedTeam };
   })()`, context);
   assert.equal(restored.view, 'standings');
   assert.equal(restored.roundKey, 'round-4');
   assert.equal(restored.historyTabKey, 'CL');
+  assert.equal(restored.historySort, 'oldest');
   assert.equal(restored.selectedTeam.name, 'Celtic');
   assert.equal(context.__cache.has('footballTracker:football-1:view'), true);
   assert.deepEqual(context.widget.data, {});
+});
+
+test('team history sorts newest first by default and can reverse without mutating provider data', () => {
+  const context = createContext();
+  context.matches = [{ id: 1, utcDate: Date.parse('2026-08-01T12:00:00Z') }, { id: 2, utcDate: Date.parse('2026-08-20T12:00:00Z') }];
+  assert.deepEqual([...vm.runInContext("_footballTrackerSortHistoryMatches(matches, 'newest').map(match => match.id)", context)], [2, 1]);
+  assert.deepEqual([...vm.runInContext("_footballTrackerSortHistoryMatches(matches, 'oldest').map(match => match.id)", context)], [1, 2]);
+  assert.deepEqual([...context.matches].map(match => match.id), [1, 2]);
 });
 
 test('standings retain total tables and discard redundant home/away tables', () => {
@@ -291,15 +301,21 @@ test('team history groups official competitions into tabs and keeps provider pri
     { id: 2, utcDate: 1000, status: 'FINISHED', home: { id: 101, name: 'Home' }, away: { id: 202, name: 'Away' }, homeScore: 2, awayScore: 1, competition: { provider: 'apiFootball', name: 'Premier League', area: 'England' } },
     { id: 3, utcDate: 2000, status: 'FINISHED', home: { id: 303, name: 'Cup Side' }, away: { id: 101, name: 'Home' }, homeScore: 0, awayScore: 3, competition: { provider: 'apiFootball', name: 'FA Cup', area: 'England' } },
     { id: 4, utcDate: 3000, status: 'SCHEDULED', home: { id: 101, name: 'Home' }, away: { id: 404, name: 'European Side' }, homeScore: null, awayScore: null, competition: { provider: 'apiFootball', name: 'UEFA Europa League', area: 'World' } },
+    { id: 6, utcDate: 2500, status: 'POSTPONED', home: { id: 606, name: 'Another European Side' }, away: { id: 101, name: 'Home' }, homeScore: null, awayScore: null, competition: { provider: 'apiFootball', name: 'UEFA Europa League', area: 'World' } },
     { id: 5, utcDate: 4000, status: 'FINISHED', home: { id: 101, name: 'Home' }, away: { id: 505, name: 'Friendly Side' }, homeScore: 1, awayScore: 1, competition: { provider: 'apiFootball', name: 'Club Friendlies', area: 'World' } }
   ];
-  const history = vm.runInContext('_footballTrackerBuildTeamHistory(matches, team, ids, "PL")', context);
-  assert.deepEqual([...history.groups].map(group => group.key), ['PL', 'ENG-FAC', 'EUR-EL']);
+  const history = vm.runInContext('_footballTrackerBuildTeamHistory(matches, team, ids, "PL", 0)', context);
+  assert.deepEqual([...history.groups].map(group => group.key), ['PL', 'EUR-EL', 'ENG-FAC']);
   assert.equal(history.groups[0].provider, 'footballData');
   assert.equal(history.groups[0].matches.length, 1);
-  assert.equal(history.groups[1].matches[0].venue, 'A');
-  assert.equal(history.groups[1].matches[0].result, 'W');
-  assert.equal(history.groups[2].matches.length, 0);
+  const faCup = history.groups.find(group => group.key === 'ENG-FAC');
+  const europaLeague = history.groups.find(group => group.key === 'EUR-EL');
+  assert.equal(faCup.matches[0].venue, 'A');
+  assert.equal(faCup.matches[0].result, 'W');
+  assert.equal(europaLeague.matches.length, 0);
+  assert.deepEqual([...europaLeague.upcoming].map(match => match.id), [6, 4]);
+  assert.equal(europaLeague.upcoming[0].venue, 'A');
+  assert.equal(europaLeague.upcoming[0].status, 'POSTPONED');
 });
 
 test('cross-provider team history resolves API-Football once and adds missing cups', async () => {
@@ -321,7 +337,8 @@ test('cross-provider team history resolves API-Football once and adds missing cu
   context.widget = widget(); context.team = { id: 1, name: 'Home FC', provider: 'footballData', area: 'England', competitionCode: 'PL' };
   const history = await vm.runInContext('_footballTrackerFetchTeamHistory(widget, team)', context);
   assert.deepEqual([...history.groups].map(group => group.key), ['PL', 'ENG-FAC']);
-  assert.ok(requests.some(url => /teams\/1\/matches\?season=\d{4}&status=FINISHED&limit=500/.test(url)));
+  assert.ok(requests.some(url => /teams\/1\/matches\?season=\d{4}&limit=500/.test(url)));
+  assert.ok(requests.every(url => !url.includes('status=FINISHED')));
   assert.ok(requests.some(url => /teams\?search=Home%20FC/.test(url)));
   assert.ok(requests.some(url => /fixtures\?team=101&season=\d{4}/.test(url)));
   await vm.runInContext('_footballTrackerResolveApiFootballTeam(widget, team)', context);
@@ -416,6 +433,7 @@ test('TheSportsDB fills a Champions League tab when configured providers omit it
         idHomeTeam: '133647', strHomeTeam: 'Celtic', strHomeTeamBadge: 'https://r2.thesportsdb.com/celtic.png', intHomeScore: '3',
         idAwayTeam: '137261', strAwayTeam: 'LASK', strAwayTeamBadge: 'https://r2.thesportsdb.com/lask.png', intAwayScore: '0'
       }] }) };
+      if (url.includes('/eventsnext.php?id=133647')) return { ok: true, json: async () => ({ events: [] }) };
       throw new Error(`Unexpected URL: ${url}`);
     }
   });
@@ -426,6 +444,7 @@ test('TheSportsDB fills a Champions League tab when configured providers omit it
   assert.equal(history.groups[1].matches[0].opponent.name, 'LASK');
   assert.equal(history.groups[1].matches[0].homeScore, 3);
   assert.ok(requests.some(url => url.includes('/eventslast.php?id=133647')));
+  assert.ok(requests.some(url => url.includes('/eventsnext.php?id=133647')));
 });
 
 test('TheSportsDB retains discovered current-season results across later checks', async () => {
@@ -525,6 +544,7 @@ test('football assets load after the SDK and include compact layouts', () => {
   assert.match(source, /League \/ competition/);
   assert.match(css, /football-tracker-history-tabs/);
   assert.match(css, /football-tracker-history-match/);
+  assert.match(css, /football-tracker-history-section-heading/);
 });
 
 test('teams are keyboard-accessible history controls with competition tabs and a back action', () => {
@@ -532,6 +552,13 @@ test('teams are keyboard-accessible history controls with competition tabs and a
   assert.match(source, /View \$\{team\.name\} current-season match history/);
   assert.match(source, /setAttribute\('role', 'tablist'\)/);
   assert.match(source, /Back to competition/);
+  assert.match(source, /football-tracker-history-sort/);
+  assert.match(source, /Show oldest matches first/);
+  assert.match(source, /_footballTrackerSortHistoryMatches\(selected\.matches, runtime\.historySort\)/);
+  assert.match(source, /_footballTrackerSortHistoryMatches\(upcoming, runtime\.historySort\)/);
+  assert.match(source, /heading\.textContent = 'Upcoming'/);
+  assert.match(source, /kickoff\.toLocaleTimeString/);
+  assert.match(source, /group\.matches\.length \+ \(group\.upcoming\?\.length \|\| 0\)/);
   assert.match(source, /runtime\.selectedTeam \? _footballTrackerLoadTeamHistory/);
   assert.match(source, /could not be retrieved from any available provider/);
   assert.doesNotMatch(source, /history\.warnings/);

@@ -187,6 +187,7 @@ function _destroyWeatherMap(widgetId, options = {}) {
   (instance.markers || []).forEach(marker => {
     try { marker.remove(); } catch {}
   });
+  try { instance.originMarker?.remove(); } catch {}
   try { instance.map?.remove(); } catch {}
   _weatherMapInstances.delete(widgetId);
 }
@@ -848,6 +849,7 @@ WIDGET_REGISTRY['weatherMap'] = {
       runtime,
       widgetCard,
       markers: [],
+      originMarker: null,
       legend: legends,
       layerIds: {
         temperature: `weather-map-temperature-${widget.id}`,
@@ -863,6 +865,12 @@ WIDGET_REGISTRY['weatherMap'] = {
       attributionButton: null
     };
     _weatherMapInstances.set(widget.id, instance);
+    const originMarkerElement = document.createElement('div');
+    originMarkerElement.className = 'widget-weather-map-origin-marker';
+    originMarkerElement.title = `Forecast origin · ${c.locationName || 'Configured location'}`;
+    instance.originMarker = new maplibregl.Marker({ element: originMarkerElement, anchor: 'center' })
+      .setLngLat([Number(c.longitude), Number(c.latitude)])
+      .addTo(map);
     _restoreWeatherMapAttribution(instance);
     if (typeof ResizeObserver === 'function') {
       instance.resizeObserver = new ResizeObserver(() => _scheduleWeatherMapResize(instance));

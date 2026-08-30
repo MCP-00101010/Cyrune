@@ -4,19 +4,36 @@ Historical entries below are preserved from Portal releases whose release notes 
 
 ---
 
+## [Unversioned] — 2026-08-31
+
+### Added
+
+- **Weather air quality** — Weather now loads independently cached Open-Meteo air-quality conditions for its effective local or inherited Cyrune location, displaying European or US AQI bands plus current PM2.5, PM10, nitrogen dioxide, and ozone readings with Open-Meteo/CAMS attribution.
+- **Air-quality controls and resilience** — settings can disable the section or select the European/US index. Air-quality requests, retries, and one-hour cache remain separate so provider failure cannot interrupt the existing forecast.
+- **Provider integration roadmap** — the Widgets backlog now owns scoped Calculator/Frankfurter currency conversion, Calendar/`date-holidays`, and offline-first WordNet Lexicon work with optional Datamuse enrichment and Translator handoff.
+
+### Validation
+
+- The coordinated Cyrune validator passes with 90 Portal, 20 Nexus, 261 Widget, and 12 Relay JavaScript tests; 55 Host tests plus 11 subtests; 10 migration, 14 packaging, 3 tooling, and 69 Arcade tests; all repository JavaScript syntax checks; Relay manifest validation; and independent component-version validation. Relay source was unchanged, so `web-ext lint` was deliberately skipped. A live London request separately confirmed Open-Meteo's current air-quality response shape and units.
+
 ## [Unversioned] — 2026-08-25
 
 ### Added
 
+- Football team histories now provide a persisted oldest-first/newest-first sort control that consistently orders both upcoming fixtures and completed results without changing cached provider data.
+- Selected-team season views now show known upcoming fixtures within each supported competition, including home/away context and local kickoff time. Football-data.org requests no longer exclude scheduled matches, and TheSportsDB coverage now combines its previous- and next-event feeds.
+- Weather Map now marks its configured forecast origin with the same prominent location marker used by Global Hazards.
 - Widget SDK 3 adds `settings.resolve(path, localValue, { inherit })`, returning the effective value and its `local`, `global`, or `component` source without allowing Widgets to select a broader Host profile.
 - Weather and Weather Map now offer separate opt-in switches for the permitted Cyrune location and shared units. Astronomy uses the same location as a fallback when no configured Weather widget is available, and Calendar can opt into the shared week start.
 
 ### Changed
 
+- Weather Map now shares Global Hazards' responsive 16:9, 320–480 px map sizing envelope, including the 280 px narrow-container floor.
 - Existing Widget configuration remains local by default. New inheritance switches are disabled unless the user enables them, and rendered Widgets refresh when Portal applies a newer Nexus profile.
 
 ### Fixed
 
+- ISS follow mode now pauses automatic recentering for the duration of a manual globe drag, then resumes tracking after the drag ends.
 - Kept RSS article lists visually anchored during feed refreshes and stable across tab changes by updating the existing view in place and reserving scrollbar space. Remote images now enter the article layout only after loading successfully, so failed images create neither a transient frame nor an empty placeholder.
 
 ### Changed
@@ -38,6 +55,7 @@ Historical entries below are preserved from Portal releases whose release notes 
 
 ### Validation
 
+- The complete coordinated validator passes with 90 Portal, 20 Nexus, 258 Widget, and 12 Relay JavaScript tests; 55 Host tests plus 11 subtests; 10 migration, 14 packaging, 3 tooling, and 69 Arcade tests; all repository JavaScript syntax checks; Relay manifest validation and extension lint.
 - The coordinated settings and migration audit passes all 254 colocated Widget tests and JavaScript syntax checks.
 
 ### Validation
