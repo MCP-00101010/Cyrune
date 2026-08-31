@@ -12,6 +12,10 @@ Historical entries below are preserved from Portal releases whose release notes 
 - **Air-quality controls and resilience** — settings can disable the section or select the European/US index. Air-quality requests, retries, and one-hour cache remain separate so provider failure cannot interrupt the existing forecast.
 - **Provider integration roadmap** — the Widgets backlog now owns scoped Calculator/Frankfurter currency conversion, Calendar/`date-holidays`, and offline-first WordNet Lexicon work with optional Datamuse enrichment and Translator handoff.
 
+### Changed
+
+- Added the modular-tile Cyrune lattice favicon to the standalone Widget SDK fixture.
+
 ### Validation
 
 - The coordinated Cyrune validator passes with 90 Portal, 20 Nexus, 261 Widget, and 12 Relay JavaScript tests; 55 Host tests plus 11 subtests; 10 migration, 14 packaging, 3 tooling, and 69 Arcade tests; all repository JavaScript syntax checks; Relay manifest validation; and independent component-version validation. Relay source was unchanged, so `web-ext lint` was deliberately skipped. A live London request separately confirmed Open-Meteo's current air-quality response shape and units.

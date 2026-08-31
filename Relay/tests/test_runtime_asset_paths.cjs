@@ -14,5 +14,9 @@ test('managed assets follow the configured external Portal database root', () =>
 
 test('Relay manifest and changelog identify the current component release', () => {
   const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'manifest.json'), 'utf8'));
-  assert.equal(manifest.version, '1.0.60');
+  const popup = fs.readFileSync(path.join(__dirname, '..', 'popup', 'popup.html'), 'utf8');
+  const icon = fs.readFileSync(path.join(__dirname, '..', 'icons', 'icon-48.svg'), 'utf8');
+  assert.equal(manifest.version, '1.0.61');
+  assert.match(popup, /rel="icon" type="image\/svg\+xml" href="\.\.\/icons\/icon-48\.svg"/);
+  assert.match(icon, /RJ45-style connector/);
 });

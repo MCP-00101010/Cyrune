@@ -7,6 +7,8 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_emugui_page_declares_the_extension_boundary():
     html = (ROOT / "web" / "index.html").read_text(encoding="utf-8")
     assert '<meta name="morpheus-emugui" content="1">' in html
+    assert '<link rel="icon" type="image/svg+xml" href="assets/arcade.svg">' in html
+    assert (ROOT / "web" / "assets" / "arcade.svg").is_file()
 
 
 def test_arcade_consumes_only_its_fixed_shared_settings_profile():

@@ -1,4 +1,26 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" width="96" height="96">
-  <rect width="96" height="96" rx="18" fill="#1a1b1e"/>
-  <path d="M14 72 L14 24 L36 56 L48 36 L60 56 L82 24 L82 72" fill="none" stroke="#c7a8ff" stroke-width="6" stroke-linejoin="round" stroke-linecap="round"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="96" height="96" role="img" aria-labelledby="title desc">
+  <title id="title">Cyrune Relay</title>
+  <desc id="desc">A blue data cable extending from the Cyrune lattice into an RJ45-style connector.</desc>
+  <defs>
+    <radialGradient id="glow" cx="72%" cy="22%" r="92%">
+      <stop offset="0" stop-color="#172f51"/>
+      <stop offset="0.58" stop-color="#101725"/>
+      <stop offset="1" stop-color="#080b12"/>
+    </radialGradient>
+  </defs>
+  <rect x="4" y="4" width="120" height="120" rx="28" fill="url(#glow)" stroke="#263c5d" stroke-width="2"/>
+  <g fill="none" stroke-width="5" stroke-linejoin="round">
+    <rect x="30" y="30" width="60" height="60" rx="14" stroke="#6ba9ff"/>
+    <rect x="30" y="30" width="60" height="60" rx="14" stroke="#7b8fd4" stroke-opacity="0.68" transform="rotate(60 60 60)"/>
+    <rect x="30" y="30" width="60" height="60" rx="14" stroke="#8f79c6" stroke-opacity="0.52" transform="rotate(120 60 60)"/>
+  </g>
+  <path d="M66 77c14 0 13 20 25 20" fill="none" stroke="#080b12" stroke-width="12" stroke-linecap="round"/>
+  <path d="M66 77c14 0 13 20 25 20" fill="none" stroke="#6ba9ff" stroke-width="4.5" stroke-linecap="round"/>
+  <path d="M82 84h22l11 9v15H82z" fill="#14213a" stroke="#080b12" stroke-width="10" stroke-linejoin="round" paint-order="stroke fill"/>
+  <path d="M82 84h22l11 9v15H82z" fill="#14213a" stroke="#6ba9ff" stroke-width="4" stroke-linejoin="round"/>
+  <path d="M91 84v-7h12l7 7" fill="#172743" stroke="#080b12" stroke-width="8" stroke-linejoin="round" paint-order="stroke fill"/>
+  <path d="M91 84v-7h12l7 7" fill="#172743" stroke="#9fc7ff" stroke-width="3.5" stroke-linejoin="round"/>
+  <path d="M106 91h9v17h-9z" fill="#0d1729" stroke="#6ba9ff" stroke-width="2.5"/>
+  <path d="M108 94v6M111 94v6M114 94v6" stroke="#dbeaff" stroke-width="1.8" stroke-linecap="round"/>
+  <path d="M87 102h14" stroke="#8dbdff" stroke-width="2.5" stroke-linecap="round" opacity="0.75"/>
 </svg>

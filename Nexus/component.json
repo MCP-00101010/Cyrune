@@ -1,7 +1,7 @@
 {
   "id": "nexus",
   "name": "Cyrune Nexus",
-  "version": "0.1.7",
+  "version": "0.1.9",
   "entrypoint": "index.html",
   "todo": "Nexus-TODO.md",
   "changelog": "Nexus-CHANGELOG.md",

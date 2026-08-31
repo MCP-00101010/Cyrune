@@ -12,6 +12,14 @@ test('component metadata covers each Cyrune product and has safe documents', () 
     assert.ok(model.safeDocumentUrl(component.todo));
     assert.ok(model.safeDocumentUrl(component.changelog));
   }
+  assert.deepEqual(Object.fromEntries(model.COMPONENTS.map(component => [component.id, component.page || ''])), {
+    portal: '../Portal/index.html',
+    widgets: '../Widgets/core/sdk/fixture.html',
+    arcade: '../Arcade/web/index.html',
+    relay: '',
+    host: '',
+    nexus: 'index.html'
+  });
 });
 
 test('settings normalization applies safe defaults and bounded values', () => {
@@ -104,10 +112,22 @@ test('Markdown rendering escapes HTML and removes unsafe link targets', () => {
 
 test('HTML loads standalone assets in model-bridge-app order', () => {
   const html = fs.readFileSync(path.join(nexusRoot, 'index.html'), 'utf8');
+  const app = fs.readFileSync(path.join(nexusRoot, 'source', 'app.js'), 'utf8');
   assert.ok(html.indexOf('source/model.js') < html.indexOf('source/bridge.js'));
   assert.ok(html.indexOf('source/bridge.js') < html.indexOf('source/app.js'));
   assert.match(html, /data-view="variables"/);
   assert.match(html, /id="component-nav"/);
+  assert.match(html, /rel="icon" type="image\/svg\+xml" href="assets\/icons\/nexus\.svg"/);
+  assert.match(html, /class="brand-mark" src="assets\/icons\/nexus\.svg"/);
+  assert.match(app, /function componentIconPath\(id\)/);
+  assert.match(app, /componentIconPath\('project'\)/);
+  assert.match(app, /data-open-component-page/);
+  assert.match(app, /window\.open\(component\.page, '_blank', 'noopener'\)/);
+  assert.match(app, /event\.stopPropagation\(\)/);
+  assert.doesNotMatch(app, /component\.name\.slice\(0, 1\)/);
+  for (const id of ['cyrune', ...model.COMPONENTS.map(component => component.id)]) {
+    assert.ok(fs.existsSync(path.join(nexusRoot, 'assets', 'icons', `${id}.svg`)), `missing Nexus icon for ${id}`);
+  }
   assert.doesNotMatch(html, /https?:\/\//);
 });
 

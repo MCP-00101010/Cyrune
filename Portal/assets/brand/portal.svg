@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title desc">
+  <title id="title">Cyrune Portal</title>
+  <desc id="desc">The Cyrune lattice opening into a modern violet sliding doorway.</desc>
+  <defs>
+    <radialGradient id="glow" cx="72%" cy="22%" r="92%">
+      <stop offset="0" stop-color="#272044"/>
+      <stop offset="0.58" stop-color="#121525"/>
+      <stop offset="1" stop-color="#080b12"/>
+    </radialGradient>
+  </defs>
+  <rect x="4" y="4" width="120" height="120" rx="28" fill="url(#glow)" stroke="#312b49" stroke-width="2"/>
+  <g fill="none" stroke-width="5" stroke-linejoin="round">
+    <rect x="30" y="30" width="60" height="60" rx="14" stroke="#a990ff"/>
+    <rect x="30" y="30" width="60" height="60" rx="14" stroke="#7f75c7" stroke-opacity="0.7" transform="rotate(60 60 60)"/>
+    <rect x="30" y="30" width="60" height="60" rx="14" stroke="#d088cf" stroke-opacity="0.58" transform="rotate(120 60 60)"/>
+  </g>
+  <path d="M74 108V70c0-5 4-8 8-8h24c5 0 8 3 8 8v38" fill="none" stroke="#080b12" stroke-width="12" stroke-linejoin="round"/>
+  <path d="M74 108V70c0-5 4-8 8-8h24c5 0 8 3 8 8v38" fill="none" stroke="#d5ccff" stroke-width="4.5" stroke-linejoin="round"/>
+  <path d="M81 70h26v34H81z" fill="#090c16" stroke="#7567b7" stroke-width="3"/>
+  <path d="M92 70h15v34H92z" fill="#282143" stroke="#a990ff" stroke-width="3"/>
+  <path d="M97 74v26" stroke="#dcd5ff" stroke-width="2.5" stroke-linecap="round" opacity="0.78"/>
+  <path d="M83 66h22" stroke="#a990ff" stroke-width="3" stroke-linecap="round"/>
+  <circle cx="94" cy="66" r="2.1" fill="#f3efff"/>
+  <path d="M74 108h40M80 108l-8 8h49l-9-8" fill="none" stroke="#a990ff" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

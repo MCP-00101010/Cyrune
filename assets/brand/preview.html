@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Cyrune icon family</title>
+  <style>
+    :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, sans-serif; background:#080b12; color:#eef3fb; }
+    * { box-sizing:border-box; }
+    body { margin:0; min-height:100vh; padding:clamp(28px,5vw,72px); background:radial-gradient(circle at 78% -10%,rgba(155,140,255,.16),transparent 36%),#080b12; }
+    main { width:min(1180px,100%); margin:auto; }
+    header { display:flex; align-items:end; justify-content:space-between; gap:30px; margin-bottom:34px; }
+    h1 { margin:6px 0 0; font-size:clamp(32px,5vw,58px); letter-spacing:-.055em; }
+    p { color:#8b97aa; line-height:1.6; }
+    .eyebrow { margin:0; color:#657086; font-size:11px; font-weight:800; letter-spacing:.2em; text-transform:uppercase; }
+    .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:16px; }
+    article { min-height:270px; display:grid; place-items:center; padding:26px; border:1px solid #222c3c; border-radius:20px; background:linear-gradient(150deg,rgba(255,255,255,.035),transparent 60%),#111722; }
+    article > img { width:128px; height:128px; filter:drop-shadow(0 18px 28px rgba(0,0,0,.28)); }
+    .meta { width:100%; display:flex; align-items:end; justify-content:space-between; margin-top:22px; padding-top:16px; border-top:1px solid #222c3c; }
+    h2 { margin:0 0 3px; font-size:17px; }
+    small { color:#657086; font:10px ui-monospace,Consolas,monospace; }
+    .sizes { display:flex; align-items:end; gap:8px; }
+    .sizes img:nth-child(1) { width:16px;height:16px; }.sizes img:nth-child(2) { width:24px;height:24px; }.sizes img:nth-child(3) { width:32px;height:32px; }
+    footer { margin-top:28px; padding:18px 20px; border:1px solid #222c3c; border-radius:14px; background:#0d111a; font-size:12px; }
+    @media (max-width:600px) { header { display:block; } }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div><p class="eyebrow">Shared visual language</p><h1>The Cyrune lattice</h1></div>
+      <p>One connected system, expressed through seven distinct instruments.</p>
+    </header>
+    <section class="grid" aria-label="Cyrune icon family">
+      <article><img src="icons/cyrune.svg" alt="Cyrune icon"><div class="meta"><div><h2>Cyrune</h2><small>MASTER MARK</small></div><div class="sizes"><img src="icons/cyrune.svg" alt=""><img src="icons/cyrune.svg" alt=""><img src="icons/cyrune.svg" alt=""></div></div></article>
+      <article><img src="icons/portal.svg" alt="Portal icon"><div class="meta"><div><h2>Portal</h2><small>SLIDING DOOR</small></div><div class="sizes"><img src="icons/portal.svg" alt=""><img src="icons/portal.svg" alt=""><img src="icons/portal.svg" alt=""></div></div></article>
+      <article><img src="icons/widgets.svg" alt="Widgets icon"><div class="meta"><div><h2>Widgets</h2><small>MODULAR TILES</small></div><div class="sizes"><img src="icons/widgets.svg" alt=""><img src="icons/widgets.svg" alt=""><img src="icons/widgets.svg" alt=""></div></div></article>
+      <article><img src="icons/arcade.svg" alt="Arcade icon"><div class="meta"><div><h2>Arcade</h2><small>RETRO JOYSTICK</small></div><div class="sizes"><img src="icons/arcade.svg" alt=""><img src="icons/arcade.svg" alt=""><img src="icons/arcade.svg" alt=""></div></div></article>
+      <article><img src="icons/relay.svg" alt="Relay icon"><div class="meta"><div><h2>Relay</h2><small>DATA LINK</small></div><div class="sizes"><img src="icons/relay.svg" alt=""><img src="icons/relay.svg" alt=""><img src="icons/relay.svg" alt=""></div></div></article>
+      <article><img src="icons/host.svg" alt="Host icon"><div class="meta"><div><h2>Host</h2><small>NATIVE SERVER</small></div><div class="sizes"><img src="icons/host.svg" alt=""><img src="icons/host.svg" alt=""><img src="icons/host.svg" alt=""></div></div></article>
+      <article><img src="icons/nexus.svg" alt="Nexus icon"><div class="meta"><div><h2>Nexus</h2><small>CENTRAL JUNCTION</small></div><div class="sizes"><img src="icons/nexus.svg" alt=""><img src="icons/nexus.svg" alt=""><img src="icons/nexus.svg" alt=""></div></div></article>
+    </section>
+    <footer>The 128 × 128 SVG masters are self-contained and use no external fonts, filters, scripts, or linked assets.</footer>
+  </main>
+</body>
+</html>

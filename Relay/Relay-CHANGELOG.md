@@ -4,6 +4,16 @@ Historical entries below are preserved from Portal releases whose release notes 
 
 ---
 
+## [1.0.61] — 2026-08-31
+
+### Changed
+
+- Replaced the legacy letter mark with Relay's blue Cyrune lattice and RJ45-style data-link icon across the extension action, popup header, and popup favicon.
+
+### Validation
+
+- Relay tests, exact-boundary packaging tests, manifest validation, version alignment, and `web-ext lint` cover the icon-only extension release.
+
 ## [1.0.60] — 2026-08-25
 
 ### Added
@@ -1556,4 +1566,3 @@ Historical entries below are preserved from Portal releases whose release notes 
 - Context menu rendered behind the inbox panel due to lower z-index
 
 ---
-

@@ -245,6 +245,8 @@ function loadBookmarkTools(fixture, healthResponses = {}) {
   assert(contextualActions.some(entry => entry.group === 'Bookmark Actions' && entry.label.startsWith('Edit:')), 'palette should expose contextual bookmark actions');
 
   const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+  assert(html.includes('rel="icon" type="image/svg+xml" href="assets/brand/portal.svg"'), 'Portal should use its Cyrune lattice favicon');
+  assert(fs.existsSync(path.join(ROOT, 'assets', 'brand', 'portal.svg')), 'Portal favicon should remain inside the component');
   for (const requiredId of ['hubToolsPanel', 'hubToolsBody', 'commandPaletteOverlay', 'commandPaletteInput', 'stgBookmarkActivityTracking', 'stgBookmarkActivityExport', 'essentialsViewPreviousBtn', 'essentialsViewMenuBtn', 'essentialsViewMenu', 'essentialsViewNextBtn', 'essentialsSmartViewsBtn', 'searchSmartViewsBtn']) {
     assert(html.includes(`id="${requiredId}"`), `index should provide #${requiredId}`);
   }

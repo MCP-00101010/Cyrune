@@ -7,6 +7,12 @@ const vm = require('node:vm');
 const root = path.join(__dirname, '..', '..', 'Portal');
 const sdkSource = fs.readFileSync(path.join(__dirname, 'widget-sdk.js'), 'utf8');
 
+test('standalone SDK fixture uses the Widgets component favicon', () => {
+  const fixture = fs.readFileSync(path.join(__dirname, 'sdk', 'fixture.html'), 'utf8');
+  assert.match(fixture, /rel="icon" type="image\/svg\+xml" href="assets\/widgets\.svg"/);
+  assert.ok(fs.existsSync(path.join(__dirname, 'sdk', 'assets', 'widgets.svg')));
+});
+
 function makeStorage() {
   const values = new Map();
   return {

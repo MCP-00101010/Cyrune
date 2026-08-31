@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title desc">
+  <title id="title">Cyrune Arcade</title>
+  <desc id="desc">The Cyrune lattice joined to an orange retro joystick.</desc>
+  <defs>
+    <radialGradient id="glow" cx="72%" cy="22%" r="92%">
+      <stop offset="0" stop-color="#412617"/>
+      <stop offset="0.58" stop-color="#18151a"/>
+      <stop offset="1" stop-color="#080b12"/>
+    </radialGradient>
+  </defs>
+  <rect x="4" y="4" width="120" height="120" rx="28" fill="url(#glow)" stroke="#493225" stroke-width="2"/>
+  <g fill="none" stroke-width="5" stroke-linejoin="round">
+    <rect x="30" y="30" width="60" height="60" rx="14" stroke="#ffae68"/>
+    <rect x="30" y="30" width="60" height="60" rx="14" stroke="#d58956" stroke-opacity="0.68" transform="rotate(60 60 60)"/>
+    <rect x="30" y="30" width="60" height="60" rx="14" stroke="#a66f73" stroke-opacity="0.52" transform="rotate(120 60 60)"/>
+  </g>
+  <path d="M85 93L78 71" stroke="#080b12" stroke-width="12" stroke-linecap="round"/>
+  <path d="M85 93L78 71" stroke="#ffd0a8" stroke-width="5" stroke-linecap="round"/>
+  <circle cx="77" cy="68" r="8" fill="#ffae68" stroke="#080b12" stroke-width="6" paint-order="stroke fill"/>
+  <path d="M72 92h37l5 15H68z" fill="#24170f" stroke="#080b12" stroke-width="10" stroke-linejoin="round" paint-order="stroke fill"/>
+  <path d="M72 92h37l5 15H68z" fill="#24170f" stroke="#ffae68" stroke-width="4" stroke-linejoin="round"/>
+  <circle cx="101" cy="98" r="4" fill="#fff0e1"/>
+</svg>

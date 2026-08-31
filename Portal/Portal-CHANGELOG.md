@@ -5,6 +5,16 @@ Format: `[version] — date` followed by Added / Changed / Fixed sections.
 
 ---
 
+## [0.11.226] — 2026-08-31
+
+### Changed
+
+- Added the Portal doorway mark from the shared Cyrune lattice icon family as the page favicon.
+
+### Validation
+
+- Portal tests and the coordinated repository validator cover the browser entry point and aligned release metadata.
+
 ## [0.11.225] — 2026-08-25
 
 ### Added

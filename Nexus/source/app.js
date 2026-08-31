@@ -75,6 +75,17 @@
     return ({ healthy: 'Healthy', attention: 'Attention', unavailable: 'Unavailable', 'source-only': 'Source only' })[state] || 'Unknown';
   }
 
+  function componentIconPath(id) {
+    const icon = id === 'project' ? 'cyrune' : (model.componentById(id)?.id || 'cyrune');
+    return `assets/icons/${icon}.svg`;
+  }
+
+  function componentIconMarkup(id, classes = 'component-symbol') {
+    const component = model.componentById(id);
+    const launch = component?.page ? ` data-open-component-page="${component.id}" title="Open Cyrune ${component.name} in a new tab"` : '';
+    return `<img class="${classes}" src="${componentIconPath(id)}" alt="" aria-hidden="true"${launch}>`;
+  }
+
   function renderServiceChrome() {
     const connected = serviceAuthenticated;
     const sample = document.querySelector('.sample-time');
@@ -188,7 +199,7 @@
       const health = componentHealth(component);
       return `
       <button class="component-card accent-${component.accent}" type="button" data-open-component="${component.id}">
-        <span class="component-card-top"><span class="component-symbol">${component.name.slice(0, 1)}</span><span class="status-pill ${healthTone(health.state)}">${healthLabel(health.state)}</span></span>
+        <span class="component-card-top">${componentIconMarkup(component.id)}<span class="status-pill ${healthTone(health.state)}">${healthLabel(health.state)}</span></span>
         <span class="component-name">${component.name}</span><span class="component-version">${model.escapeHtml(live.version || component.version)}</span>
         <span class="component-summary">${model.escapeHtml(component.summary)}</span>
         <span class="component-foot"><span>${model.escapeHtml(health.summary)}${health.sampledAt ? ` · ${formatAge(health.sampledAt)}` : ''}</span><span aria-hidden="true">→</span></span>
@@ -404,7 +415,7 @@
     const runtimeLabel = runtime?.available ? `${health.summary} · ${runtime.collectionCount || 0} collections` : health.summary;
     viewTitle.textContent = component.name;
     viewEyebrow.textContent = 'Component status';
-    viewRoot.innerHTML = `<section class="component-hero accent-${component.accent}"><span class="component-symbol large">${component.name.slice(0, 1)}</span><div><span class="section-kicker">Cyrune component</span><h2>${model.escapeHtml(component.name)}</h2><p>${model.escapeHtml(component.summary)}</p></div><div class="version-stack"><small>Source version</small><strong>${model.escapeHtml(live.version || component.version)}</strong><span>Updated ${formatAge(live.updatedMs)}</span></div></section><section class="component-facts"><div><small>Runtime health</small><strong>${model.escapeHtml(runtimeLabel)}</strong></div><div><small>Health sampled</small><strong>${formatAge(health.sampledAt)}</strong></div><div><small>Repository state</small><strong>${repository ? (repository.clean ? 'Clean' : `${repository.staged + repository.unstaged} changes`) : 'Unavailable'}</strong></div><div><small>Validation</small><strong>${snapshot?.validation ? formatAge(snapshot.validation.timestamp) : 'No receipt'}</strong></div></section>${health.state !== 'healthy' && health.guidance ? `<section class="component-health-guidance health-${health.state}"><span class="status-pill ${healthTone(health.state)}">${healthLabel(health.state)}</span><div><strong>${model.escapeHtml(health.summary)}</strong><p>${model.escapeHtml(health.guidance)}</p></div></section>` : ''}<section class="document-grid">${documentPanel(component, 'todo', 'Open work', component.todo)}${documentPanel(component, 'changelog', 'Release history', component.changelog)}</section>`;
+    viewRoot.innerHTML = `<section class="component-hero accent-${component.accent}">${componentIconMarkup(component.id, 'component-symbol large')}<div><span class="section-kicker">Cyrune component</span><h2>${model.escapeHtml(component.name)}</h2><p>${model.escapeHtml(component.summary)}</p></div><div class="version-stack"><small>Source version</small><strong>${model.escapeHtml(live.version || component.version)}</strong><span>Updated ${formatAge(live.updatedMs)}</span></div></section><section class="component-facts"><div><small>Runtime health</small><strong>${model.escapeHtml(runtimeLabel)}</strong></div><div><small>Health sampled</small><strong>${formatAge(health.sampledAt)}</strong></div><div><small>Repository state</small><strong>${repository ? (repository.clean ? 'Clean' : `${repository.staged + repository.unstaged} changes`) : 'Unavailable'}</strong></div><div><small>Validation</small><strong>${snapshot?.validation ? formatAge(snapshot.validation.timestamp) : 'No receipt'}</strong></div></section>${health.state !== 'healthy' && health.guidance ? `<section class="component-health-guidance health-${health.state}"><span class="status-pill ${healthTone(health.state)}">${healthLabel(health.state)}</span><div><strong>${model.escapeHtml(health.summary)}</strong><p>${model.escapeHtml(health.guidance)}</p></div></section>` : ''}<section class="document-grid">${documentPanel(component, 'todo', 'Open work', component.todo)}${documentPanel(component, 'changelog', 'Release history', component.changelog)}</section>`;
     loadDocument(component, 'todo', component.todo);
     loadDocument(component, 'changelog', component.changelog);
   }
@@ -499,8 +510,18 @@
     render();
   }
 
-  componentNav.innerHTML = model.COMPONENTS.map(component => `<button class="nav-item component-nav-item" type="button" data-component="${component.id}"><i class="accent-${component.accent}">${component.name.slice(0, 1)}</i>${component.name}<small>${model.escapeHtml(component.version)}</small></button>`).join('') + '<button class="nav-item component-nav-item" type="button" data-component="project"><i class="accent-slate">P</i>Project<small>Monorepo</small></button>';
+  componentNav.innerHTML = model.COMPONENTS.map(component => `<button class="nav-item component-nav-item" type="button" data-component="${component.id}">${componentIconMarkup(component.id, 'component-nav-icon')}${component.name}<small>${model.escapeHtml(component.version)}</small></button>`).join('') + `<button class="nav-item component-nav-item" type="button" data-component="project"><img class="component-nav-icon" src="${componentIconPath('project')}" alt="" aria-hidden="true">Project<small>Monorepo</small></button>`;
   document.addEventListener('click', event => {
+    const pageIcon = event.target.closest('[data-open-component-page]');
+    if (pageIcon) {
+      const component = model.componentById(pageIcon.dataset.openComponentPage);
+      if (component?.page) {
+        event.preventDefault();
+        event.stopPropagation();
+        window.open(component.page, '_blank', 'noopener');
+      }
+      return;
+    }
     const remote = event.target.closest('[data-check-remote]');
     if (remote) {
       event.preventDefault();

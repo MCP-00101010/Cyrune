@@ -322,7 +322,7 @@ test('Nexus file page registers an exact role and relays only namespaced operati
       sendMessage: async message => {
         runtimeMessages.push(message);
         if (message.type === 'MW_NEXUS_REGISTER') {
-          return { ok: true, nexusSessionToken: 'nexus-session-1', relayVersion: '1.0.60' };
+          return { ok: true, nexusSessionToken: 'nexus-session-1', relayVersion: '1.0.61' };
         }
         return { ok: true, settings: { schemaVersion: 1, revision: 2 } };
       },

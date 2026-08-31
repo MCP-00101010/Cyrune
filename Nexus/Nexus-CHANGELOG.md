@@ -1,5 +1,26 @@
 # Cyrune Nexus Changelog
 
+## [0.1.9] — 2026-08-31
+
+### Added
+
+- Clicking the Portal, Widgets, Arcade, or Nexus artwork in the sidebar, overview, component header, or Nexus brand now opens that component's stable local browser page in a new tab. The surrounding cards and navigation still open the component status inside Nexus.
+- Relay and Host retain status-only icons because neither exposes a stable standalone browser entry point.
+
+### Validation
+
+- Nexus tests cover the fixed page allowlist, icon launch markers, new-tab/no-opener behaviour, and preserved component navigation; independent version validation confirms the Nexus manifest, model, and changelog remain aligned.
+
+## [0.1.8] — 2026-08-31
+
+### Changed
+
+- Replaced letter-based component placeholders throughout the sidebar, overview cards, and component headers with the shared Cyrune lattice icon family. The Project entry uses the master Cyrune mark and Nexus uses its junction variant for both branding and favicon.
+
+### Validation
+
+- Nexus tests cover the fixed local icon mapping, favicon, brand treatment, and removal of generated letter symbols; the coordinated validator covers the complete release.
+
 ## [0.1.7] — 2026-08-25
 
 ### Added

@@ -4,6 +4,16 @@ Historical entries below are preserved from Portal releases whose release notes 
 
 ---
 
+## [Unversioned] — 2026-08-31
+
+### Changed
+
+- Added the Arcade retro-joystick variant of the shared Cyrune lattice as the external browser page favicon.
+
+### Validation
+
+- Arcade frontend tests and the coordinated repository validator cover the local-file entry point.
+
 ## [Unversioned] — 2026-08-25
 
 ### Changed
