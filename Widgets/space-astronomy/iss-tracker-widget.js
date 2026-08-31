@@ -281,33 +281,79 @@ function _issLongitudeRange(start, end, step = 1) {
   return values;
 }
 
-function _issNightRectangle(west, east) {
-  const bottom = _issLongitudeRange(west, east).map(longitude => [longitude, -89.9]);
-  const top = _issLongitudeRange(east, west).map(longitude => [longitude, 89.9]);
-  const ring = [...bottom, ...top];
+function _issSolarDot(longitude, latitude, sun) {
+  const radians = Math.PI / 180;
+  const pointLatitude = latitude * radians;
+  const sunLatitude = sun.latitude * radians;
+  return Math.sin(pointLatitude) * Math.sin(sunLatitude)
+    + Math.cos(pointLatitude) * Math.cos(sunLatitude)
+      * Math.cos((longitude - sun.longitude) * radians);
+}
+
+function _issClippedNightCell(west, east, south, north, sun) {
+  const corners = [[west, south], [east, south], [east, north], [west, north]];
+  const values = corners.map(point => _issSolarDot(point[0], point[1], sun));
+  const ring = [];
+  for (let index = 0; index < corners.length; index += 1) {
+    const current = corners[index];
+    const next = corners[(index + 1) % corners.length];
+    const currentValue = values[index];
+    const nextValue = values[(index + 1) % corners.length];
+    const currentIsNight = currentValue <= 0;
+    const nextIsNight = nextValue <= 0;
+    if (currentIsNight) ring.push(current);
+    if (currentIsNight !== nextIsNight) {
+      const fraction = currentValue / (currentValue - nextValue);
+      ring.push([
+        current[0] + (next[0] - current[0]) * fraction,
+        current[1] + (next[1] - current[1]) * fraction
+      ]);
+    }
+  }
+  if (ring.length < 3) return null;
   ring.push([...ring[0]]);
+  const area = Math.abs(ring.slice(0, -1).reduce((total, point, index) => {
+    const next = ring[(index + 1) % (ring.length - 1)];
+    return total + point[0] * next[1] - next[0] * point[1];
+  }, 0)) / 2;
+  if (area < 0.000001) return null;
   return ring;
+}
+
+function _issNightMeshFeatures(sun, step = 5) {
+  const features = [];
+  const longitudes = _issLongitudeRange(-180, 180, step);
+  const latitudes = _issLongitudeRange(-89.9, 89.9, step);
+  for (let longitudeIndex = 1; longitudeIndex < longitudes.length; longitudeIndex += 1) {
+    for (let latitudeIndex = 1; latitudeIndex < latitudes.length; latitudeIndex += 1) {
+      const ring = _issClippedNightCell(
+        longitudes[longitudeIndex - 1], longitudes[longitudeIndex],
+        latitudes[latitudeIndex - 1], latitudes[latitudeIndex], sun
+      );
+      if (ring) {
+        features.push({
+          type: 'Feature', properties: { side: 'night' },
+          geometry: { type: 'Polygon', coordinates: [ring] }
+        });
+      }
+    }
+  }
+  return features;
 }
 
 function _issDayNightGeoJson(date = new Date()) {
   const sun = _subsolarPoint(date);
   const radians = Math.PI / 180;
   const declination = sun.latitude * radians;
+  const features = _issNightMeshFeatures(sun);
 
   if (Math.abs(Math.sin(declination)) < 0.0001) {
     const west = _normalizeLongitude(sun.longitude + 90);
     const east = west + 180;
-    const ranges = east <= 180
-      ? [[west, east]]
-      : [[west, 180], [-180, east - 360]];
-    const polygons = ranges.map(([rangeWest, rangeEast]) => [_issNightRectangle(rangeWest, rangeEast)]);
     return {
       night: {
-        type: 'Feature',
-        properties: {},
-        geometry: polygons.length === 1
-          ? { type: 'Polygon', coordinates: polygons[0] }
-          : { type: 'MultiPolygon', coordinates: polygons }
+        type: 'FeatureCollection',
+        features
       },
       border: {
         type: 'Feature',
@@ -320,21 +366,19 @@ function _issDayNightGeoJson(date = new Date()) {
     };
   }
 
-  const boundary = _issLongitudeRange(-180, 180).map(longitude => {
+  const boundaryLatitude = longitude => {
     const longitudeDifference = (longitude - sun.longitude) * radians;
-    const latitude = Math.atan(
+    return Math.atan(
       -Math.cos(declination) * Math.cos(longitudeDifference) / Math.sin(declination)
     ) / radians;
-    return [longitude, latitude];
-  });
-  const poleLatitude = sun.latitude > 0 ? -89.9 : 89.9;
-  const poleEdge = _issLongitudeRange(-180, 180).map(longitude => [longitude, poleLatitude]);
-  const ring = sun.latitude > 0
-    ? [...poleEdge, ...boundary.slice().reverse()]
-    : [...boundary, ...poleEdge.slice().reverse()];
-  ring.push([...ring[0]]);
+  };
+  const boundary = _issLongitudeRange(-180, 180).map(longitude => [longitude, boundaryLatitude(longitude)]);
+  // MapLibre triangulates GeoJSON fills in projected longitude/latitude space.
+  // Longitude-only strips still create pole-to-terminator triangles, which show
+  // as a spoke fan on the globe. The clipped global mesh keeps both axes local;
+  // the separate one-degree border retains a smooth terminator.
   return {
-    night: { type: 'Feature', properties: {}, geometry: { type: 'Polygon', coordinates: [ring] } },
+    night: { type: 'FeatureCollection', features },
     border: { type: 'Feature', properties: {}, geometry: { type: 'MultiLineString', coordinates: [boundary] } }
   };
 }
@@ -585,6 +629,7 @@ WIDGET_REGISTRY['issTracker'] = {
       pitch: savedView?.pitch || 0,
       minZoom: 0.4,
       maxZoom: 8,
+      scrollZoom: { around: 'center' },
       dragRotate: true,
       pitchWithRotate: false,
       renderWorldCopies: false,
@@ -664,15 +709,20 @@ WIDGET_REGISTRY['issTracker'] = {
           'fog-ground-blend': 0.1
         });
         const daylight = _issDayNightGeoJson(new Date());
-        map.addSource(sourceIds.night, { type: 'geojson', data: daylight.night });
-        map.addSource(sourceIds.terminator, { type: 'geojson', data: daylight.border });
-        map.addSource(sourceIds.track, { type: 'geojson', data: satrec ? _issGroundTrack(satrec, new Date()) : { type: 'FeatureCollection', features: [] } });
+        // MapLibre GL JS 5.x can render buffered GeoJSON tiles twice near the
+        // antimeridian on a globe (#6248), producing zoom-dependent translucent
+        // wedges. These dynamic sources are already locally tessellated, so a
+        // zero tile buffer avoids the duplicate pass without losing geometry.
+        const globeGeoJsonOptions = { type: 'geojson', buffer: 0, tolerance: 0, maxzoom: 24 };
+        map.addSource(sourceIds.night, { ...globeGeoJsonOptions, data: daylight.night });
+        map.addSource(sourceIds.terminator, { ...globeGeoJsonOptions, data: daylight.border });
+        map.addSource(sourceIds.track, { ...globeGeoJsonOptions, data: satrec ? _issGroundTrack(satrec, new Date()) : { type: 'FeatureCollection', features: [] } });
         map.addLayer({
           id: `${sourceIds.night}-fill`,
           type: 'fill',
           source: sourceIds.night,
           layout: { visibility: widget.config?.showNightShade === false ? 'none' : 'visible' },
-          paint: { 'fill-color': '#020711', 'fill-opacity': 0.56, 'fill-antialias': true }
+          paint: { 'fill-color': '#020711', 'fill-opacity': 0.56, 'fill-antialias': false }
         });
         map.addLayer({
           id: `${sourceIds.night}-border`,

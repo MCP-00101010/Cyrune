@@ -12,7 +12,7 @@
 .widget-weather-location {
   padding-right: 50px;
   color: var(--text);
-  font-size: 0.94rem;
+  font-size: calc(0.94rem * var(--widget-text-scale, 1));
   font-weight: 600;
   line-height: 1.35;
 }
@@ -23,24 +23,24 @@
 }
 .widget-weather-symbol {
   width: 38px;
-  font-size: 1.9rem;
+  font-size: calc(1.9rem * var(--widget-text-scale, 1));
   line-height: 1;
   text-align: center;
 }
 .widget-weather-temperature {
   color: var(--text);
-  font-size: 1.9rem;
+  font-size: calc(1.9rem * var(--widget-text-scale, 1));
   font-weight: 300;
   font-variant-numeric: tabular-nums;
 }
 .widget-weather-summary {
   min-width: 0;
   color: var(--global-font-color, var(--text));
-  font-size: 0.82rem;
+  font-size: calc(0.82rem * var(--widget-text-scale, 1));
 }
 .widget-weather-details {
   color: var(--text-muted);
-  font-size: 0.74rem;
+  font-size: calc(0.74rem * var(--widget-text-scale, 1));
   line-height: 1.4;
 }
 .widget-weather-air-quality {
@@ -60,7 +60,7 @@
 }
 .widget-weather-air-quality-title {
   color: var(--text);
-  font-size: 0.72rem;
+  font-size: calc(0.72rem * var(--widget-text-scale, 1));
   font-weight: 600;
 }
 .widget-weather-aqi {
@@ -68,7 +68,7 @@
   border: 1px solid color-mix(in srgb, currentColor 38%, transparent);
   border-radius: 999px;
   background: color-mix(in srgb, currentColor 10%, transparent);
-  font-size: 0.66rem;
+  font-size: calc(0.66rem * var(--widget-text-scale, 1));
   font-weight: 600;
   line-height: 1.35;
 }
@@ -93,7 +93,7 @@
 .widget-weather-air-quality-details,
 .widget-weather-air-quality-status {
   color: var(--text-muted);
-  font-size: 0.68rem;
+  font-size: calc(0.68rem * var(--widget-text-scale, 1));
   line-height: 1.45;
 }
 .widget-weather-air-quality-status.is-error {
@@ -109,7 +109,7 @@
 }
 .widget-weather-hourly-title {
   color: var(--text);
-  font-size: 0.72rem;
+  font-size: calc(0.72rem * var(--widget-text-scale, 1));
   font-weight: 600;
 }
 .widget-weather-hourly-viewport {
@@ -150,21 +150,21 @@
 }
 .widget-weather-hour-time {
   color: var(--text-muted);
-  font-size: 0.59rem;
+  font-size: calc(0.59rem * var(--widget-text-scale, 1));
   white-space: nowrap;
 }
 .widget-weather-hour-symbol {
-  font-size: 1rem;
+  font-size: calc(1rem * var(--widget-text-scale, 1));
   line-height: 1.1;
 }
 .widget-weather-hour-temperature {
   color: var(--text);
-  font-size: 0.68rem;
+  font-size: calc(0.68rem * var(--widget-text-scale, 1));
   white-space: nowrap;
 }
 .widget-weather-hour-rain {
   color: var(--text-muted);
-  font-size: 0.57rem;
+  font-size: calc(0.57rem * var(--widget-text-scale, 1));
   white-space: nowrap;
 }
 .widget-weather-forecast {
@@ -186,14 +186,14 @@
   min-height: 31px;
   border-bottom: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
   color: var(--global-font-color, var(--text));
-  font-size: 0.76rem;
+  font-size: calc(0.76rem * var(--widget-text-scale, 1));
 }
 .widget-weather-day-name {
   color: var(--text);
   font-weight: 500;
 }
 .widget-weather-day-symbol {
-  font-size: 1rem;
+  font-size: calc(1rem * var(--widget-text-scale, 1));
   text-align: center;
 }
 .widget-weather-day-temperatures,
@@ -229,7 +229,7 @@
   border-radius: 10px;
   background: var(--panel-muted);
   color: var(--text-muted);
-  font-size: 0.82rem;
+  font-size: calc(0.82rem * var(--widget-text-scale, 1));
   line-height: 1.45;
   text-align: center;
 }
@@ -239,7 +239,7 @@
 .widget-weather-attribution {
   align-self: flex-end;
   color: var(--text-muted);
-  font-size: 0.68rem;
+  font-size: calc(0.68rem * var(--widget-text-scale, 1));
   text-align: right;
 }
 .widget-weather-attribution a {
@@ -268,7 +268,7 @@
 .weather-location-search-btn {
   flex: 0 0 auto;
   padding: 4px 10px;
-  font-size: 0.8rem;
+  font-size: calc(0.8rem * var(--widget-text-scale, 1));
 }
 .weather-location-results {
   display: flex;
@@ -283,7 +283,7 @@
   background: var(--panel-muted);
   color: var(--text);
   font: inherit;
-  font-size: 0.78rem;
+  font-size: calc(0.78rem * var(--widget-text-scale, 1));
   line-height: 1.35;
   text-align: left;
   cursor: pointer;
@@ -296,7 +296,7 @@
 .weather-location-message {
   padding: 3px 0;
   color: var(--text-muted);
-  font-size: 0.76rem;
+  font-size: calc(0.76rem * var(--widget-text-scale, 1));
 }
 .weather-location-message.is-error {
   color: var(--danger);

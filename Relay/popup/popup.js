@@ -32,6 +32,7 @@ async function main() {
   const elMorpheus = document.getElementById('statusMorpheus');
   const elVersion  = document.getElementById('statusVersion');
   const elNative   = document.getElementById('statusNative');
+  const elPending  = document.getElementById('statusPending');
   const elPath     = document.getElementById('statusPath');
   const elDetail   = document.getElementById('statusDetail');
   const tabInfo    = document.getElementById('tabInfo');
@@ -80,6 +81,7 @@ async function main() {
   let storageInfoReady = false;
   let fileSchemeAccess = null;
   let fileSchemeAccessRequired = false;
+  let pendingIntake = 0;
   let sending = false;
   let refreshInFlight = null;
   let statusPollTimer = null;
@@ -154,7 +156,10 @@ async function main() {
   }
 
   function updateActionButtons() {
-    const disabled = sending || !morpheusOpen || !isReal;
+    // An open Portal can accept a delivery immediately even while its storage
+    // status is still warming up. Closed-Portal delivery requires the durable
+    // Relay queue, so keep that path disabled until storage readiness is known.
+    const disabled = sending || !isReal || (!morpheusOpen && !storageInfoReady);
     sendBtn.disabled = disabled;
     importBtn.disabled = disabled;
     sendToTabBtn.disabled = disabled || !findSelectedTarget();
@@ -171,9 +176,11 @@ async function main() {
     );
 
     setRow(elNative,
-      nativeAvailable ? '● Disk database: enabled' : '○ Disk database: unavailable',
-      nativeAvailable ? 'ok' : 'warn'
+      nativeAvailable ? '● Storage: Host disk' : '● Storage: Relay',
+      'ok'
     );
+    elPending.textContent = pendingIntake === 1 ? '1 delivery waiting for Portal' : `${pendingIntake} deliveries waiting for Portal`;
+    elPending.classList.toggle('hidden', pendingIntake === 0);
 
     if (nativeAvailable) {
       elPath.textContent = databasePath ? `Shared DB: ${databasePath}` : 'Shared DB: not configured';
@@ -215,6 +222,7 @@ async function main() {
         nativeError     = res?.nativeError || '';
         fileSchemeAccess = res?.fileSchemeAccess ?? null;
         fileSchemeAccessRequired = res?.fileSchemeAccessRequired === true;
+        pendingIntake = Math.max(0, Number(res?.pendingIntake || 0));
         if (morpheusOpen) hubRelayError = '';
         else if (res?.hubRelayError) hubRelayError = res.hubRelayError;
         extensionId     = res?.extensionId || browser.runtime.id || '';
@@ -252,7 +260,7 @@ async function main() {
     updateActionButtons();
     try {
       await refreshStatus();
-      if (!morpheusOpen) throw new Error('Cyrune Portal is not open');
+      if (target && !morpheusOpen) throw new Error('Open Cyrune Portal to choose a specific board and tab');
       const res = await browser.runtime.sendMessage({
         type,
         targetBoardId: target?.board?.id || '',
@@ -262,7 +270,7 @@ async function main() {
         faviconCache: currentTab.favIconUrl || ''
       });
       if (res.ok) {
-        showFeedback(okMessage, 'ok');
+        showFeedback(res.queued ? 'Queued securely for the next Portal session.' : okMessage, 'ok');
         setTimeout(() => window.close(), 1200);
       } else {
         sending = false;

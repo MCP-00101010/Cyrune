@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from emugui_core.profiles import EmulatorProfileService
+from arcade_core.profiles import EmulatorProfileService
 
 
 def profile_service(tmp_path: Path):

@@ -74,7 +74,7 @@ def test_current_relay_matches_the_historic_eight_file_package_boundary():
         "popup/popup.html",
         "popup/popup.js",
     )
-    assert PACKAGE._validate_source(REPO / "Relay")["version"] == "1.0.61"
+    assert PACKAGE._validate_source(REPO / "Relay")["version"] == "1.1.0"
 
 
 def test_unsigned_build_is_deterministic_across_paths_with_spaces_and_unicode(tmp_path):
@@ -142,26 +142,34 @@ def test_signed_import_keeps_mozilla_package_separate_and_hash_verified(tmp_path
 
 def test_independent_component_versions_are_validated_without_forcing_equality(tmp_path):
     repo = tmp_path / "repo"
-    (repo / "Portal" / "source").mkdir(parents=True)
-    (repo / "Relay").mkdir()
-    (repo / "Nexus" / "source").mkdir(parents=True)
+    versions = {"Portal": "2.3.4", "Widgets": "3.4.5", "Arcade": "4.5.6", "Relay": "7.8.9", "Host": "5.6.7", "Nexus": "1.4.2"}
+    manifests = []
+    for component, version in versions.items():
+        directory = repo / component
+        directory.mkdir(parents=True)
+        manifest = json.loads((REPO / component / "component.json").read_text(encoding="utf-8"))
+        manifest["version"] = version
+        (directory / manifest["documents"]["todo"]).write_text("# TODO\n", encoding="utf-8")
+        (directory / manifest["documents"]["changelog"]).write_text(f"## [{version}] — today\n", encoding="utf-8")
+        for relative in [manifest["icon"], manifest["entrypoint"]]:
+            if relative:
+                target = directory / relative
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text("fixture", encoding="utf-8")
+        (directory / "component.json").write_text(json.dumps(manifest), encoding="utf-8")
+        manifests.append(manifest)
+    (repo / "Portal" / "source").mkdir(exist_ok=True)
     (repo / "Portal" / "source" / "app.js").write_text("const APP_VERSION = '2.3.4';\n", encoding="utf-8")
     (repo / "Portal" / "index.html").write_text("<b>v2.3.4</b><i>Version 2.3.4</i>", encoding="utf-8")
     (repo / "Relay" / "manifest.json").write_text(json.dumps({"version": "7.8.9"}), encoding="utf-8")
-    (repo / "Relay" / "Relay-CHANGELOG.md").write_text("## [7.8.9] — today\n", encoding="utf-8")
-    (repo / "Nexus" / "component.json").write_text(json.dumps({"version": "1.4.2"}), encoding="utf-8")
-    (repo / "Nexus" / "source" / "model.js").write_text(
-        "const NEXUS_VERSION = '1.4.2';\n"
-        "const components = [{ id: 'portal', name: 'Portal', version: '2.3.4' }, "
-        "{ id: 'relay', name: 'Relay', version: '7.8.9' }];\n",
-        encoding="utf-8",
-    )
-    (repo / "Nexus" / "Nexus-CHANGELOG.md").write_text("## [1.4.2] — today\n", encoding="utf-8")
-    assert VERSIONS.validate(repo) == {"Portal": "2.3.4", "Relay": "7.8.9", "Nexus": "1.4.2"}
+    (repo / "Nexus" / "source").mkdir(exist_ok=True)
+    (repo / "Nexus" / "source" / "model.js").write_text("const NEXUS_VERSION = '1.4.2';\n", encoding="utf-8")
+    (repo / "Nexus" / "source" / "component-registry.js").write_text(VERSIONS.render_registry(manifests), encoding="utf-8")
+    assert VERSIONS.validate(repo) == versions
 
 
 def test_current_component_versions_and_changelogs_align():
-    assert VERSIONS.validate(REPO) == {"Portal": "0.11.226", "Relay": "1.0.61", "Nexus": "0.1.9"}
+    assert VERSIONS.validate(REPO) == {"Portal": "0.12.0", "Widgets": "0.2.0", "Arcade": "0.2.0", "Relay": "1.1.0", "Host": "0.2.0", "Nexus": "0.3.0"}
 
 
 def test_current_relay_source_builds_and_round_trips_exactly(tmp_path):
@@ -170,6 +178,6 @@ def test_current_relay_source_builds_and_round_trips_exactly(tmp_path):
         Path(result["path"]),
         kind="unsigned",
         source=REPO / "Relay",
-        expected_version="1.0.61",
+        expected_version="1.1.0",
     )
     assert verified["sha256"] == result["sha256"]

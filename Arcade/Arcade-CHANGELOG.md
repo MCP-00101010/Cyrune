@@ -4,6 +4,54 @@ Historical entries below are preserved from Portal releases whose release notes 
 
 ---
 
+## [0.2.0] — 2026-08-31
+
+### Added
+
+- Added bounded metadata and rename Undo plus the existing live TOSEC filename preview to the safer edit workflow.
+- Added `tools/benchmark_library.py` for repeatable, content-free large-library timing, memory, and payload measurements.
+
+### Changed
+
+- Import and trash restore now commit filesystem moves, metadata, and index rebuilds as all-or-nothing batches with rollback on any failure.
+- Large bulk metadata edits require confirmation after their dry-run summary.
+
+### Validation
+
+- The coordinated release gate passes all 79 Arcade tests and JavaScript syntax checks. The real 12,933-game summary benchmark produced an 8.66 MiB payload, about 45% smaller than the former 16.55 MiB full payload.
+
+## [0.1.0] — 2026-08-31
+
+### Added
+
+- Introduced independent Arcade component versioning and a schema-1 manifest for its page, icon, capabilities, service/Relay/settings protocols and owned schemas.
+- Added Arcade to generated Nexus metadata and protocol-compatibility diagnostics without changing preserved `EMUGUI_*` wire identifiers or legacy service aliases.
+
+### Validation
+
+- All 77 Arcade tests pass. Infrastructure validation checks the Arcade manifest, current protocol catalogue, compatibility register and generated Nexus registry; coordinated JavaScript/Python and release validation also pass.
+
+## [Unversioned] — 2026-08-31
+
+### Changed
+
+- Made `arcade_service.py` and `arcade_core` the canonical service/package names, with narrow `emugui_service.py` and `emugui_core` compatibility shims for upgraded Host installations and third-party callers.
+- Split authenticated Relay transport and shared-settings handling out of the frontend monolith into `web/transport.js`.
+- Replaced the initial full-record library transfer with summary records, indexed browser lookups, and on-selection detail loading; search/filter work is now frame-debounced and reuses precomputed filter sets.
+- Summary generation now reads only summary fields instead of deep-copying full records, metadata loading canonicalizes its confined collection root once per pass, and startup renders the library before filesystem-backed collection counts and secondary emulator/status data finish loading.
+- Replaced per-game favourite and delete request loops with bounded batch operations.
+
+### Fixed
+
+- Confined metadata, POK, import, and artwork paths to the active collection, including resolved symlink targets.
+- Made same-name renames true no-ops and added filesystem/metadata rollback for failed renames and deletes.
+- Serialized collection switch/rebuild jobs so concurrent maintenance cannot mutate the active collection simultaneously.
+- Enforced Nexus optional-network permission in Arcade, Host, Relay, and remote-artwork rendering rather than treating the setting as presentation-only.
+
+### Validation
+
+- All 77 Arcade tests pass, including path-escape, rollback, batch, summary-payload/materialization, optional-network, and job-serialization regressions; both frontend JavaScript files pass syntax validation.
+
 ## [Unversioned] — 2026-08-31
 
 ### Changed

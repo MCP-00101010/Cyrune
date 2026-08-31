@@ -1,5 +1,5 @@
-from emugui_core.collection_loading import CollectionLoader, mark_import_view_matches
-from emugui_core.library import Game
+from arcade_core.collection_loading import CollectionLoader, mark_import_view_matches
+from arcade_core.library import Game
 
 
 def game(game_id, title_key, system, view="collection"):

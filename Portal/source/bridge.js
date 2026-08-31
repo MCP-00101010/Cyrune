@@ -5,6 +5,8 @@
 const bridge = (() => {
   let _available = false;
   let _nativeAvailable = false;
+  let _storageMode = '';
+  let _authoritativeStorageAvailable = false;
   let _resolveReady;
   const whenReady = new Promise(r => { _resolveReady = r; });
   let _readyResolved = false;
@@ -24,7 +26,7 @@ const bridge = (() => {
   const TRANSLATOR_ASSET_TIMEOUT_MS = 60000;
   const URL_HEALTH_TIMEOUT_MS = 20000;
   const DIRECTORY_APPROVAL_TIMEOUT_MS = 305000;
-  const EMUGUI_REQUEST_TIMEOUT_MS = 120000;
+  const ARCADE_REQUEST_TIMEOUT_MS = 120000;
 
   function _send(type, payload = {}, options = {}) {
     return new Promise((resolve, reject) => {
@@ -41,6 +43,24 @@ const bridge = (() => {
 
   function _sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  async function _getArcadeStatus() {
+    if (!_available) await _connect({ retries: 1, delayMs: 200 });
+    if (!_available || !_nativeAvailable || !_capabilities.has('emuguiService')) {
+      return { available: false, error: 'Cyrune Arcade service is unavailable' };
+    }
+    const res = await _send('MW_EMUGUI_STATUS', {}, { timeoutMs: ARCADE_REQUEST_TIMEOUT_MS });
+    if (res.ok === false) return { available: false, error: res.error || 'Cyrune Arcade service is unavailable' };
+    return res.emugui || { available: false, error: 'Cyrune Arcade service returned no status' };
+  }
+
+  async function _openGameInArcade(gameKey, options = {}) {
+    if (!_available) await _connect({ retries: 1, delayMs: 200 });
+    if (!_available || !_nativeAvailable || !_capabilities.has('emuguiService')) throw new Error('Cyrune Arcade is unavailable');
+    const res = await _send('MW_OPEN_GAME_IN_EMUGUI', { gameKey, rebind: options.rebind === true }, { timeoutMs: ARCADE_REQUEST_TIMEOUT_MS });
+    if (res.ok === false) throw new Error(res.error || 'The game could not be opened in Cyrune Arcade');
+    return true;
   }
 
   function _decodeBase64Bytes(value) {
@@ -129,6 +149,9 @@ const bridge = (() => {
           const recoveredAfterStartup = _readyResolved && !_available;
           _available = true;
           _nativeAvailable = res.nativeAvailable === true;
+          _storageMode = res.storageMode || (res.nativeAvailable === true && res.databasePath ? 'host' : 'relay');
+          _authoritativeStorageAvailable = res.authoritativeStorageAvailable === true
+            || (Array.isArray(res.capabilities) && res.capabilities.includes('portalAuthority'));
           _extensionVersion = res.version || '';
           _capabilities = new Set(Array.isArray(res.capabilities) ? res.capabilities : []);
           _lastError = '';
@@ -141,6 +164,8 @@ const bridge = (() => {
         } catch (error) {
           _available = false;
           _nativeAvailable = false;
+          _storageMode = '';
+          _authoritativeStorageAvailable = false;
           _capabilities = new Set();
           _lastError = error?.message || String(error);
           if (attempt < retries) await _sleep(delayMs);
@@ -172,6 +197,18 @@ const bridge = (() => {
     if (e.data._cyruneSettingsChanged === true) {
       window.dispatchEvent(new CustomEvent('cyrune:settings-revision', {
         detail: { revision: Number(e.data.revision || 0) }
+      }));
+      return;
+    }
+
+    if (e.data._portalStateChanged === true) {
+      window.dispatchEvent(new CustomEvent('morpheus:authoritative-state-changed', {
+        detail: {
+          revision: Number(e.data.revision || 0),
+          version: e.data.version || null,
+          contentHash: e.data.contentHash || '',
+          authority: e.data.authority || ''
+        }
       }));
       return;
     }
@@ -272,6 +309,8 @@ const bridge = (() => {
     whenReady,
     isAvailable()       { return _available; },
     nativeIsAvailable() { return _nativeAvailable; },
+    storageIsAvailable() { return _available && _authoritativeStorageAvailable; },
+    storageMode() { return _storageMode; },
     supports(capability) { return _capabilities.has(capability); },
     getDiagnostics() {
       return {
@@ -285,14 +324,19 @@ const bridge = (() => {
 
     async getStorageInfo() {
       if (!_available) await _connect({ retries: 1, delayMs: 200, pingTimeoutMs: 750 });
-      if (!_available) return { nativeAvailable: false, databasePath: null };
+      if (!_available) return { nativeAvailable: false, authoritativeStorageAvailable: false, storageMode: '', databasePath: null };
       try {
         const res = await _send('MW_GET_STORAGE_INFO');
         _available = true;
         _nativeAvailable = res.nativeAvailable === true;
+        _storageMode = res.storageMode || (res.nativeAvailable === true && res.databasePath ? 'host' : 'relay');
+        _authoritativeStorageAvailable = res.authoritativeStorageAvailable === true
+          || (Array.isArray(res.capabilities) && res.capabilities.includes('portalAuthority'));
         if (Array.isArray(res.capabilities)) _capabilities = new Set(res.capabilities);
         return {
           nativeAvailable: res.nativeAvailable === true,
+          authoritativeStorageAvailable: _authoritativeStorageAvailable,
+          storageMode: _storageMode,
           databasePath: res.databasePath || null,
           extensionVersion: res.version || _extensionVersion,
           capabilities: Array.isArray(res.capabilities) ? res.capabilities : [..._capabilities]
@@ -300,8 +344,10 @@ const bridge = (() => {
       } catch {
         _available = false;
         _nativeAvailable = false;
+        _storageMode = '';
+        _authoritativeStorageAvailable = false;
         _lastError = 'Storage information request failed';
-        return { nativeAvailable: false, databasePath: null };
+        return { nativeAvailable: false, authoritativeStorageAvailable: false, storageMode: '', databasePath: null };
       }
     },
 
@@ -361,6 +407,8 @@ const bridge = (() => {
       } catch {
         _available = false;
         _nativeAvailable = false;
+        _storageMode = '';
+        _authoritativeStorageAvailable = false;
         return { ok: false, conflict: false, fileInfo: null, databasePath: null };
       }
     },
@@ -757,45 +805,35 @@ const bridge = (() => {
       return res.removed === true;
     },
 
-    async getEmuGuiStatus() {
-      if (!_available) await _connect({ retries: 1, delayMs: 200 });
-      if (!_available || !_nativeAvailable || !_capabilities.has('emuguiService')) {
-        return { available: false, error: 'Cyrune Arcade service is unavailable' };
-      }
-      const res = await _send('MW_EMUGUI_STATUS', {}, { timeoutMs: EMUGUI_REQUEST_TIMEOUT_MS });
-      if (res.ok === false) return { available: false, error: res.error || 'Cyrune Arcade service is unavailable' };
-      return res.emugui || { available: false, error: 'Cyrune Arcade service returned no status' };
-    },
+    getArcadeStatus: _getArcadeStatus,
+    // Compatibility API retained for older Portal scripts during rolling reloads.
+    getEmuGuiStatus: _getArcadeStatus,
 
     async getGameStatus(gameKey, options = {}) {
       if (!_available) await _connect({ retries: 1, delayMs: 200 });
       if (!_available || !_nativeAvailable || !_capabilities.has('emuguiService')) {
         return { gameKey, state: 'unavailable', title: 'Game', tags: [], thumbnailCache: '' };
       }
-      const res = await _send('MW_GET_GAME_STATUS', { gameKey, includeThumbnail: options.includeThumbnail === true }, { timeoutMs: EMUGUI_REQUEST_TIMEOUT_MS });
+      const res = await _send('MW_GET_GAME_STATUS', { gameKey, includeThumbnail: options.includeThumbnail === true }, { timeoutMs: ARCADE_REQUEST_TIMEOUT_MS });
       return res.game || { gameKey, state: 'unbound', title: 'Game', tags: [], thumbnailCache: '' };
     },
 
     async launchGame(gameKey) {
       if (!_available) await _connect({ retries: 1, delayMs: 200 });
       if (!_available || !_nativeAvailable || !_capabilities.has('emuguiService')) throw new Error('Game launcher is unavailable');
-      const res = await _send('MW_LAUNCH_GAME', { gameKey }, { timeoutMs: EMUGUI_REQUEST_TIMEOUT_MS });
+      const res = await _send('MW_LAUNCH_GAME', { gameKey }, { timeoutMs: ARCADE_REQUEST_TIMEOUT_MS });
       if (res.ok === false) throw new Error(res.error || 'The game could not be launched');
       return true;
     },
 
-    async openGameInEmuGui(gameKey, options = {}) {
-      if (!_available) await _connect({ retries: 1, delayMs: 200 });
-      if (!_available || !_nativeAvailable || !_capabilities.has('emuguiService')) throw new Error('Cyrune Arcade is unavailable');
-      const res = await _send('MW_OPEN_GAME_IN_EMUGUI', { gameKey, rebind: options.rebind === true }, { timeoutMs: EMUGUI_REQUEST_TIMEOUT_MS });
-      if (res.ok === false) throw new Error(res.error || 'The game could not be opened in Cyrune Arcade');
-      return true;
-    },
+    openGameInArcade: _openGameInArcade,
+    // Compatibility API retained for older Portal scripts during rolling reloads.
+    openGameInEmuGui: _openGameInArcade,
 
     async revealGame(gameKey) {
       if (!_available) await _connect({ retries: 1, delayMs: 200 });
       if (!_available || !_nativeAvailable || !_capabilities.has('emuguiService')) throw new Error('Game launcher is unavailable');
-      const res = await _send('MW_REVEAL_GAME', { gameKey }, { timeoutMs: EMUGUI_REQUEST_TIMEOUT_MS });
+      const res = await _send('MW_REVEAL_GAME', { gameKey }, { timeoutMs: ARCADE_REQUEST_TIMEOUT_MS });
       if (res.ok === false) throw new Error(res.error || 'The game file could not be revealed');
       return true;
     },
@@ -803,7 +841,7 @@ const bridge = (() => {
     async forgetGame(gameKey) {
       if (!_available) await _connect({ retries: 1, delayMs: 200 });
       if (!_available || !_nativeAvailable || !_capabilities.has('emuguiService')) throw new Error('Game launcher is unavailable');
-      const res = await _send('MW_FORGET_GAME', { gameKey }, { timeoutMs: EMUGUI_REQUEST_TIMEOUT_MS });
+      const res = await _send('MW_FORGET_GAME', { gameKey }, { timeoutMs: ARCADE_REQUEST_TIMEOUT_MS });
       return res.removed === true;
     },
 

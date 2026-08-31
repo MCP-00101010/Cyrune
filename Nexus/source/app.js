@@ -2,8 +2,10 @@
   'use strict';
 
   const model = globalThis.CyruneNexusModel;
+  const adapters = globalThis.CyruneNexusAdapters;
   const bridge = globalThis.CyruneNexusBridge;
-  if (!model) throw new Error('Cyrune Nexus model did not load');
+  const service = globalThis.CyruneNexusService;
+  if (!model || !adapters) throw new Error('Cyrune Nexus model or adapters did not load');
 
   const viewRoot = document.getElementById('view-root');
   const viewTitle = document.getElementById('view-title');
@@ -16,10 +18,16 @@
   let settingsAuthority = 'connecting';
   let serviceError = '';
   let serviceRefresh = null;
+  let refreshRequestedWhileActive = false;
   let serviceAuthenticated = false;
   let remoteCheck = null;
   let remoteCheckPending = false;
   let settingsScope = 'global';
+  let settingsHistory = [];
+  const documentRepository = service?.createDocumentRepository({
+    bridge,
+    isAuthenticated: () => serviceAuthenticated
+  }) || null;
 
   function loadPreview() {
     for (const key of [model.PREVIEW_STORAGE_KEY, ...(model.LEGACY_PREVIEW_STORAGE_KEYS || [])]) {
@@ -76,8 +84,8 @@
   }
 
   function componentIconPath(id) {
-    const icon = id === 'project' ? 'cyrune' : (model.componentById(id)?.id || 'cyrune');
-    return `assets/icons/${icon}.svg`;
+    if (id === 'project') return 'assets/icons/cyrune.svg';
+    return model.componentById(id)?.icon || 'assets/icons/cyrune.svg';
   }
 
   function componentIconMarkup(id, classes = 'component-symbol') {
@@ -109,7 +117,10 @@
       renderServiceChrome();
       return false;
     }
-    if (serviceRefresh) return serviceRefresh;
+    if (serviceRefresh) {
+      refreshRequestedWhileActive = true;
+      return serviceRefresh;
+    }
     serviceRefresh = (async () => {
       try {
         await bridge.request('MW_NEXUS_PING', {}, 8000);
@@ -122,6 +133,7 @@
         remoteCheck = null;
         if (settingsResult.status === 'fulfilled') {
           settings = model.normalizeSettings(settingsResult.value.settings);
+          settingsHistory = Array.isArray(settingsResult.value.history) ? settingsResult.value.history.slice(-50) : [];
           settingsAuthority = 'authoritative';
           cacheSettings(settings);
         } else {
@@ -144,6 +156,10 @@
         return false;
       } finally {
         serviceRefresh = null;
+        if (refreshRequestedWhileActive) {
+          refreshRequestedWhileActive = false;
+          window.setTimeout(() => { void refreshAuthoritative(); }, 0);
+        }
       }
     })();
     return serviceRefresh;
@@ -263,9 +279,14 @@
     viewEyebrow.textContent = 'Shared Cyrune preferences';
     const displayed = model.effectiveSettings(settings, settingsScope);
     const scopeLabel = settingsScope === 'global' ? 'Global defaults' : (settingsScope === 'arcade' ? 'Arcade' : 'Portal & Widgets');
+    const historyItems = [...settingsHistory].reverse().slice(0, 12).map(record => {
+      const changed = (record.changedKeys || []).map(path => path.split('.').map(part => part.replace(/([A-Z])/g, ' $1')).join(' › ')).join(', ');
+      return `<li><span><strong>Revision ${Number(record.revision || 0)}</strong><small>${model.escapeHtml(changed || 'No portable values changed')}</small></span><time>${formatAge(record.updatedAt)}</time></li>`;
+    }).join('') || '<li class="is-muted"><span><strong>No authoritative history yet</strong><small>Saved changes will list their portable setting names here.</small></span><time>—</time></li>';
     viewRoot.innerHTML = `
       <section class="page-intro"><div><span class="section-kicker">Settings schema ${model.SETTINGS_SCHEMA_VERSION}</span><h2>One set of preferences. Every component.</h2><p>${settingsAuthority === 'authoritative' ? 'Global values flow into fixed component profiles; sparse overrides change only the selected component.' : 'Relay or Host is unavailable. Changes can be retained as a browser-local fallback and applied authoritatively after reconnection.'}</p></div><span class="draft-badge ${settingsAuthority === 'authoritative' ? 'is-authoritative' : ''}">${settingsAuthority === 'authoritative' ? 'Authoritative' : 'Local fallback'} · revision ${settings.revision}</span></section>
       <section class="settings-scope" aria-label="Settings scope"><div><span class="section-kicker">Effective settings</span><strong>${scopeLabel}</strong><small>Default → global → component → local Widget setting</small></div><div class="scope-tabs"><button type="button" data-settings-scope="global" class="${settingsScope === 'global' ? 'is-active' : ''}">Global</button><button type="button" data-settings-scope="portal-widgets" class="${settingsScope === 'portal-widgets' ? 'is-active' : ''}">Portal & Widgets</button><button type="button" data-settings-scope="arcade" class="${settingsScope === 'arcade' ? 'is-active' : ''}">Arcade</button></div></section>
+      <section class="settings-tools" aria-label="Settings tools"><label><span aria-hidden="true">⌕</span><input id="settings-search" type="search" placeholder="Search settings…" autocomplete="off"></label><button type="button" class="button button-secondary" id="export-variables">Export JSON</button><label class="button button-secondary settings-import">Import JSON<input id="import-variables" type="file" accept="application/json,.json" hidden></label></section>
       <form id="variables-form" class="settings-layout">
         <aside class="settings-index" aria-label="Variable groups"><a href="#variables-region">Region</a><a href="#variables-units">Units</a><a href="#variables-language">Language</a><a href="#variables-formatting">Formatting</a><a href="#variables-behaviour">Behaviour</a><a href="#variables-accessibility">Accessibility</a><a href="#variables-privacy">Privacy</a></aside>
         <div class="settings-sections">
@@ -278,10 +299,14 @@
           <section class="settings-section" id="variables-privacy"><div class="settings-heading"><span>07</span><div><h2>Privacy & network</h2><p>Location permissions are global ceilings; a component override may only narrow optional network access.</p></div></div><div class="toggle-stack">${toggleMarkup('privacy.allowOptionalNetwork', 'Allow optional online lookups', 'Components may use their declared bounded providers.', displayed.privacy.allowOptionalNetwork)}${toggleMarkup('privacy.allowApproximateLocation', 'Allow approximate location', 'Permit coarse automatic regional location when requested.', displayed.privacy.allowApproximateLocation)}${toggleMarkup('privacy.allowPreciseLocation', 'Allow precise location', 'Permit stored coordinates only for components that declare the capability.', displayed.privacy.allowPreciseLocation)}</div></section>
         </div>
         <footer class="settings-actions"><span><strong>${settingsAuthority === 'authoritative' ? 'Host-backed settings' : 'Disconnected fallback'}</strong><small>${scopeLabel} · ${settingsAuthority === 'authoritative' ? `revision ${settings.revision} · ${formatAge(settings.updatedAt)}` : (serviceError || 'Authoritative persistence is not connected.')}</small></span><button type="button" class="button button-secondary" id="reset-variables">${settingsScope === 'global' ? 'Reset global defaults' : 'Clear component overrides'}</button><button type="submit" class="button button-primary">${settingsAuthority === 'authoritative' ? 'Apply settings' : 'Save local fallback'}</button></footer>
-      </form>`;
+      </form>
+      <section class="panel settings-history"><div class="panel-heading"><div><span class="section-kicker">Portable change history</span><h2>Recent settings revisions</h2></div></div><ol>${historyItems}</ol></section>`;
     document.getElementById('variables-form').addEventListener('submit', saveVariables);
     document.getElementById('reset-variables').addEventListener('click', resetVariables);
     document.querySelector('select[name="units.system"]')?.addEventListener('change', applyUnitPreset);
+    document.getElementById('settings-search').addEventListener('input', filterVariableSections);
+    document.getElementById('export-variables').addEventListener('click', exportVariables);
+    document.getElementById('import-variables').addEventListener('change', importVariables);
     document.querySelectorAll('[data-settings-scope]').forEach(button => button.addEventListener('click', () => {
       settingsScope = button.dataset.settingsScope;
       renderVariables();
@@ -291,6 +316,44 @@
         .find(candidate => candidate.dataset.settingControl === input.dataset.overridePath);
       if (control) control.disabled = !input.checked;
     }));
+  }
+
+  function filterVariableSections(event) {
+    const query = String(event.currentTarget.value || '').trim().toLowerCase();
+    document.querySelectorAll('.settings-section').forEach(section => {
+      section.hidden = !!query && !section.textContent.toLowerCase().includes(query);
+    });
+  }
+
+  function exportVariables() {
+    const documentValue = { kind: 'cyrune-settings', schemaVersion: model.SETTINGS_SCHEMA_VERSION, exportedAt: Date.now(), settings };
+    const blob = new Blob([JSON.stringify(documentValue, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `cyrune-settings-revision-${settings.revision}.json`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  }
+
+  async function importVariables(event) {
+    const file = event.currentTarget.files?.[0];
+    event.currentTarget.value = '';
+    if (!file) return;
+    if (file.size > 128 * 1024) return announce('Settings import exceeds the 128 KiB limit.', 'error');
+    try {
+      const documentValue = JSON.parse(await file.text());
+      if (documentValue?.kind !== 'cyrune-settings' || documentValue.schemaVersion !== model.SETTINGS_SCHEMA_VERSION || !documentValue.settings) {
+        throw new Error('This is not a compatible Cyrune settings export.');
+      }
+      const draft = model.normalizeSettings(documentValue.settings);
+      draft.revision = settings.revision;
+      draft.updatedAt = settings.updatedAt;
+      await persistVariables(draft);
+      announce('Imported settings were validated and applied.', 'success');
+    } catch (error) {
+      announce(error?.message || 'Could not import Cyrune settings.', 'error');
+    }
   }
 
   function applyUnitPreset(event) {
@@ -386,6 +449,10 @@
     viewEyebrow.textContent = 'Project history and validation';
     const components = [...(snapshot?.components || [])].sort((left, right) => (right.updatedMs || 0) - (left.updatedMs || 0));
     const items = components.length ? components.map(component => `<li><i></i><div><strong>${model.escapeHtml(component.name)} source</strong><span>Version ${model.escapeHtml(component.version || 'Unknown')}</span></div><time>${formatAge(component.updatedMs)}</time></li>`).join('') : '<li class="is-muted"><i></i><div><strong>Authoritative activity unavailable</strong><span>Reconnect Relay and Host to refresh component timestamps.</span></div><time>Offline</time></li>';
+    const events = [...(snapshot?.events || [])].sort((left, right) => Number(right.timestamp || 0) - Number(left.timestamp || 0)).slice(0, 50);
+    const eventItems = events.length
+      ? events.map(event => `<li><i></i><div><strong>${model.escapeHtml(event.component)} · ${model.escapeHtml(event.code)}</strong><span>${model.escapeHtml(event.summary)}</span></div><time>${formatAge(event.timestamp)}</time></li>`).join('')
+      : '<li class="is-muted"><i></i><div><strong>No operational events recorded</strong><span>The bounded journal contains only fixed codes and summaries.</span></div><time>Quiet</time></li>';
     const receipt = snapshot?.validation || null;
     const versionItems = Object.entries(receipt?.versions || {}).map(([name, version]) => `<li><span>${model.escapeHtml(name)}</span><strong>${model.escapeHtml(version)}</strong></li>`).join('');
     const testItems = Object.entries(receipt?.tests || {}).map(([name, counts]) => {
@@ -394,15 +461,44 @@
     }).join('');
     const checkItems = Object.entries(receipt?.checks || {}).map(([name, outcome]) => `<li><span>${model.escapeHtml(name)}</span><strong class="receipt-outcome receipt-${model.escapeHtml(String(outcome))}">${model.escapeHtml(String(outcome))}</strong></li>`).join('');
     const receiptMarkup = receipt ? `<section class="validation-grid"><article class="panel receipt-summary"><span class="section-kicker">Latest coordinated validation</span><h2>${formatAge(receipt.timestamp)}</h2><p>Commit <code>${model.escapeHtml(String(receipt.commit || '').slice(0, 10))}</code> · schema ${Number(receipt.schemaVersion || 0)}</p></article><article class="panel"><div class="panel-heading"><div><span class="section-kicker">Versions</span><h2>Validated components</h2></div></div><ul class="receipt-list">${versionItems}</ul></article><article class="panel"><div class="panel-heading"><div><span class="section-kicker">Tests</span><h2>Passing suites</h2></div></div><ul class="receipt-list">${testItems}</ul></article><article class="panel"><div class="panel-heading"><div><span class="section-kicker">Checks</span><h2>Release gates</h2></div></div><ul class="receipt-list">${checkItems}</ul></article></section>` : `<section class="panel receipt-empty"><span class="section-kicker">Coordinated validation</span><h2>No sanitized receipt yet</h2><p>Run <code>.\tools\validate.ps1</code> successfully, then refresh Nexus. Failed or interrupted runs never replace the last known-good receipt.</p></section>`;
-    viewRoot.innerHTML = `<section class="page-intro"><div><span class="section-kicker">Sanitized records</span><h2>What changed, and what was verified.</h2><p>Activity combines content-free source metadata, repository state and validation receipts. No command output, private paths, database contents or credentials are returned.</p></div></section>${receiptMarkup}<section class="panel activity-ledger"><div class="panel-heading"><div><span class="section-kicker">Source activity</span><h2>Component updates</h2></div></div><ol class="timeline">${items}</ol></section>`;
+    viewRoot.innerHTML = `<section class="page-intro"><div><span class="section-kicker">Sanitized records</span><h2>What changed, and what was verified.</h2><p>Activity combines content-free source metadata, repository state, bounded operational events and validation receipts. No command output, private paths, database contents or credentials are returned.</p></div></section>${receiptMarkup}<section class="panel activity-ledger"><div class="panel-heading"><div><span class="section-kicker">Operational journal</span><h2>Recent bounded events</h2></div></div><ol class="timeline">${eventItems}</ol></section><section class="panel activity-ledger"><div class="panel-heading"><div><span class="section-kicker">Source activity</span><h2>Component updates</h2></div></div><ol class="timeline">${items}</ol></section>`;
   }
 
   function renderProject() {
     viewTitle.textContent = 'Project';
     viewEyebrow.textContent = 'Monorepo status';
-    viewRoot.innerHTML = `<section class="page-intro"><div><span class="section-kicker">Cyrune monorepo</span><h2>Architecture, migration and release state.</h2><p>The Project view will combine the root migration checklist, repository health and the most recent coordinated validation receipt.</p></div></section><section class="document-grid">${projectDocumentPanel('todo', 'Migration and cutover', '../CYRUNE-MONOREPO-TODO.md')}${projectDocumentPanel('project', 'Project architecture', '../PROJECT.md')}</section>`;
+    const protocolRows = model.COMPONENTS.map(component => {
+      const compatibility = adapters.compatibility(component, snapshot);
+      const contracts = Object.entries(component.protocols || {}).map(([name, version]) => `${name} v${version}`).join(' · ') || 'No cross-component protocol';
+      return `<tr><th>${componentIconMarkup(component.id, 'protocol-icon')}<span>${model.escapeHtml(component.name)}</span></th><td>${model.escapeHtml(contracts)}</td><td><span class="compatibility-${compatibility.state}">${model.escapeHtml(compatibility.summary)}</span></td></tr>`;
+    }).join('');
+    const todoCards = model.COMPONENTS.map(component => `<article class="todo-summary" id="project-todo-summary-${component.id}">${componentIconMarkup(component.id, 'protocol-icon')}<div><strong>${model.escapeHtml(component.name)}</strong><span>Reading TODO…</span></div></article>`).join('');
+    viewRoot.innerHTML = `<section class="page-intro"><div><span class="section-kicker">Cyrune monorepo</span><h2>Architecture, migration and release state.</h2><p>Project combines the root migration checklist, component work queues, protocol readiness and the latest coordinated validation state.</p></div></section><section class="panel protocol-matrix"><div class="panel-heading"><div><span class="section-kicker">Expansion contracts</span><h2>Protocol compatibility matrix</h2></div></div><div class="table-scroll"><table><thead><tr><th>Component</th><th>Required contracts</th><th>Observed readiness</th></tr></thead><tbody>${protocolRows}</tbody></table></div></section><section class="panel todo-summary-panel"><div class="panel-heading"><div><span class="section-kicker">Work queues</span><h2>Component TODO summary</h2></div></div><div class="todo-summary-grid">${todoCards}</div></section><section class="document-grid">${projectDocumentPanel('todo', 'Migration and cutover', '../CYRUNE-MONOREPO-TODO.md')}${projectDocumentPanel('project', 'Project architecture', '../PROJECT.md')}</section>`;
+    loadTodoSummaries();
     loadProjectDocument('todo', '../CYRUNE-MONOREPO-TODO.md');
     loadProjectDocument('project', '../PROJECT.md');
+  }
+
+  async function loadTodoSummaries() {
+    await Promise.all(model.COMPONENTS.map(async component => {
+      const target = document.getElementById(`project-todo-summary-${component.id}`);
+      if (!target) return;
+      try {
+        const markdown = await documentRepository.load({
+          cacheKey: `${component.id}:todo`, url: component.todo,
+          serviceDocument: { component: component.id, documentType: 'todo' },
+          revision: snapshot?.sampledAt || 0
+        });
+        const open = String(markdown).split(/\r?\n/).map(line => {
+          const match = line.match(/^-\s+(?:\[\s\]\s+)?(.+)$/);
+          return match && !/^\[[xX]\]\s+/.test(match[1]) ? match[1] : '';
+        }).filter(Boolean);
+        const detail = open.slice(0, 3).map(item => item.replace(/[`*_#]/g, '').trim()).join(' · ');
+        target.querySelector('span').textContent = open.length ? `${open.length} open · ${detail}` : 'No unchecked TODO entries';
+      } catch {
+        target.querySelector('span').textContent = 'TODO summary unavailable offline';
+      }
+    }));
   }
 
   function renderComponent(id) {
@@ -411,11 +507,11 @@
     const live = liveComponent(component);
     const repository = snapshot?.repository;
     const health = componentHealth(component);
-    const runtime = component.id === 'arcade' ? snapshot?.data?.arcade?.service : null;
-    const runtimeLabel = runtime?.available ? `${health.summary} · ${runtime.collectionCount || 0} collections` : health.summary;
+    const compatibility = adapters.compatibility(component, snapshot);
+    const runtimeLabel = adapters.runtimeSummary(component, { health, data: snapshot?.data || {} });
     viewTitle.textContent = component.name;
     viewEyebrow.textContent = 'Component status';
-    viewRoot.innerHTML = `<section class="component-hero accent-${component.accent}">${componentIconMarkup(component.id, 'component-symbol large')}<div><span class="section-kicker">Cyrune component</span><h2>${model.escapeHtml(component.name)}</h2><p>${model.escapeHtml(component.summary)}</p></div><div class="version-stack"><small>Source version</small><strong>${model.escapeHtml(live.version || component.version)}</strong><span>Updated ${formatAge(live.updatedMs)}</span></div></section><section class="component-facts"><div><small>Runtime health</small><strong>${model.escapeHtml(runtimeLabel)}</strong></div><div><small>Health sampled</small><strong>${formatAge(health.sampledAt)}</strong></div><div><small>Repository state</small><strong>${repository ? (repository.clean ? 'Clean' : `${repository.staged + repository.unstaged} changes`) : 'Unavailable'}</strong></div><div><small>Validation</small><strong>${snapshot?.validation ? formatAge(snapshot.validation.timestamp) : 'No receipt'}</strong></div></section>${health.state !== 'healthy' && health.guidance ? `<section class="component-health-guidance health-${health.state}"><span class="status-pill ${healthTone(health.state)}">${healthLabel(health.state)}</span><div><strong>${model.escapeHtml(health.summary)}</strong><p>${model.escapeHtml(health.guidance)}</p></div></section>` : ''}<section class="document-grid">${documentPanel(component, 'todo', 'Open work', component.todo)}${documentPanel(component, 'changelog', 'Release history', component.changelog)}</section>`;
+    viewRoot.innerHTML = `<section class="component-hero accent-${component.accent}">${componentIconMarkup(component.id, 'component-symbol large')}<div><span class="section-kicker">Cyrune component</span><h2>${model.escapeHtml(component.name)}</h2><p>${model.escapeHtml(component.summary)}</p></div><div class="version-stack"><small>Source version</small><strong>${model.escapeHtml(live.version || component.version)}</strong><span>Updated ${formatAge(live.updatedMs)}</span></div></section><section class="component-facts"><div><small>Runtime health</small><strong>${model.escapeHtml(runtimeLabel)}</strong></div><div><small>Protocol compatibility</small><strong class="compatibility-${compatibility.state}">${model.escapeHtml(compatibility.summary)}</strong></div><div><small>Health sampled</small><strong>${formatAge(health.sampledAt)}</strong></div><div><small>Repository state</small><strong>${repository ? (repository.clean ? 'Clean' : `${repository.staged + repository.unstaged} changes`) : 'Unavailable'}</strong></div><div><small>Validation</small><strong>${snapshot?.validation ? formatAge(snapshot.validation.timestamp) : 'No receipt'}</strong></div></section>${health.state !== 'healthy' && health.guidance ? `<section class="component-health-guidance health-${health.state}"><span class="status-pill ${healthTone(health.state)}">${healthLabel(health.state)}</span><div><strong>${model.escapeHtml(health.summary)}</strong><p>${model.escapeHtml(health.guidance)}</p></div></section>` : ''}<section class="document-grid">${documentPanel(component, 'todo', 'Open work', component.todo)}${documentPanel(component, 'changelog', 'Release history', component.changelog)}</section>`;
     loadDocument(component, 'todo', component.todo);
     loadDocument(component, 'changelog', component.changelog);
   }
@@ -465,17 +561,20 @@
 
   async function loadTextDocument(target, url, fallback, serviceDocument) {
     try {
-      if (serviceAuthenticated && bridge && serviceDocument) {
-        const response = await bridge.request('MW_NEXUS_GET_DOCUMENT', serviceDocument);
-        const markdown = response.document?.markdown || '';
-        if (!markdown || markdown.length > 500000) throw new Error('Authoritative document is empty or too large');
-        target.innerHTML = model.renderMarkdown(markdown);
-        return;
+      let markdown;
+      if (documentRepository) {
+        markdown = await documentRepository.load({
+          cacheKey: `${serviceDocument?.component || 'local'}:${serviceDocument?.documentType || url}`,
+          url,
+          serviceDocument,
+          revision: snapshot?.sampledAt || 0
+        });
+      } else {
+        const response = await fetch(url, { cache: 'no-store' });
+        if (!response.ok) throw new Error('Document unavailable');
+        markdown = await response.text();
+        if (!markdown || markdown.length > 500000) throw new Error('Document is empty or too large');
       }
-      const response = await fetch(url, { cache: 'no-store' });
-      if (!response.ok) throw new Error('Document unavailable');
-      const markdown = await response.text();
-      if (markdown.length > 500000) throw new Error('Document exceeds draft limit');
       target.innerHTML = model.renderMarkdown(markdown);
     } catch (_error) {
       target.innerHTML = `<div class="document-fallback"><span>≡</span><strong>Preview unavailable in this file context</strong><p>${model.escapeHtml(fallback)}</p></div>`;
@@ -540,7 +639,11 @@
   document.getElementById('refresh-button').addEventListener('click', () => { void refreshAuthoritative({ announceResult: true }); });
   window.addEventListener('cyrune:nexus-relay-ready', () => { void refreshAuthoritative(); });
   window.addEventListener('cyrune:nexus-settings-changed', event => {
-    if (Number(event.detail?.revision || 0) > settings.revision) void refreshAuthoritative();
+    const revision = Number(event.detail?.revision || 0);
+    if (revision > settings.revision) {
+      documentRepository?.discardOlderServiceRevisions(revision);
+      void refreshAuthoritative();
+    }
   });
   window.addEventListener('hashchange', () => navigate(location.hash.slice(1)));
   navigate(location.hash.slice(1) || 'overview');

@@ -211,13 +211,14 @@ test('directory approval keeps the page request alive for the interactive picker
   assert.deepEqual(scheduledTimeouts, [305000]);
   assert.equal((await vm.runInContext("bridge.getApplicationStatus('app_abcdefghijklmnop')", context)).state, 'ready');
   assert.equal(await vm.runInContext("bridge.launchApplication('app_abcdefghijklmnop')", context), true);
-  assert.equal((await vm.runInContext('bridge.getEmuGuiStatus()', context)).activeCollection.id, 'spectrum');
+  assert.equal((await vm.runInContext('bridge.getArcadeStatus()', context)).activeCollection.id, 'spectrum');
   assert.equal((await vm.runInContext("bridge.getGameStatus('game_abcdefghijklmnop')", context)).state, 'ready');
   assert.equal(await vm.runInContext("bridge.launchGame('game_abcdefghijklmnop')", context), true);
-  assert.equal(await vm.runInContext("bridge.openGameInEmuGui('game_abcdefghijklmnop', { rebind: true })", context), true);
+  assert.equal(await vm.runInContext("bridge.openGameInArcade('game_abcdefghijklmnop', { rebind: true })", context), true);
+  assert.equal(await vm.runInContext("bridge.openGameInEmuGui('game_abcdefghijklmnop')", context), true);
   assert.equal(await vm.runInContext("bridge.revealGame('game_abcdefghijklmnop')", context), true);
   assert.equal(await vm.runInContext("bridge.forgetGame('game_abcdefghijklmnop')", context), true);
-  assert.equal(scheduledTimeouts.filter(timeout => timeout === 120000).length, 6);
+  assert.equal(scheduledTimeouts.filter(timeout => timeout === 120000).length, 7);
   await assert.rejects(
     vm.runInContext("bridge.openApprovedDirectory('dir_abcdefghijklmnop', 'git', 'terminal')", context),
     /No terminal application was found/

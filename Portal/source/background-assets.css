@@ -1,0 +1,35 @@
+.bg-drop-zone {
+  border: 2px dashed var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  cursor: default;
+  transition: border-color 0.15s, background 0.15s;
+  margin: 4px 0;
+  background-size: cover;
+  background-position: center;
+  min-height: 80px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.bg-drop-zone.has-preview {
+  border-style: solid;
+  border-color: var(--accent);
+  min-height: 120px;
+}
+
+.bg-drop-zone.has-preview > span {
+  background: rgba(0, 0, 0, 0.45);
+  color: #fff;
+  padding: 2px 10px;
+  border-radius: 4px;
+}
+
+.bg-drop-zone.drag-over {
+  border-color: var(--accent);
+  background: var(--accent-hover);
+}

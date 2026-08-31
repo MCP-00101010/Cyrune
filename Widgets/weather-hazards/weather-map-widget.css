@@ -13,7 +13,7 @@
 }
 .weather-map-origin-zoom-value {
   color: var(--text);
-  font-size: 0.76rem;
+  font-size: calc(0.76rem * var(--widget-text-scale, 1));
   font-variant-numeric: tabular-nums;
   text-align: right;
 }
@@ -39,7 +39,7 @@
   justify-content: center;
   padding: 16px;
   color: var(--text-muted);
-  font-size: 0.76rem;
+  font-size: calc(0.76rem * var(--widget-text-scale, 1));
   text-align: center;
 }
 .weather-map-origin-marker {
@@ -67,7 +67,7 @@
   padding-right: 50px;
   overflow: hidden;
   color: var(--text);
-  font-size: 0.94rem;
+  font-size: calc(0.94rem * var(--widget-text-scale, 1));
   font-weight: 600;
   line-height: 1.35;
   text-overflow: ellipsis;
@@ -87,7 +87,7 @@
   background: var(--panel-muted);
   color: var(--text-muted);
   font: inherit;
-  font-size: 0.72rem;
+  font-size: calc(0.72rem * var(--widget-text-scale, 1));
   cursor: pointer;
 }
 .widget-weather-map-layer-btn:hover,
@@ -136,7 +136,7 @@
   border-radius: 6px;
   background: rgba(var(--panel-r), var(--panel-g), var(--panel-b), 0.9);
   color: var(--text-muted);
-  font-size: 0.72rem;
+  font-size: calc(0.72rem * var(--widget-text-scale, 1));
   line-height: 1.35;
   text-align: center;
   pointer-events: none;
@@ -198,7 +198,7 @@
   border-radius: 6px;
   background: var(--panel-muted);
   color: var(--text-muted);
-  font-size: 0.68rem;
+  font-size: calc(0.68rem * var(--widget-text-scale, 1));
   line-height: 1;
   cursor: pointer;
 }
@@ -225,7 +225,7 @@
 }
 .widget-weather-map-time-label {
   color: var(--text);
-  font-size: 0.72rem;
+  font-size: calc(0.72rem * var(--widget-text-scale, 1));
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
@@ -252,11 +252,11 @@
   width: 100%;
   min-width: 0;
   color: var(--text-muted);
-  font-size: 0.68rem;
+  font-size: calc(0.68rem * var(--widget-text-scale, 1));
 }
 .widget-weather-map-legend-empty {
   color: var(--text-muted);
-  font-size: 0.68rem;
+  font-size: calc(0.68rem * var(--widget-text-scale, 1));
   font-style: italic;
 }
 .widget-weather-map-legend-label {
@@ -284,7 +284,7 @@
   position: absolute;
   top: 50%;
   color: #fff;
-  font-size: 0.62rem;
+  font-size: calc(0.62rem * var(--widget-text-scale, 1));
   font-weight: 700;
   line-height: 1;
   white-space: nowrap;
@@ -311,7 +311,7 @@
   position: absolute;
   display: block;
   color: var(--accent);
-  font-size: 1.65rem;
+  font-size: calc(1.65rem * var(--widget-text-scale, 1));
   line-height: 1;
   transform-origin: center;
   animation: weather-map-wind-flow var(--wind-duration, 1.5s) ease-in-out infinite;
@@ -320,7 +320,7 @@
   position: relative;
   z-index: 1;
   color: #fff;
-  font-size: 0.58rem;
+  font-size: calc(0.58rem * var(--widget-text-scale, 1));
   font-weight: 700;
   text-shadow: 0 1px 2px #000;
 }
@@ -376,7 +376,7 @@
 }
 .widget-weather-map .maplibregl-ctrl-attrib {
   color: #1d2530;
-  font-size: 9px;
+  font-size:calc(9px * var(--widget-text-scale, 1));
 }
 .widget-weather-map .maplibregl-ctrl-attrib a {
   color: inherit;

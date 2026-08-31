@@ -291,7 +291,7 @@ test('hazard assets load after MapLibre and SDK and expose responsive map/list s
   assert.match(css, /\.global-hazards-focus-location\s*\{[^}]*top:\s*9px;[^}]*left:\s*9px/s);
   assert.match(css, /\.global-hazards-widget \.maplibregl-ctrl-group button\s*\{[^}]*color:\s*var\(--text\)/s);
   assert.match(css, /\.global-hazards-widget \.maplibregl-ctrl-zoom-in \.maplibregl-ctrl-icon[\s\S]*?background-image:\s*none/);
-  assert.match(css, /\.global-hazards-widget \.maplibregl-ctrl-attrib\s*\{[^}]*color:\s*#1d2530;[^}]*font-size:\s*9px/s);
+  assert.match(css, /\.global-hazards-widget \.maplibregl-ctrl-attrib\s*\{[^}]*color:\s*#1d2530;[^}]*font-size:\s*calc\(9px \* var\(--widget-text-scale, 1\)\)/s);
   assert.match(source, /Focus map on settings location/);
   assert.match(source, /map\.easeTo\(\{ center: watch\.coordinates/);
   assert.match(source, /Today only/);

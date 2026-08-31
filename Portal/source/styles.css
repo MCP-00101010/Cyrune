@@ -650,6 +650,28 @@ input::placeholder {
   gap: 8px;
 }
 
+#widgetSettingsPanel .widget-preset-settings {
+  margin-top: 6px;
+}
+
+#widgetSettingsPanel .widget-preset-settings .settings-row,
+#widgetSettingsPanel .widget-preset-select {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+#widgetSettingsPanel .widget-preset-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+#widgetSettingsPanel .widget-preset-import {
+  display: inline-flex;
+  align-items: center;
+}
+
 
 .folder-modal-body {
   display: flex;
@@ -1596,6 +1618,23 @@ input::placeholder {
 .hub-booting #navList,
 .hub-booting #mainPanel {
   visibility: hidden;
+}
+
+.portal-readonly-banner {
+  position: fixed;
+  z-index: 1200;
+  left: 50%;
+  bottom: 18px;
+  transform: translateX(-50%);
+  width: min(720px, calc(100vw - 32px));
+  padding: 11px 15px;
+  border: 1px solid color-mix(in srgb, #f2b66d 45%, var(--border));
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--panel-strong) 94%, #4c3219);
+  color: var(--text);
+  box-shadow: var(--shadow);
+  text-align: center;
+  font-size: 12px;
 }
 
 
@@ -3205,42 +3244,6 @@ input::placeholder {
   background: var(--accent);
   border-color: var(--accent);
   color: #fff;
-}
-
-.bg-drop-zone {
-  border: 2px dashed var(--border);
-  border-radius: var(--radius);
-  padding: 20px;
-  text-align: center;
-  color: var(--text-muted);
-  font-size: 0.82rem;
-  cursor: default;
-  transition: border-color 0.15s, background 0.15s;
-  margin: 4px 0;
-  background-size: cover;
-  background-position: center;
-  min-height: 80px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.bg-drop-zone.has-preview {
-  border-style: solid;
-  border-color: var(--accent);
-  min-height: 120px;
-}
-
-.bg-drop-zone.has-preview > span {
-  background: rgba(0, 0, 0, 0.45);
-  color: #fff;
-  padding: 2px 10px;
-  border-radius: 4px;
-}
-
-.bg-drop-zone.drag-over {
-  border-color: var(--accent);
-  background: var(--accent-hover);
 }
 
 .settings-slider-group {

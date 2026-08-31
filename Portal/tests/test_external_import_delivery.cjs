@@ -10,6 +10,8 @@ test('Import Manager delivery rebases once and deduplicates retries by delivery 
   let saveCalls = 0;
   let mutationSequence = 0;
   let reloadCalls = 0;
+  let renderCalls = 0;
+  let panelOpenCalls = 0;
   const context = vm.createContext({
     state,
     console,
@@ -21,8 +23,8 @@ test('Import Manager delivery rebases once and deduplicates retries by delivery 
     createFolderRecord: (title, options) => ({ type: 'folder', title, ...options }),
     prepareForExternalDelivery: async () => { prepareCalls += 1; return { ok: true }; },
     pushUndoSnapshot: () => {},
-    renderImportManagerPanel: () => {},
-    showImportManagerPanel: () => {},
+    renderImportManagerPanel: () => { renderCalls += 1; },
+    showImportManagerPanel: () => { panelOpenCalls += 1; },
     showNotice: () => {},
     getImportManagerCounts: () => ({ bookmarks: state.importManager.items.length, folders: 0 }),
     getLocalStateMutationSequence: () => mutationSequence,
@@ -40,8 +42,8 @@ test('Import Manager delivery rebases once and deduplicates retries by delivery 
   });
   const filename = path.join(__dirname, '..', 'source', 'import.js');
   vm.runInContext(fs.readFileSync(filename, 'utf8'), context, { filename });
-  context.renderImportManagerPanel = () => {};
-  context.showImportManagerPanel = () => {};
+  context.renderImportManagerPanel = () => { renderCalls += 1; };
+  context.showImportManagerPanel = () => { panelOpenCalls += 1; };
   context.getImportManagerCounts = () => ({ bookmarks: state.importManager.items.length, folders: 0 });
 
   const payload = [{ type: 'bookmark', title: 'Example', url: 'https://example.com' }];
@@ -51,6 +53,8 @@ test('Import Manager delivery rebases once and deduplicates retries by delivery 
   assert.equal(saveCalls, 2);
   assert.equal(state.importManager.items.length, 1);
   assert.equal(state.importManager.items[0].id, 'bm-import-delivery-delivery-42-0');
+  assert.equal(renderCalls, 1);
+  assert.equal(panelOpenCalls, 0);
 
   const retry = await context.receiveExternalImportItems(payload, { deliveryId: 'delivery-42' });
   assert.equal(retry.ok, true);
@@ -58,6 +62,8 @@ test('Import Manager delivery rebases once and deduplicates retries by delivery 
   assert.equal(saveCalls, 2);
   assert.equal(state.importManager.items.length, 1);
   assert.equal(prepareCalls, 2);
+  assert.equal(renderCalls, 1);
+  assert.equal(panelOpenCalls, 0);
 });
 
 test('shared polling uses semantic snapshots and startup rejects an empty successful read', () => {

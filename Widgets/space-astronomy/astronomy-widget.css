@@ -63,14 +63,14 @@
 
 .widget-astronomy-moon-name {
   color: var(--text);
-  font-size: 1.15rem;
+  font-size: calc(1.15rem * var(--widget-text-scale, 1));
 }
 
 .widget-astronomy-moon-summary,
 .widget-astronomy-moon-times,
 .widget-astronomy-next-phase {
   color: var(--text-muted);
-  font-size: 0.78rem;
+  font-size: calc(0.78rem * var(--widget-text-scale, 1));
   line-height: 1.35;
 }
 
@@ -100,7 +100,7 @@
 .widget-astronomy-fact-label {
   overflow: hidden;
   color: var(--text-muted);
-  font-size: 0.65rem;
+  font-size: calc(0.65rem * var(--widget-text-scale, 1));
   letter-spacing: 0.04em;
   text-overflow: ellipsis;
   text-transform: uppercase;
@@ -110,7 +110,7 @@
 .widget-astronomy-fact strong {
   overflow: hidden;
   color: var(--text);
-  font-size: 0.76rem;
+  font-size: calc(0.76rem * var(--widget-text-scale, 1));
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -122,7 +122,7 @@
 .widget-astronomy-section-title {
   margin-bottom: 6px;
   color: var(--text-muted);
-  font-size: 0.69rem;
+  font-size: calc(0.69rem * var(--widget-text-scale, 1));
   font-weight: 650;
   letter-spacing: 0.07em;
   text-transform: uppercase;
@@ -154,7 +154,7 @@
   width: 22px;
   flex: 0 0 22px;
   color: var(--accent-strong);
-  font-size: 1.25rem;
+  font-size: calc(1.25rem * var(--widget-text-scale, 1));
   line-height: 1;
   text-align: center;
 }
@@ -172,14 +172,14 @@
 .widget-astronomy-list-main strong,
 .widget-astronomy-event strong {
   color: var(--text);
-  font-size: 0.78rem;
+  font-size: calc(0.78rem * var(--widget-text-scale, 1));
 }
 
 .widget-astronomy-planet-details span,
 .widget-astronomy-list-main > span,
 .widget-astronomy-event > span > span {
   color: var(--text-muted);
-  font-size: 0.69rem;
+  font-size: calc(0.69rem * var(--widget-text-scale, 1));
   line-height: 1.35;
 }
 
@@ -210,7 +210,7 @@
   padding: 1px 5px;
   align-items: center;
   color: var(--accent-strong);
-  font-size: 0.59rem;
+  font-size: calc(0.59rem * var(--widget-text-scale, 1));
   font-weight: 700;
   letter-spacing: 0.04em;
   vertical-align: 1px;
@@ -233,20 +233,20 @@
 .widget-astronomy-event time {
   padding-top: 1px;
   color: var(--accent-strong);
-  font-size: 0.68rem;
+  font-size: calc(0.68rem * var(--widget-text-scale, 1));
   font-weight: 650;
 }
 
 .widget-astronomy-empty {
   padding: 9px;
   color: var(--text-muted);
-  font-size: 0.72rem;
+  font-size: calc(0.72rem * var(--widget-text-scale, 1));
   font-style: italic;
 }
 
 .widget-astronomy-attribution {
   color: var(--text-muted);
-  font-size: 0.58rem;
+  font-size: calc(0.58rem * var(--widget-text-scale, 1));
   line-height: 1.4;
   text-align: right;
 }

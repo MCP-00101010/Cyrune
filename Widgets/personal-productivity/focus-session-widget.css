@@ -17,7 +17,7 @@
 }
 
 .focus-session-phase {
-  font-size: 14px;
+  font-size:calc(14px * var(--widget-text-scale, 1));
 }
 
 .focus-session-preset,
@@ -26,7 +26,7 @@
 .focus-session-history summary,
 .focus-session-history-row {
   color: var(--text-muted);
-  font-size: 11px;
+  font-size:calc(11px * var(--widget-text-scale, 1));
 }
 
 .focus-session-dial {
@@ -113,7 +113,7 @@
   padding: 7px 8px;
   color: color-mix(in srgb, #f2bf67 82%, var(--text));
   background: color-mix(in srgb, #e6a23c 10%, transparent);
-  font-size: 11px;
+  font-size:calc(11px * var(--widget-text-scale, 1));
   line-height: 1.35;
 }
 
@@ -128,7 +128,7 @@
   border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
   padding-top: 8px;
   color: var(--text-muted);
-  font-size: 11px;
+  font-size:calc(11px * var(--widget-text-scale, 1));
 }
 
 .focus-session-stats strong {
@@ -153,7 +153,7 @@
 }
 
 .focus-session--navpane .focus-session-time {
-  font-size: 25px;
+  font-size:calc(25px * var(--widget-text-scale, 1));
 }
 
 .focus-session--navpane .focus-session-history,
@@ -163,8 +163,8 @@
 
 @container (max-width: 250px) {
   .focus-session-dial { width: min(122px, 70%); }
-  .focus-session-time { font-size: 24px; }
+  .focus-session-time { font-size:calc(24px * var(--widget-text-scale, 1)); }
   .focus-session-controls { grid-template-columns: 1fr 1fr 1fr; }
-  .focus-session-controls button { padding-inline: 3px; font-size: 11px; }
+  .focus-session-controls button { padding-inline: 3px; font-size:calc(11px * var(--widget-text-scale, 1)); }
   .focus-session-history, .focus-session-launch { display: none; }
 }

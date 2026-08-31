@@ -4,6 +4,50 @@ Historical entries below are preserved from Portal releases whose release notes 
 
 ---
 
+## [0.2.0] — 2026-08-31
+
+### Added
+
+- Added bounded, sanitized Nexus settings-history reads so the authenticated settings response can show revision time and changed portable keys without returning values or paths.
+
+### Validation
+
+- The coordinated release gate passes all 63 Host tests plus 11 parameterised subtests, including settings-history readback, atomic revisions, conflict behaviour, and redaction boundaries.
+
+## [0.1.0] — 2026-08-31
+
+### Added
+
+- Introduced independent Host component versioning through `component.json`; native `PING`, Nexus service status and both installers now report that release while preserving the `morpheus_webhub` host ID.
+- Added manifest-backed component versions, protocol/capability status, and a bounded content-free Nexus operational event journal outside the checkout.
+- Added a generic ordered, dry-runnable, idempotent migration runner with atomic sanitized receipts for future component migrations.
+- Nexus settings now migrate through an explicit one-version-at-a-time registry and reject newer unsupported schemas instead of treating them as older input.
+
+### Changed
+
+- Nexus status now reads every component version and contract from fixed component manifests instead of special-casing three components and labelling the remainder unversioned.
+
+### Validation
+
+- All 63 Host tests plus 11 parameterised subtests pass. Manifest/runtime alignment, diagnostic redaction, event bounds, ordered settings migrations and migration-receipt behaviour pass the coordinated release gate.
+
+## [Unversioned] — 2026-08-31
+
+### Changed
+
+- Host now prefers canonical `arcadeRoot`, `arcade_service.py`, and `dispatch_arcade_*` configuration/service names while retaining the legacy root key, module, and dispatcher aliases for downgrade compatibility.
+- Added fixed-purpose Portal database, backup, theme, and managed-background operations that independently resolve or confine their native targets. Generic operations remain only for compatibility and are no longer active Relay call sites.
+- Nexus component status reports descriptive storage locations rather than local filesystem paths.
+
+### Fixed
+
+- Arcade scrape requests now fail closed at the native boundary when the authoritative Nexus `arcade` profile disables optional network access or cannot be read.
+- An empty Portal database configuration now remains genuinely unconfigured instead of resolving to Host's working directory.
+
+### Validation
+
+- All 61 Host tests plus 11 parameterised subtests pass, covering canonical service discovery, retained legacy configuration, authoritative optional-network denial, fixed Portal target resolution, opaque managed-asset sessions, confinement, and diagnostic redaction.
+
 ## [Unversioned] — 2026-08-25
 
 ### Added
@@ -1130,4 +1174,3 @@ Historical entries below are preserved from Portal releases whose release notes 
 - `bridge.nativeIsAvailable()` and `bridge.openFilePicker()` added to page bridge
 
 ---
-

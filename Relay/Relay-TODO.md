@@ -4,12 +4,8 @@ This file owns outstanding WebExtension storage authority, authenticated page ro
 
 ## Required-Relay Storage Authority
 
-- Add a versioned Relay-owned authoritative snapshot for installations without Host-backed disk storage.
-- Add revision and content-hash metadata, compare-and-swap writes, an extension-wide serial save queue, and change broadcasts to every registered Portal tab in both storage modes.
-- Require every save to state its loaded revision and report success only after the authoritative target accepts the snapshot.
-- Add a migration protocol and content-free receipt for legacy page snapshots, including identical, divergent, corrupt, over-quota, interrupted, retried, and already-completed states.
-- Advertise minimum-version and baseline capabilities during authenticated page registration.
-- Harden reload/reconnect behaviour for active Portal and Arcade pages, pending intake, delivery acknowledgements, and stale session tokens.
+- Enforce negotiated minimum protocol versions after the current diagnostic-only registration advertisements have been proven across upgraded and stale Portal, Arcade, Nexus and Host installations.
+- Continue hardening reload/reconnect behaviour for active Portal and Arcade pages, interrupted queue writes, delivery acknowledgements, quota exhaustion, and stale session tokens.
 - Keep intentionally browser-local widget caches, view state, histories, notifications, preferences, and IndexedDB assets outside the authoritative Portal snapshot migration.
 - Ensure diagnostics and extension storage never include credentials or unredacted native targets.
 
@@ -17,7 +13,6 @@ This file owns outstanding WebExtension storage authority, authenticated page ro
 
 - Keep Firefox and Zen as the supported integration target and preserve clear local-file permission diagnostics.
 - Prefer generic Relay/Host service contracts so individual product integrations do not force avoidable extension releases.
-- Add bounded, durable Inbox/Import Manager intake when no Portal tab is open: queue sanitized deliveries in Relay storage, show pending state in the popup, deliver exactly once after the next authenticated Portal registration, and retain delivery-ID deduplication and quota controls.
 
 ## Deferred Chromium Compatibility
 

@@ -24,10 +24,12 @@ class NativePersistenceTests(unittest.TestCase):
             settings_path = root / 'settings.json'
             history_path = root / 'settings-history.json'
             validation_path = root / 'validation.json'
+            events_path = root / 'events.json'
             with patch.object(HOST, 'NEXUS_DATA_ROOT', str(root)), \
                     patch.object(HOST, 'NEXUS_SETTINGS_PATH', str(settings_path)), \
                     patch.object(HOST, 'NEXUS_HISTORY_PATH', str(history_path)), \
-                    patch.object(HOST, 'NEXUS_VALIDATION_PATH', str(validation_path)):
+                    patch.object(HOST, 'NEXUS_VALIDATION_PATH', str(validation_path)), \
+                    patch.object(HOST, 'NEXUS_EVENTS_PATH', str(events_path)):
                 defaults = HOST.load_nexus_settings()
                 self.assertEqual(defaults['revision'], 0)
                 candidate = json.loads(json.dumps(defaults))
@@ -42,6 +44,23 @@ class NativePersistenceTests(unittest.TestCase):
                 self.assertEqual(conflict['settings']['revision'], 1)
                 history = json.loads(history_path.read_text(encoding='utf-8'))
                 self.assertEqual(history[-1]['revision'], 1)
+                self.assertEqual(HOST.load_nexus_history(), history)
+                events = json.loads(events_path.read_text(encoding='utf-8'))
+                self.assertEqual([event['code'] for event in events], ['settings-saved', 'settings-conflict'])
+                self.assertNotIn(str(root), json.dumps(events))
+
+    def test_nexus_operational_journal_is_bounded_and_sanitized(self):
+        with TemporaryDirectory(dir=TEST_TEMP_ROOT) as directory:
+            events_path = Path(directory) / 'events.json'
+            with patch.object(HOST, 'NEXUS_EVENTS_PATH', str(events_path)), \
+                    patch.object(HOST, 'MAX_NEXUS_EVENTS', 2):
+                HOST.record_nexus_event('nexus', 'settings-saved')
+                HOST.record_nexus_event('nexus', 'settings-conflict', 'attention')
+                HOST.record_nexus_event('host', 'status-failed', 'error')
+                events = HOST.sanitized_nexus_events()
+            self.assertEqual(len(events), 2)
+            self.assertEqual([event['code'] for event in events], ['settings-conflict', 'status-failed'])
+            self.assertNotIn(str(directory), json.dumps(events))
 
     def test_nexus_settings_reject_unknown_fields_and_unapproved_location(self):
         candidate = json.loads(json.dumps(HOST.NEXUS_DEFAULT_SETTINGS))
@@ -85,6 +104,9 @@ class NativePersistenceTests(unittest.TestCase):
         self.assertEqual(migrated['schemaVersion'], 2)
         self.assertEqual(migrated['region']['city'], 'Bristol')
         self.assertEqual(migrated['overrides'], {'portal-widgets': {}, 'arcade': {}})
+        self.assertEqual(set(HOST.NEXUS_SETTINGS_MIGRATIONS), {1})
+        with self.assertRaisesRegex(ValueError, 'newer Cyrune release'):
+            HOST.validate_nexus_settings({'schemaVersion': 3})
 
     def test_nexus_component_overrides_are_sparse_typed_and_source_annotated(self):
         settings = json.loads(json.dumps(HOST.NEXUS_DEFAULT_SETTINGS))
@@ -127,6 +149,23 @@ class NativePersistenceTests(unittest.TestCase):
         settings['privacy']['allowOptionalNetwork'] = False
         with self.assertRaisesRegex(ValueError, 'cannot relax'):
             HOST.validate_nexus_settings(settings)
+
+    def test_arcade_optional_network_permission_is_authoritative_and_fails_closed(self):
+        allowed = {'values': {'privacy': {'allowOptionalNetwork': True}}}
+        denied = {'values': {'privacy': {'allowOptionalNetwork': False}}}
+        with patch.object(HOST, 'nexus_component_settings', return_value=allowed):
+            self.assertTrue(HOST.arcade_optional_network_allowed())
+        with patch.object(HOST, 'nexus_component_settings', return_value=denied):
+            self.assertFalse(HOST.arcade_optional_network_allowed())
+        with patch.object(HOST, 'nexus_component_settings', side_effect=OSError('unavailable')):
+            self.assertFalse(HOST.arcade_optional_network_allowed())
+
+    def test_arcade_remote_scrape_is_denied_before_service_dispatch(self):
+        with patch.object(HOST, 'arcade_optional_network_allowed', return_value=False), \
+                patch.object(HOST, '_load_emugui_module') as load_service:
+            with self.assertRaisesRegex(PermissionError, 'Optional network access is disabled'):
+                HOST.emugui_api_request('POST', '/api/scrape-preview', {}, {'provider': 'screenscraper'})
+        load_service.assert_not_called()
 
     def test_nexus_page_and_documents_are_exactly_allowlisted(self):
         expected = (Path(HOST.CYRUNE_REPO_ROOT) / 'Nexus' / 'index.html').resolve().as_uri()
@@ -190,7 +229,7 @@ class NativePersistenceTests(unittest.TestCase):
         self.assertFalse(missing['branchAvailable'])
         self.assertEqual(missing['remoteHead'], '')
 
-    def test_nexus_status_sanitizes_repository_and_reports_runtime_locations(self):
+    def test_nexus_status_sanitizes_repository_and_runtime_storage_labels(self):
         with TemporaryDirectory(dir=TEST_TEMP_ROOT) as directory:
             portal = Path(directory) / 'portal.json'
             portal.write_text('{"schemaVersion":2,"boards":[],"sets":[],"tags":[],"settings":{}}', encoding='utf-8')
@@ -228,9 +267,22 @@ class NativePersistenceTests(unittest.TestCase):
             self.assertEqual(snapshot['data']['arcade']['schema'], {'valid': True, 'version': None})
             self.assertEqual(snapshot['data']['nexus']['health']['code'], 'nexus-settings-defaults')
             self.assertEqual(snapshot['services']['host']['health']['code'], 'host-healthy')
-            self.assertEqual(snapshot['data']['portal']['location'], str(portal))
+            self.assertEqual(snapshot['services']['host']['version'], '0.2.0')
+            self.assertEqual(snapshot['services']['host']['protocols']['host-native'], 2)
+            self.assertTrue(all(component['version'] != 'Unversioned' for component in snapshot['components']))
+            self.assertTrue(all('protocols' in component for component in snapshot['components']))
+            self.assertEqual(snapshot['data']['portal']['location'], 'Configured external database')
+            self.assertEqual(snapshot['data']['arcade']['location'], 'Managed Arcade data')
+            self.assertEqual(snapshot['data']['nexus']['location'], 'Managed Nexus settings')
+            self.assertNotIn(str(directory), json.dumps(snapshot))
             self.assertEqual(snapshot['data']['arcade']['service']['collectionCount'], 3)
             self.assertNotIn('activeCollection', snapshot['data']['arcade']['service'])
+
+    def test_host_version_protocols_and_nexus_dispatch_are_manifest_backed(self):
+        self.assertEqual(HOST.HOST_VERSION, '0.2.0')
+        self.assertEqual(HOST.HOST_PROTOCOLS['host-native'], 2)
+        self.assertIn('NEXUS_GET_STATUS', HOST.NEXUS_MESSAGE_TYPES)
+        self.assertFalse(HOST.handle_nexus_message('READ_CONFIG', {}))
 
     def test_nexus_status_keeps_partial_health_failures_sanitized_and_independent(self):
         with TemporaryDirectory(dir=TEST_TEMP_ROOT) as directory:
@@ -393,6 +445,56 @@ class NativePersistenceTests(unittest.TestCase):
             self.assertEqual(Path(target).name, 'safe-theme.json')
             with self.assertRaises(ValueError):
                 HOST.resolve_theme_path(directory, '../escape')
+
+    def test_fixed_portal_operations_resolve_only_the_configured_database(self):
+        with TemporaryDirectory(dir=TEST_TEMP_ROOT) as directory:
+            config_path = Path(directory) / 'config.json'
+            database_path = Path(directory) / 'portal.json'
+            database_path.write_text('{"value":1}', encoding='utf-8')
+            with patch.object(HOST, 'CONFIG_PATH', str(config_path)):
+                self.assertEqual(HOST.configured_portal_database_path(), '')
+                with self.assertRaisesRegex(ValueError, 'not configured'):
+                    HOST.portal_database_file_info()
+                HOST.set_portal_database_path(database_path)
+                chunk = HOST.portal_database_read_chunk(0, 64)
+                self.assertEqual(base64.b64decode(chunk['chunk']).decode('utf-8'), '{"value":1}')
+                self.assertEqual(Path(HOST.configured_portal_database_path()), database_path.resolve())
+
+    def test_fixed_portal_asset_paths_are_confined_to_managed_backgrounds(self):
+        with TemporaryDirectory(dir=TEST_TEMP_ROOT) as directory:
+            config_path = Path(directory) / 'config.json'
+            database_path = Path(directory) / 'portal.json'
+            outside_path = Path(directory).parent / 'outside.png'
+            with patch.object(HOST, 'CONFIG_PATH', str(config_path)):
+                HOST.set_portal_database_path(database_path)
+                managed = Path(directory) / 'backgrounds' / 'scene.webp'
+                self.assertEqual(Path(HOST.require_portal_asset_path(managed)), managed.resolve())
+                with self.assertRaisesRegex(ValueError, 'outside'):
+                    HOST.require_portal_asset_path(outside_path)
+                with self.assertRaisesRegex(ValueError, 'unsupported'):
+                    HOST.require_portal_asset_path(Path(directory) / 'backgrounds' / 'scene.exe')
+
+    def test_portal_asset_write_uses_an_opaque_host_owned_session(self):
+        with TemporaryDirectory(dir=TEST_TEMP_ROOT) as directory:
+            config_path = Path(directory) / 'config.json'
+            database_path = Path(directory) / 'portal.json'
+            with patch.object(HOST, 'CONFIG_PATH', str(config_path)):
+                HOST.PORTAL_ASSET_WRITE_SESSIONS.clear()
+                HOST.set_portal_database_path(database_path)
+                started = HOST.begin_portal_asset_write('Main Board', 'Night Sky', 'webp')
+                self.assertRegex(started['sessionId'], r'^asset_[A-Za-z0-9_-]+$')
+                self.assertNotIn('finalPath', started)
+                self.assertNotIn('tempPath', started)
+                payload = base64.b64encode(b'bounded-image').decode('ascii')
+                self.assertEqual(HOST.append_portal_asset_write(started['sessionId'], payload), 13)
+                finished = HOST.finish_portal_asset_write(started['sessionId'])
+                self.assertEqual(finished['relativePath'].split('/')[0], 'backgrounds')
+                self.assertTrue(finished['publicPath'].startswith('file:'))
+                written = list(Path(directory).glob('backgrounds/**/*.webp'))
+                self.assertEqual(len(written), 1)
+                self.assertEqual(written[0].read_bytes(), b'bounded-image')
+                with self.assertRaisesRegex(ValueError, 'Unknown'):
+                    HOST.append_portal_asset_write(started['sessionId'], payload)
 
     def test_database_backups_are_coalesced_within_one_minute(self):
         with TemporaryDirectory(dir=TEST_TEMP_ROOT) as directory:
@@ -791,6 +893,36 @@ class NativePersistenceTests(unittest.TestCase):
                 self.assertEqual(status['profileCount'], 3)
                 self.assertNotIn('root', json.dumps(status).lower())
                 self.assertEqual(stored['emuguiRoot'], str(root.resolve()))
+            finally:
+                HOST.CONFIG_PATH = original_path
+                HOST.EMUGUI_MODULE = original_module
+                HOST.EMUGUI_MODULE_PATH = original_module_path
+
+    def test_arcade_root_and_canonical_service_are_preferred_with_legacy_config_retained(self):
+        with TemporaryDirectory(dir=TEST_TEMP_ROOT) as directory:
+            root = Path(directory) / 'Arcade'
+            root.mkdir()
+            (root / 'arcade_service.py').write_text(
+                "def dispatch_arcade_read(method):\n"
+                "    return {'serviceVersion': 1, 'active': {}, 'collections': [], 'emulators': [], 'profiles': []}\n",
+                encoding='utf-8'
+            )
+            config_path = Path(directory) / 'native-config.json'
+            original_path = HOST.CONFIG_PATH
+            original_module = HOST.EMUGUI_MODULE
+            original_module_path = HOST.EMUGUI_MODULE_PATH
+            HOST.CONFIG_PATH = str(config_path)
+            HOST.EMUGUI_MODULE = None
+            HOST.EMUGUI_MODULE_PATH = ''
+            try:
+                HOST.save_config({'databasePath': '', 'arcadeRoot': str(root)})
+                configured_root, service_path = HOST._configured_emugui_service()
+                stored = HOST.load_config()
+                self.assertEqual(configured_root, str(root.resolve()))
+                self.assertEqual(service_path, str((root / 'arcade_service.py').resolve()))
+                self.assertEqual(stored['arcadeRoot'], str(root.resolve()))
+                self.assertEqual(stored['emuguiRoot'], str(root.resolve()))
+                self.assertTrue(callable(HOST._load_emugui_module().dispatch_arcade_read))
             finally:
                 HOST.CONFIG_PATH = original_path
                 HOST.EMUGUI_MODULE = original_module

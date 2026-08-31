@@ -2,6 +2,15 @@
 
 const CURRENT_STATE_SCHEMA_VERSION = 6;
 
+const STATE_SCHEMA_MIGRATIONS = Object.freeze({
+  1: parsed => parsed,
+  2: parsed => parsed,
+  3: parsed => parsed,
+  4: parsed => parsed,
+  5: parsed => parsed,
+  6: parsed => parsed
+});
+
 function collectReferencedBoardIds(items) {
   const ids = new Set();
   for (const item of (items || [])) {
@@ -47,6 +56,15 @@ function migrateStateSchema(parsed) {
   // Version 4 adds compact game items backed by opaque Cyrune Arcade bindings.
   // Version 5 adds portable game-system identity for platform emblems.
   // Version 6 adds safe emulator/profile display labels for game previews.
-  parsed.schemaVersion = Math.max(sourceVersion, CURRENT_STATE_SCHEMA_VERSION);
+  if (sourceVersion > CURRENT_STATE_SCHEMA_VERSION) {
+    throw new Error(`Portal state schema ${sourceVersion} is newer than supported schema ${CURRENT_STATE_SCHEMA_VERSION}`);
+  }
+  for (let version = Math.max(1, sourceVersion + 1); version <= CURRENT_STATE_SCHEMA_VERSION; version += 1) {
+    const migrate = STATE_SCHEMA_MIGRATIONS[version];
+    if (typeof migrate !== 'function') throw new Error(`Portal state migration ${version} is unavailable`);
+    migrate(parsed);
+    parsed.schemaVersion = version;
+  }
+  if (sourceVersion === CURRENT_STATE_SCHEMA_VERSION) parsed.schemaVersion = CURRENT_STATE_SCHEMA_VERSION;
   return parsed;
 }

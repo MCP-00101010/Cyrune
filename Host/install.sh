@@ -33,6 +33,8 @@ echo "Allowed : ${ALLOWED_EXTENSIONS[*]}"
 ALLOWED_JSON=$(printf '%s\n' "${ALLOWED_EXTENSIONS[@]}" | "$PYTHON" -c 'import json,sys; print(json.dumps([line.strip() for line in sys.stdin if line.strip()]))')
 
 HOST="$SCRIPT_DIR/morpheus_host.py"
+COMPONENT_VERSION=$("$PYTHON" -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["version"])' "$SCRIPT_DIR/component.json")
+echo "Version : $COMPONENT_VERSION"
 chmod +x "$HOST"
 
 # --- Write default external config.json if missing ---
@@ -43,6 +45,7 @@ if [ ! -f "$CONFIG" ]; then
 cat > "$CONFIG" <<JSON
 {
   "databasePath": "",
+  "arcadeRoot": "",
   "emuguiRoot": "",
   "approvedDirectories": {},
   "approvedApplications": {},
@@ -67,7 +70,7 @@ MANIFEST="$MANIFEST_DIR/morpheus_webhub.json"
 cat > "$MANIFEST" <<JSON
 {
   "name": "morpheus_webhub",
-  "description": "Cyrune native messaging host",
+  "description": "Cyrune Host $COMPONENT_VERSION",
   "path": "$HOST",
   "type": "stdio",
   "allowed_extensions": $ALLOWED_JSON

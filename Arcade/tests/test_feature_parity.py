@@ -4,12 +4,12 @@ import sys
 import time
 from pathlib import Path
 
-SERVICE_PATH = Path(__file__).resolve().parents[1] / "emugui_service.py"
+SERVICE_PATH = Path(__file__).resolve().parents[1] / "arcade_service.py"
 APP_PATH = Path(__file__).resolve().parents[1] / "web" / "app.js"
 
 
 def load_server():
-    module_name = "emugui_feature_parity_service"
+    module_name = "arcade_feature_parity_service"
     spec = importlib.util.spec_from_file_location(module_name, SERVICE_PATH)
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
@@ -106,17 +106,17 @@ def configure_fixture(server, tmp_path):
 
 
 def post(server, route, data):
-    return server.dispatch_emugui_api("POST", route, {}, data)
+    return server.dispatch_arcade_api("POST", route, {}, data)
 
 
 def games(server, view="all"):
-    return server.dispatch_emugui_api("GET", "/api/games", {"view": view}, {})["games"]
+    return server.dispatch_arcade_api("GET", "/api/games", {"view": view}, {})["games"]
 
 
 def wait_for_job(server, job_id):
     deadline = time.monotonic() + 5
     while time.monotonic() < deadline:
-        job = server.dispatch_emugui_api("GET", "/api/job", {"id": job_id}, {})["job"]
+        job = server.dispatch_arcade_api("GET", "/api/job", {"id": job_id}, {})["job"]
         if job["status"] in {"done", "error"}:
             return job
         time.sleep(0.01)
@@ -127,12 +127,12 @@ def test_external_page_api_surface_is_implemented_by_native_dispatcher():
     app = APP_PATH.read_text(encoding="utf-8")
     server = SERVICE_PATH.read_text(encoding="utf-8")
     routes = {
-        "/api/collections", "/api/games", "/api/emulators", "/api/emulator-profiles",
+        "/api/collections", "/api/games", "/api/game", "/api/emulators", "/api/emulator-profiles",
         "/api/recent", "/api/job", "/api/poks", "/api/scrapers", "/api/asset",
         "/api/select-collection", "/api/rebuild", "/api/emulators/delete",
         "/api/emulator-profiles/import", "/api/emulator-profiles/delete",
         "/api/emulator-profiles/update-source", "/api/emulator-profiles/update",
-        "/api/pick-path", "/api/delete", "/api/favourite", "/api/import-incoming-bulk",
+        "/api/pick-path", "/api/delete", "/api/delete-bulk", "/api/favourite", "/api/favourites-bulk", "/api/import-incoming-bulk",
         "/api/restore-trash", "/api/purge-trash", "/api/launch", "/api/add-collection",
         "/api/open-explorer", "/api/import-incoming", "/api/scrape-preview",
         "/api/apply-scrape", "/api/update-metadata", "/api/metadata-preview",
@@ -148,22 +148,30 @@ def test_native_dispatcher_preserves_library_management_workflow(tmp_path):
     server = load_server()
     collection = configure_fixture(server, tmp_path)
 
-    payload = server.dispatch_emugui_api("GET", "/api/collections", {}, {})
+    payload = server.dispatch_arcade_api("GET", "/api/collections", {}, {})
     assert payload["active"]["id"] == "desasteron"
     assert payload["active"]["writable"] is True
     assert payload["collections"][0]["incoming_count"] == 1
     assert payload["collections"][0]["trash_count"] == 1
     assert {game["view"] for game in games(server)} == {"collection", "incoming", "trash"}
 
+    summaries = server.dispatch_arcade_api("GET", "/api/games", {"view": "all", "shape": "summary"}, {})["games"]
+    assert len(summaries) == 3
+    assert all("path" not in game for game in summaries)
+    detail = server.dispatch_arcade_api("GET", "/api/game", {"game_id": "jetpac"}, {})["game"]
+    assert detail["path"].endswith("Jetpac (1983)(Ultimate)(48K).tap")
+
     favourite = post(server, "/api/favourite", {"game_id": "jetpac", "favourite": True})
     assert favourite["ok"] is True
     assert favourite["game"]["favourite"] is True
     assert "jetpac" in json.loads(server.STATE_FILE.read_text(encoding="utf-8"))["favourites"]
+    bulk_favourite = post(server, "/api/favourites-bulk", {"game_ids": ["jetpac"], "favourite": False})
+    assert bulk_favourite == {"ok": True, "updated": ["jetpac"], "count": 1}
 
-    poks = server.dispatch_emugui_api("GET", "/api/poks", {"game_id": "jetpac"}, {})["poks"]
+    poks = server.dispatch_arcade_api("GET", "/api/poks", {"game_id": "jetpac"}, {})["poks"]
     assert poks[0]["id"] == "jetpac-pok"
     assert poks[0]["cheats"][0]["name"] == "Infinite lives"
-    asset = server.read_emugui_asset("_assets/jetpac.png", 1024)
+    asset = server.read_arcade_asset("_assets/jetpac.png", 1024)
     assert asset["dataUrl"].startswith("data:image/png;base64,")
 
     preview = post(server, "/api/metadata-preview", {
@@ -219,6 +227,70 @@ def test_native_dispatcher_preserves_library_management_workflow(tmp_path):
     assert wait_for_job(server, rebuild["job_id"])["status"] == "done"
     selected = post(server, "/api/select-collection", {"collection_id": "desasteron"})
     assert wait_for_job(server, selected["job_id"])["status"] == "done"
+
+
+def test_bulk_delete_rolls_files_and_metadata_back_if_rebuild_fails(tmp_path, monkeypatch):
+    server = load_server()
+    collection = configure_fixture(server, tmp_path)
+    library = server.get_library()
+    source = Path(library.get_game("jetpac").path)
+    original_metadata = server.METADATA_FILE.read_text(encoding="utf-8")
+    original_rebuild = library.rebuild
+    attempts = 0
+
+    def fail_once(*args, **kwargs):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise RuntimeError("fixture rebuild failure")
+        return original_rebuild(*args, **kwargs)
+
+    monkeypatch.setattr(library, "rebuild", fail_once)
+    try:
+        server.delete_games(["jetpac"])
+    except RuntimeError as error:
+        assert str(error) == "fixture rebuild failure"
+    else:
+        raise AssertionError("Delete unexpectedly succeeded")
+
+    assert source.is_file()
+    assert not (collection / "_Deleted" / "Games" / "J" / source.name).exists()
+    restored_metadata = json.loads(server.METADATA_FILE.read_text(encoding="utf-8"))
+    original_record = json.loads(original_metadata)
+    assert restored_metadata["games"] == original_record["games"]
+    assert restored_metadata["poks"] == original_record["poks"]
+
+
+def test_bulk_import_rolls_files_and_metadata_back_when_any_transfer_fails(tmp_path, monkeypatch):
+    server = load_server()
+    collection = configure_fixture(server, tmp_path)
+    second = collection / "incoming" / "Another Game (1986)(Maker)(48K).tap"
+    second.write_bytes(b"another")
+    server.get_library().rebuild()
+    incoming = [game for game in games(server, "incoming")]
+    original_metadata = json.loads(server.METADATA_FILE.read_text(encoding="utf-8"))
+    first_source = Path(incoming[0]["path"])
+    original_transfer = server.import_incoming_game_item
+    calls = 0
+
+    def fail_second(game_id, metadata):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise RuntimeError("fixture second-transfer failure")
+        return original_transfer(game_id, metadata)
+
+    monkeypatch.setattr(server, "import_incoming_game_item", fail_second)
+    result = server.import_incoming_games([game["id"] for game in incoming])
+
+    assert result["ok"] is False
+    assert result["rolled_back"] is True
+    assert result["imported"] == []
+    assert first_source.is_file()
+    restored_metadata = json.loads(server.METADATA_FILE.read_text(encoding="utf-8"))
+    assert restored_metadata["games"] == original_metadata["games"]
+    assert restored_metadata["poks"] == original_metadata["poks"]
+    assert len(games(server, "incoming")) == 2
 
 
 def test_native_dispatcher_preserves_emulator_and_profile_configuration(tmp_path):

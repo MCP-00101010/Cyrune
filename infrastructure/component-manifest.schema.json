@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cyrune.local/schemas/component-manifest-v1.json",
+  "title": "Cyrune component manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "id", "name", "version", "kind", "entrypoint", "icon", "summary", "documents", "capabilities", "protocols", "schemas", "nexus"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "id": { "type": "string", "pattern": "^[a-z][a-z0-9-]{1,31}$" },
+    "name": { "type": "string", "minLength": 1, "maxLength": 60 },
+    "version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+    "kind": { "enum": ["page", "catalogue", "extension", "native-service"] },
+    "entrypoint": { "type": ["string", "null"], "maxLength": 160 },
+    "icon": { "type": "string", "maxLength": 160 },
+    "summary": { "type": "string", "minLength": 1, "maxLength": 240 },
+    "documents": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["todo", "changelog"],
+      "properties": {
+        "todo": { "type": "string", "maxLength": 100 },
+        "changelog": { "type": "string", "maxLength": 100 }
+      }
+    },
+    "capabilities": { "type": "array", "maxItems": 40, "uniqueItems": true, "items": { "type": "string", "pattern": "^[a-z][a-zA-Z0-9.-]{1,63}$" } },
+    "protocols": { "type": "object", "additionalProperties": { "type": "integer", "minimum": 1, "maximum": 100 } },
+    "schemas": { "type": "object", "additionalProperties": { "type": "integer", "minimum": 1, "maximum": 1000 } },
+    "nexus": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["accent", "adapter"],
+      "properties": {
+        "accent": { "enum": ["violet", "cyan", "orange", "blue", "green", "pink"] },
+        "adapter": { "type": "string", "pattern": "^[a-z][a-z0-9-]{1,31}$" }
+      }
+    }
+  }
+}

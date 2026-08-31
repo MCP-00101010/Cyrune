@@ -57,9 +57,15 @@ async function loadBackground(options = {}) {
       getBrowserInfo: options.browserVersion ? async () => ({ version: options.browserVersion }) : undefined,
       sendNativeMessage: async (_host, message) => {
         nativeRequests.push(message);
-        if (message.type === 'PING') return options.nativePing?.promise || { ok: true };
-        if (message.type === 'READ_CONFIG') return { ok: true, config: { databasePath: 'C:\\hub.json' } };
-        if (message.type === 'READ_FILE_CHUNK') {
+        if (message.type === 'PING') {
+          if (options.nativeUnavailable) throw new Error('native unavailable');
+          return options.nativePing?.promise || { ok: true };
+        }
+        if (message.type === 'PORTAL_GET_STORAGE_CONFIG') return { ok: true, config: { databasePath: 'C:\\hub.json' } };
+        if (message.type === 'NEXUS_GET_COMPONENT_SETTINGS') {
+          return { ok: true, profile: { values: { privacy: { allowOptionalNetwork: options.arcadeOptionalNetwork !== false } } } };
+        }
+        if (message.type === 'PORTAL_DATABASE_READ_CHUNK') {
           if (options.nativeReadError) throw new Error(options.nativeReadError);
           return {
             ok: true,
@@ -70,12 +76,15 @@ async function loadBackground(options = {}) {
             fileInfo: { exists: true, version: 'v1', contentHash: 'h1' }
           };
         }
-        if (message.type === 'WRITE_FILE_IF_UNCHANGED') {
+        if (message.type === 'PORTAL_DATABASE_WRITE') {
           nativeWrites.push(message);
           const pending = deferred();
           pendingWrites.push(pending);
           return pending.promise;
         }
+        if (message.type === 'PORTAL_BEGIN_ASSET_WRITE') return { ok: true, sessionId: 'asset_opaque', publicPath: 'assets/backgrounds/main/night.webp', relativePath: 'assets/backgrounds/main/night.webp', chunkChars: 512 * 1024 };
+        if (message.type === 'PORTAL_FINISH_ASSET_WRITE') return { ok: true, publicPath: 'assets/backgrounds/main/night.webp', relativePath: 'assets/backgrounds/main/night.webp', fileInfo: { exists: true } };
+        if (message.type === 'PORTAL_CACHE_ASSET_URL') return { ok: true, publicPath: 'assets/backgrounds/main/night.webp', relativePath: 'assets/backgrounds/main/night.webp', fileInfo: { exists: true } };
         if (message.type === 'EMUGUI_STATUS') return options.emuguiStatus || { ok: true, emugui: { available: true, serviceVersion: 1 } };
         if (message.type === 'EMUGUI_CREATE_HUB_BINDING') return options.emuguiBinding || { ok: true, game: { gameKey: 'game_abcdefghijklmnop', state: 'ready', title: 'Jetpac', tags: ['Games', 'ZX Spectrum'], systemId: 'zx-spectrum', systemName: 'ZX Spectrum', emulatorName: 'EightyOne', profileName: 'Spectrum 48K', thumbnailCache: '' } };
         if (message.type === 'EMUGUI_AUTHORIZE_PAGE') return { ok: true, authorized: options.emuguiAuthorized !== false };
@@ -184,9 +193,15 @@ async function loadBackground(options = {}) {
           connection.messages.push(message);
           setImmediate(() => {
             if (message.type === 'PING') messageListeners.forEach(listener => listener({ ok: true }));
-            else if (message.type === 'READ_CONFIG') {
+            else if (message.type === 'NEXUS_GET_COMPONENT_SETTINGS') {
+              messageListeners.forEach(listener => listener({
+                ok: true,
+                profile: { values: { privacy: { allowOptionalNetwork: options.arcadeOptionalNetwork !== false } } }
+              }));
+            }
+            else if (message.type === 'PORTAL_GET_STORAGE_CONFIG') {
               messageListeners.forEach(listener => listener({ ok: true, config: { databasePath: 'C:\\hub.json' } }));
-            } else if (message.type === 'READ_FILE_CHUNK') {
+            } else if (message.type === 'PORTAL_DATABASE_READ_CHUNK') {
               const content = options.nativeState || '{}';
               messageListeners.forEach(listener => listener({
                 ok: true,
@@ -235,6 +250,7 @@ async function loadBackground(options = {}) {
     fetch: options.fetchImpl || globalThis.fetch,
     AbortController,
     TextDecoder,
+    TextEncoder,
     Uint8Array,
     atob: value => Buffer.from(value, 'base64').toString('binary'),
     btoa: value => Buffer.from(value, 'binary').toString('base64'),
@@ -298,6 +314,22 @@ test('directory approval passes a finite interactive timeout to the native reque
   assert.deepEqual(harness.scheduledTimeouts, [15000]);
 });
 
+test('managed background writes expose only opaque Host sessions to Relay', async () => {
+  const harness = await loadBackground();
+  const started = await harness.context.beginAssetWrite({ collectionName: 'Main', itemName: 'Night', extension: 'webp' });
+  await harness.context.appendAssetWriteChunk(started.sessionId, 'aW1hZ2U=');
+  const finished = await harness.context.finishAssetWrite(started.sessionId);
+  assert.equal(started.sessionId, 'asset_opaque');
+  assert.equal(finished.publicPath, 'assets/backgrounds/main/night.webp');
+  const assetRequests = harness.nativeRequests.filter(request => request.type.startsWith('PORTAL_') && request.type.includes('ASSET'));
+  assert.deepEqual(assetRequests.map(request => request.type), [
+    'PORTAL_BEGIN_ASSET_WRITE',
+    'PORTAL_APPEND_ASSET_WRITE',
+    'PORTAL_FINISH_ASSET_WRITE'
+  ]);
+  assert.ok(assetRequests.every(request => !Object.hasOwn(request, 'path') && !Object.hasOwn(request, 'tempPath')));
+});
+
 test('session capture removes browser IDs and skips private/internal tabs', async () => {
   const harness = await loadBackground({ tabs: [
     { id: 1, windowId: 9, title: 'Public', url: 'https://example.com/', pinned: true },
@@ -357,6 +389,53 @@ test('native save FIFO keeps requests and responses correlated', async () => {
   assert.equal(harness.nativeWrites[1].content, 'second');
   harness.pendingWrites[1].resolve({ ok: true, conflict: true, fileInfo: { version: 'v3' } });
   assert.equal((await second).conflict, true);
+});
+
+test('Relay-owned Portal snapshots migrate legacy storage and enforce revision CAS', async () => {
+  const legacy = '{"hubName":"Legacy"}';
+  const harness = await loadBackground({ nativeUnavailable: true, localStorageState: legacy });
+
+  const loaded = await harness.context.loadState();
+  assert.equal(loaded.json, legacy);
+  assert.equal(loaded.storageMode, 'relay');
+  assert.equal(loaded.fileInfo.authority, 'relay');
+  assert.equal(harness.storageValues.has('morpheusState'), false);
+  assert.equal(harness.storageValues.get('cyrunePortalSnapshotMigrationReceiptV1').revision, 1);
+
+  const saved = await harness.context.saveState('{"hubName":"Current"}', {
+    expectedVersion: loaded.fileInfo.version,
+    expectedHash: loaded.fileInfo.contentHash
+  });
+  assert.equal(saved.ok, true);
+  assert.equal(saved.fileInfo.revision, 2);
+
+  const conflict = await harness.context.saveState('{"hubName":"Stale"}', {
+    expectedVersion: loaded.fileInfo.version,
+    expectedHash: loaded.fileInfo.contentHash
+  });
+  assert.equal(conflict.ok, false);
+  assert.equal(conflict.conflict, true);
+  assert.equal(conflict.fileInfo.revision, 2);
+});
+
+test('durable intake queues while Portal is closed, deduplicates, and drains after registration', async () => {
+  const harness = await loadBackground({ tabs: [] });
+  const delivery = {
+    type: 'MW_RECEIVE_TAB', deliveryId: 'queued-tab-1',
+    url: 'https://example.com/', title: 'Example', faviconCache: ''
+  };
+
+  const queued = await harness.context.deliverOrQueue(delivery);
+  const duplicate = await harness.context.deliverOrQueue(delivery);
+  assert.equal(queued.queued, true);
+  assert.equal(duplicate.duplicate, true);
+  assert.equal((await harness.context.readDurableIntake()).length, 1);
+
+  harness.context.rememberMorpheusTab({ id: 77, url: 'file:///hub.html', active: true }, 'file:///hub.html', { drainIntake: false });
+  const drained = await harness.context.drainDurableIntake();
+  assert.equal(drained.delivered, 1);
+  assert.equal(drained.pendingCount, 0);
+  assert.equal(harness.sentTabs.at(-1).message.deliveryId, 'queued-tab-1');
 });
 
 test('the active registered hub receives deliveries over a later inactive registration', async () => {
@@ -573,7 +652,42 @@ test('EmuGUI remote artwork relay rejects insecure and non-image responses', asy
   });
 
   assert.match((await harness.context.loadEmuGuiPageAsset('http://example.test/image.jpg')).error, /Only HTTPS/);
-  assert.match((await harness.context.loadEmuGuiPageAsset('https://example.test/image.jpg')).error, /unsupported image type/);
+  assert.match((await harness.context.loadEmuGuiPageAsset('https://example.test/image.jpg')).error, /origin is not approved/);
+  assert.match((await harness.context.loadEmuGuiPageAsset('https://cdn.thegamesdb.net/image.jpg')).error, /unsupported image type/);
+});
+
+test('Arcade registration is revoked when its tab navigates away', async () => {
+  const harness = await loadBackground({ usePersistentNative: true });
+  const pageUrl = 'file:///F:/Projects/Coding/Cyrune/Arcade/web/index.html';
+  const sender = { tab: { id: 25, url: pageUrl } };
+  const registration = await new Promise(resolve => harness.listeners.message(
+    { type: 'MW_EMUGUI_REGISTER', pageUrl }, sender, resolve
+  ));
+  assert.equal(registration.ok, true);
+
+  harness.listeners.updated(25, { url: 'https://example.com/' }, { id: 25, url: 'https://example.com/' });
+  const response = await new Promise(resolve => harness.listeners.message({
+    type: 'MW_EMUGUI_RPC', method: 'GET', path: '/api/status', pageUrl,
+    emuguiSessionToken: registration.emuguiSessionToken
+  }, sender, resolve));
+  assert.equal(response.ok, false);
+  assert.match(response.error, /not authorized/i);
+});
+
+test('Arcade remote artwork fails closed when Nexus disables optional network access', async () => {
+  let fetches = 0;
+  const harness = await loadBackground({
+    arcadeOptionalNetwork: false,
+    fetchImpl: async () => {
+      fetches += 1;
+      throw new Error('fetch should not run');
+    }
+  });
+
+  const result = await harness.context.loadEmuGuiPageAsset('https://example.test/image.jpg');
+  assert.equal(result.ok, false);
+  assert.match(result.error, /Optional network access is disabled/);
+  assert.equal(fetches, 0);
 });
 
 test('unconfigured EmuGUI file page is denied before RPC reaches the native service', async () => {
@@ -728,7 +842,7 @@ test('startup and chunked database load share one persistent native connection',
   assert.equal(harness.nativeConnections.length, 1);
   assert.deepEqual(
     harness.nativeConnections[0].messages.map(message => message.type),
-    ['PING', 'READ_CONFIG', 'READ_FILE_CHUNK']
+    ['PING', 'PORTAL_GET_STORAGE_CONFIG', 'PORTAL_DATABASE_READ_CHUNK']
   );
 });
 
@@ -752,7 +866,7 @@ test('application launches stay on the persistent native connection', async () =
   assert.equal(harness.nativeConnections.length, 1);
   assert.deepEqual(
     harness.nativeConnections[0].messages.map(message => message.type),
-    ['PING', 'READ_CONFIG', 'LAUNCH_APPROVED_APPLICATION']
+    ['PING', 'PORTAL_GET_STORAGE_CONFIG', 'LAUNCH_APPROVED_APPLICATION']
   );
 });
 
@@ -773,7 +887,7 @@ test('EmuGUI game launches stay on the persistent native connection', async () =
   ));
 
   assert.equal(response.ok, true);
-  assert.deepEqual(harness.nativeConnections[0].messages.map(message => message.type), ['PING', 'READ_CONFIG', 'LAUNCH_GAME']);
+  assert.deepEqual(harness.nativeConnections[0].messages.map(message => message.type), ['PING', 'PORTAL_GET_STORAGE_CONFIG', 'LAUNCH_GAME']);
   assert(harness.scheduledTimeouts.includes(120000));
 });
 
@@ -786,7 +900,7 @@ test('Hub game actions open a focused EmuGUI rebind page and reveal through nati
   assert.equal(revealed.ok, true);
   assert.match(harness.createdTabs[0].url, /^file:\/\/\/F:\/Projects\/Coding\/Cyrune\/Arcade\/web\/index\.html\?game=jetpac&hubRebind=/);
   assert.deepEqual(harness.nativeConnections[0].messages.map(message => message.type), [
-    'PING', 'READ_CONFIG', 'OPEN_GAME_IN_EMUGUI', 'REVEAL_GAME'
+    'PING', 'PORTAL_GET_STORAGE_CONFIG', 'OPEN_GAME_IN_EMUGUI', 'REVEAL_GAME'
   ]);
 });
 
@@ -818,7 +932,7 @@ test('EmuGUI status and binding work share the warmed persistent native connecti
   assert.equal(binding.game.title, 'Jetpac');
   assert.equal(gameStatus.game.state, 'ready');
   assert.deepEqual(harness.nativeConnections[0].messages.map(message => message.type), [
-    'PING', 'READ_CONFIG', 'EMUGUI_STATUS', 'EMUGUI_CREATE_HUB_BINDING', 'GAME_STATUS'
+    'PING', 'PORTAL_GET_STORAGE_CONFIG', 'EMUGUI_STATUS', 'EMUGUI_CREATE_HUB_BINDING', 'GAME_STATUS'
   ]);
   assert.equal(harness.nativeConnections[0].messages.at(-1).includeThumbnail, true);
   assert.equal(harness.scheduledTimeouts.filter(timeout => timeout === 120000).length, 3);

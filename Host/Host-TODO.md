@@ -2,10 +2,6 @@
 
 This file owns outstanding native filesystem, process, credential, binding, and device-integration work. Repository relocation itself remains in the root migration plan.
 
-## Component Versioning
-
-- Introduce an independent semantic Host version with one authoritative declaration, a matching component manifest, native `PING`/diagnostic reporting, installer metadata, changelog enforcement, and repository validation without changing the installed compatibility host ID.
-
 ## Application Integration
 
 - Add bounded installed-application discovery after the explicit picker workflow has sufficient real-world coverage: Start Menu entries on Windows, application bundles on macOS, and desktop entries on Linux.
@@ -15,9 +11,8 @@ This file owns outstanding native filesystem, process, credential, binding, and 
 
 ## Authoritative Disk Storage
 
-- Support revision/hash-aware compare-and-swap writes and atomic backups for Relay’s authoritative Portal persistence protocol.
-- Provide bounded, content-free diagnostics for missing paths, external changes, corrupt snapshots, backup availability, and recovery.
 - Preserve an optional Host boundary: Relay-owned storage must remain available for installations that do not enable native disk or process capabilities.
+- Continue recovery testing for interrupted writes, stale revisions, corrupt snapshots, backup exhaustion, and Host reconnects across Portal/Relay upgrades.
 
 ## Credentials and Security
 

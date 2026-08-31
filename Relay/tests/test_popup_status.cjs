@@ -35,7 +35,7 @@ function makeElement() {
 
 test('popup enables delivery actions when a later status refresh finds the hub', async () => {
   const elementIds = [
-    'statusMorpheus', 'statusNative', 'statusPath', 'statusDetail',
+    'statusMorpheus', 'statusVersion', 'statusNative', 'statusPending', 'statusPath', 'statusDetail',
     'tabInfo', 'tabTitle', 'tabUrl', 'targetPicker', 'targetBoard', 'targetTab',
     'sendBtn', 'sendToTabBtn', 'importBtn', 'feedback'
   ];
@@ -122,7 +122,7 @@ test('popup enables delivery actions when a later status refresh finds the hub',
   assert.equal(targetedSend.targetTabId, 'tab-2');
 
   await intervalCallback();
-  assert.match(elements.statusNative.textContent, /enabled/);
+  assert.match(elements.statusNative.textContent, /Storage: Host disk/);
 
   const relay = await context.ensureActiveHubRelay({ id: 42, url: 'file:///F:/hub/index.html' });
   assert.equal(relay.ready, true);

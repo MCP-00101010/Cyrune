@@ -16,6 +16,7 @@ function cloneData(value) {
 
 const defaultThemeStyleSettings = {
   globalFontScale: 'medium',
+  widgetFontScale: '100',
   globalFontColor: '#e5e7eb',
   globalFontColorFromTheme: true,
   styleOverrides: {
@@ -213,6 +214,9 @@ let sharedDiskSaveWaiters = [];
 let localStateMutationSequence = 0;
 let localCacheMeta = loadLocalCacheMeta();
 let localCacheQuotaNoticeShown = false;
+let localCacheQueuedSnapshot = null;
+let localCacheQueuedOptions = null;
+let localCacheFlushPromise = null;
 let inheritedTagContextCache = new WeakMap();
 let boardNavInheritedTagsCache = new Map();
 let liveBookmarkSourceCache = null;
@@ -1266,6 +1270,27 @@ function persistStateToLocalCache(json = null, options = {}) {
   return snapshot;
 }
 
+function queueStateLocalCachePersist(snapshot, options = {}) {
+  localCacheQueuedSnapshot = snapshot;
+  localCacheQueuedOptions = {
+    ...(localCacheQueuedOptions || {}),
+    ...options,
+    sharedSaveTarget: options.sharedSaveTarget === true || localCacheQueuedOptions?.sharedSaveTarget === true
+  };
+  if (localCacheFlushPromise) return localCacheFlushPromise;
+  localCacheFlushPromise = Promise.resolve().then(() => {
+    const queuedSnapshot = localCacheQueuedSnapshot;
+    const queuedOptions = localCacheQueuedOptions || {};
+    localCacheQueuedSnapshot = null;
+    localCacheQueuedOptions = null;
+    return persistStateToLocalCache(queuedSnapshot, queuedOptions);
+  }).finally(() => {
+    localCacheFlushPromise = null;
+    if (localCacheQueuedSnapshot) void queueStateLocalCachePersist(localCacheQueuedSnapshot, localCacheQueuedOptions || {});
+  });
+  return localCacheFlushPromise;
+}
+
 function setSharedDiskBaseline(fileInfo, path = state?.databasePath || '') {
   sharedDiskBaselineVersion = fileInfo?.version || null;
   sharedDiskBaselineHash = fileInfo?.contentHash || '';
@@ -1430,10 +1455,10 @@ function queueSharedDiskSave(snapshot, path = state?.databasePath || sharedDiskB
 
 async function flushSharedDiskSaveQueue() {
   if (sharedDiskSaveInFlight || sharedDiskWritesBlocked) return;
-  if (typeof bridge === 'undefined' || !bridge.isAvailable() || !bridge.nativeIsAvailable()) return;
+  if (typeof bridge === 'undefined' || !bridge.storageIsAvailable?.()) return;
   clearSharedDiskFlushTimer();
 
-  while (sharedDiskQueuedSnapshot && !sharedDiskWritesBlocked && bridge.isAvailable() && bridge.nativeIsAvailable()) {
+  while (sharedDiskQueuedSnapshot && !sharedDiskWritesBlocked && bridge.storageIsAvailable?.()) {
     const saveGeneration = sharedDiskSaveGeneration;
     const snapshot = sharedDiskQueuedSnapshot;
     const path = sharedDiskQueuedPath || (state?.databasePath || sharedDiskBaselinePath || '').trim();
@@ -1496,6 +1521,14 @@ async function flushSharedDiskSaveQueue() {
 }
 
 function saveState(options = {}) {
+  if (typeof portalReadOnlyMode !== 'undefined' && portalReadOnlyMode) {
+    if (portalReadOnlySnapshot) {
+      try { restoreStateSnapshot(portalReadOnlySnapshot); } catch {}
+    }
+    if (typeof renderAll === 'function') setTimeout(() => renderAll(), 0);
+    if (typeof showNotice === 'function') showNotice('Portal is read-only until Cyrune Relay reconnects. This change was not applied.');
+    return Promise.resolve({ ok: false, readOnly: true, persisted: 'none' });
+  }
   const { skipDiskSync = false } = options;
   localStateMutationSequence += 1;
   invalidateDerivedCaches();
@@ -1504,8 +1537,9 @@ function saveState(options = {}) {
   let queuedSharedDiskSave = false;
   let sharedSavePromise = null;
   if (typeof bridge !== 'undefined' && bridge.isAvailable()) {
-    const shouldSyncSharedDisk = !skipDiskSync && bridge.nativeIsAvailable() && !!(state.databasePath || sharedDiskBaselinePath);
-    if (shouldSyncSharedDisk && getSharedDiskBaselinePath() !== (state.databasePath || '').trim()) {
+    const shouldSyncSharedDisk = !skipDiskSync && bridge.storageIsAvailable?.();
+    if (shouldSyncSharedDisk && bridge.storageMode?.() === 'host'
+        && getSharedDiskBaselinePath() !== (state.databasePath || '').trim()) {
       resetSharedDiskBaseline(state.databasePath || '');
     }
     if (shouldSyncSharedDisk && !sharedDiskWritesBlocked) {
@@ -1513,18 +1547,21 @@ function saveState(options = {}) {
       queuedSharedDiskSave = true;
     }
   }
-  try {
-    persistStateToLocalCache(json, { sharedSaveTarget: queuedSharedDiskSave });
-  } catch (error) {
-    console.warn('Cyrune Portal: failed to persist local browser cache', error);
-    if (!queuedSharedDiskSave) throw error;
-  }
-  return sharedSavePromise || Promise.resolve({
+  const localSavePromise = queueStateLocalCachePersist(json, { sharedSaveTarget: queuedSharedDiskSave });
+  const localResult = {
     ok: true,
     conflict: false,
     persisted: 'local',
     databasePath: state.databasePath || sharedDiskBaselinePath || ''
-  });
+  };
+  if (!sharedSavePromise) return localSavePromise.then(() => localResult);
+  return Promise.all([
+    sharedSavePromise,
+    localSavePromise.catch(error => {
+      console.warn('Cyrune Portal: failed to persist local browser cache', error);
+      return null;
+    })
+  ]).then(([sharedResult]) => sharedResult);
 }
 
 function getActiveBoard() {

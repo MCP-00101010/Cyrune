@@ -4,10 +4,39 @@ Historical entries below are preserved from Portal releases whose release notes 
 
 ---
 
+## [0.2.0] — 2026-08-31
+
+### Added
+
+- Added bounded reusable Widget presets with portable config/content rules, secret and machine-path stripping, JSON import/export, rename/replace/skip conflict handling, and cancel-as-Undo application.
+- Added Daily Briefing for board or sidebar use, aggregating loaded Calendar, Weather, Hazards, Football, Media Watchlist, RSS, tasks, and service-warning data across configurable 1/7/14-day windows without new network authority.
+- Added Portal-wide Widget text scaling at 90%, 100%, 115%, 130%, or 150%.
+
+### Fixed
+
+- Rebuilt ISS night shading as an antimeridian-safe clipped 5°×5° globe mesh with local triangles and disabled fill-edge antialiasing. This replaces both the ambiguous pole-spanning polygon and the longitude-only strip attempt that still produced a visible spoke fan around the shaded pole.
+- Disabled GeoJSON source tile buffers for the ISS shade, terminator, and orbit to avoid MapLibre 5.x's zoom- and pole-dependent duplicate globe rendering, and anchored wheel/trackpad zoom to the map centre so zooming no longer rotates the globe under the pointer.
+
+### Validation
+
+- The full Widget suite passes all 268 tests, including solstice, near-equinox, and antimeridian mesh bounds; Portal's five classic-script symbol checks also pass. The required Firefox visual comparison remains outstanding because the in-app browser was unavailable in this workspace session.
+
+## [0.1.0] — 2026-08-31
+
+### Added
+
+- Introduced independent Widgets component versioning and a schema-1 manifest for the catalogue entry point, icon, capabilities, Widget SDK protocol and descriptor schema.
+- Added Widgets to the generated Nexus component registry and version/changelog release checks.
+
+### Validation
+
+- All 263 Widget tests pass. Infrastructure validation confines all declared paths to Widgets and verifies its protocol participation, documents and Nexus metadata; coordinated JavaScript syntax and release validation also pass.
+
 ## [Unversioned] — 2026-08-31
 
 ### Added
 
+- **Actual network response limits** — the SDK now buffers managed responses through a focused response module, counts bytes from the body itself, aborts oversized streams, and returns a reusable response-like object instead of trusting `Content-Length`.
 - **Weather air quality** — Weather now loads independently cached Open-Meteo air-quality conditions for its effective local or inherited Cyrune location, displaying European or US AQI bands plus current PM2.5, PM10, nitrogen dioxide, and ozone readings with Open-Meteo/CAMS attribution.
 - **Air-quality controls and resilience** — settings can disable the section or select the European/US index. Air-quality requests, retries, and one-hour cache remain separate so provider failure cannot interrupt the existing forecast.
 - **Provider integration roadmap** — the Widgets backlog now owns scoped Calculator/Frankfurter currency conversion, Calendar/`date-holidays`, and offline-first WordNet Lexicon work with optional Datamuse enrichment and Translator handoff.
@@ -18,7 +47,7 @@ Historical entries below are preserved from Portal releases whose release notes 
 
 ### Validation
 
-- The coordinated Cyrune validator passes with 90 Portal, 20 Nexus, 261 Widget, and 12 Relay JavaScript tests; 55 Host tests plus 11 subtests; 10 migration, 14 packaging, 3 tooling, and 69 Arcade tests; all repository JavaScript syntax checks; Relay manifest validation; and independent component-version validation. Relay source was unchanged, so `web-ext lint` was deliberately skipped. A live London request separately confirmed Open-Meteo's current air-quality response shape and units.
+- The coordinated Cyrune validator passes with 97 Portal, 22 Nexus, 263 Widget, and 14 Relay JavaScript tests; 61 Host tests plus 11 subtests; 10 migration, 14 packaging, 3 tooling, and 77 Arcade tests; all repository JavaScript syntax checks; Relay manifest and independent component-version validation; and `web-ext lint` with zero errors, notices, or warnings. Focused SDK coverage verifies missing or misleading response-length headers, actual streamed bytes, abort behaviour, and readable bounded JSON. A live London request separately confirmed Open-Meteo's current air-quality response shape and units.
 
 ## [Unversioned] — 2026-08-25
 

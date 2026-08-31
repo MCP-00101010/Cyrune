@@ -155,7 +155,7 @@ async function refreshGameStatus(item, options = {}) {
       }
     }
     if (portableMetadataChanged) void saveState();
-    if (options.render !== false && changed && typeof renderBoard === 'function') renderBoard();
+    if (options.render !== false && changed && typeof renderContentSurfaces === 'function') renderContentSurfaces();
     return normalized;
   }).catch(error => {
     const status = { gameKey: item.gameKey, state: 'unavailable', title: item.title || 'Game', thumbnailCache: item.thumbnailCache || '', error: error?.message || '' };
@@ -174,7 +174,7 @@ async function launchGameShortcut(item) {
     return true;
   } catch (error) {
     const status = await refreshGameStatus(item, { render: false });
-    renderBoard();
+    renderContentSurfaces();
     showNotice(status.state === 'ready'
       ? (error?.message || `${item.title || 'The game'} could not be launched.`)
       : getGameStatusMessage(status, item.title || 'This game'));
@@ -182,10 +182,10 @@ async function launchGameShortcut(item) {
   }
 }
 
-async function openGameShortcutInEmuGui(item, options = {}) {
+async function openGameShortcutInArcade(item, options = {}) {
   if (!item?.gameKey) return false;
   try {
-    await bridge.openGameInEmuGui(item.gameKey, { rebind: options.rebind === true });
+    await bridge.openGameInArcade(item.gameKey, { rebind: options.rebind === true });
     return true;
   } catch (error) {
     const status = await refreshGameStatus(item, { render: false });
@@ -230,7 +230,7 @@ async function applyExternalGameBindingUpdate(source = {}) {
   const status = { ...source, gameKey, state: 'ready', thumbnailCache: thumbnail || entries[0].item.thumbnailCache || '' };
   gameStatusCache.set(gameKey, status);
   const saved = await saveState();
-  renderAll();
+  renderContentSurfaces();
   showNotice(`${entries[0].item.title || 'Game'} was rebound on this device.`);
   return { ok: saved?.ok !== false, persisted: saved?.persisted || '' };
 }
@@ -240,7 +240,7 @@ async function forgetGameShortcut(item) {
   try {
     await bridge.forgetGame(item.gameKey);
     gameStatusCache.set(item.gameKey, { gameKey: item.gameKey, state: 'unbound', title: item.title || 'Game', thumbnailCache: item.thumbnailCache || '' });
-    renderAll();
+    renderContentSurfaces();
     showNotice(`${item.title || 'Game'} is no longer bound on this device.`);
     return true;
   } catch (error) {

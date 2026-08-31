@@ -4,7 +4,11 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const nexusRoot = path.resolve(__dirname, '..');
+const registry = require(path.join(nexusRoot, 'source', 'component-registry.js'));
+const adapters = require(path.join(nexusRoot, 'source', 'adapters.js'));
 const model = require(path.join(nexusRoot, 'source', 'model.js'));
+require(path.join(nexusRoot, 'source', 'service.js'));
+const service = globalThis.CyruneNexusService;
 
 test('component metadata covers each Cyrune product and has safe documents', () => {
   assert.deepEqual(model.COMPONENTS.map(component => component.id), ['portal', 'widgets', 'arcade', 'relay', 'host', 'nexus']);
@@ -110,11 +114,14 @@ test('Markdown rendering escapes HTML and removes unsafe link targets', () => {
   assert.match(rendered, /href="\.\.\/Portal\/Portal-TODO\.md"/);
 });
 
-test('HTML loads standalone assets in model-bridge-app order', () => {
+test('HTML loads the generated registry and adapters before model-bridge-app', () => {
   const html = fs.readFileSync(path.join(nexusRoot, 'index.html'), 'utf8');
   const app = fs.readFileSync(path.join(nexusRoot, 'source', 'app.js'), 'utf8');
+  assert.ok(html.indexOf('source/component-registry.js') < html.indexOf('source/adapters.js'));
+  assert.ok(html.indexOf('source/adapters.js') < html.indexOf('source/model.js'));
   assert.ok(html.indexOf('source/model.js') < html.indexOf('source/bridge.js'));
-  assert.ok(html.indexOf('source/bridge.js') < html.indexOf('source/app.js'));
+  assert.ok(html.indexOf('source/bridge.js') < html.indexOf('source/service.js'));
+  assert.ok(html.indexOf('source/service.js') < html.indexOf('source/app.js'));
   assert.match(html, /data-view="variables"/);
   assert.match(html, /id="component-nav"/);
   assert.match(html, /rel="icon" type="image\/svg\+xml" href="assets\/icons\/nexus\.svg"/);
@@ -125,10 +132,68 @@ test('HTML loads standalone assets in model-bridge-app order', () => {
   assert.match(app, /window\.open\(component\.page, '_blank', 'noopener'\)/);
   assert.match(app, /event\.stopPropagation\(\)/);
   assert.doesNotMatch(app, /component\.name\.slice\(0, 1\)/);
-  for (const id of ['cyrune', ...model.COMPONENTS.map(component => component.id)]) {
-    assert.ok(fs.existsSync(path.join(nexusRoot, 'assets', 'icons', `${id}.svg`)), `missing Nexus icon for ${id}`);
+  assert.ok(fs.existsSync(path.join(nexusRoot, 'assets', 'icons', 'cyrune.svg')));
+  for (const component of model.COMPONENTS) {
+    assert.ok(fs.existsSync(path.resolve(nexusRoot, component.icon)), `missing registry icon for ${component.id}`);
   }
   assert.doesNotMatch(html, /https?:\/\//);
+});
+
+test('declarative registry and allowlisted adapters negotiate protocol versions', () => {
+  assert.equal(registry.schemaVersion, 1);
+  const relay = model.componentById('relay');
+  assert.equal(adapters.compatibility(relay, null).state, 'unknown');
+  assert.deepEqual(adapters.compatibility(relay, {
+    services: { relay: { protocols: relay.protocols } }
+  }), { state: 'compatible', summary: '4 protocol contracts compatible' });
+  assert.equal(adapters.compatibility(relay, {
+    services: { relay: { protocols: { ...relay.protocols, 'host-native': 1 } } }
+  }).state, 'incompatible');
+});
+
+test('document repository coalesces and caches authoritative Markdown by snapshot revision', async () => {
+  let calls = 0;
+  const repository = service.createDocumentRepository({
+    bridge: { request: async () => { calls += 1; return { document: { markdown: '# Cached' } }; } },
+    isAuthenticated: () => true
+  });
+  const request = { cacheKey: 'portal:todo', serviceDocument: { component: 'portal', documentType: 'todo' }, revision: 7 };
+  const [first, second] = await Promise.all([repository.load(request), repository.load(request)]);
+  assert.equal(first, '# Cached');
+  assert.equal(second, '# Cached');
+  assert.equal(await repository.load(request), '# Cached');
+  assert.equal(calls, 1);
+  repository.discardOlderServiceRevisions(8);
+  assert.equal(await repository.load({ ...request, revision: 8 }), '# Cached');
+  assert.equal(calls, 2);
+});
+
+test('document repository falls back from Host to direct file and then to a bounded offline cache', async () => {
+  const originalFetch = global.fetch;
+  const originalStorage = global.localStorage;
+  const stored = new Map();
+  global.localStorage = {
+    getItem: key => stored.get(key) || null,
+    setItem: (key, value) => stored.set(key, value)
+  };
+  try {
+    global.fetch = async () => ({ ok: true, text: async () => '# Direct file' });
+    const direct = service.createDocumentRepository({ bridge: { request: async () => { throw new Error('Host offline'); } }, isAuthenticated: () => true });
+    const request = { cacheKey: 'portal:todo', url: '../Portal/Portal-TODO.md', serviceDocument: { component: 'portal', documentType: 'todo' }, revision: 1 };
+    assert.equal(await direct.load(request), '# Direct file');
+    global.fetch = async () => { throw new Error('file unavailable'); };
+    const offline = service.createDocumentRepository({ isAuthenticated: () => false });
+    assert.equal(await offline.load({ ...request, revision: 0 }), '# Direct file');
+  } finally {
+    global.fetch = originalFetch;
+    global.localStorage = originalStorage;
+  }
+});
+
+test('settings broadcasts queue a follow-up when an authoritative refresh is already active', () => {
+  const source = fs.readFileSync(path.join(nexusRoot, 'source', 'app.js'), 'utf8');
+  assert.match(source, /if \(serviceRefresh\) \{[\s\S]*refreshRequestedWhileActive = true/);
+  assert.match(source, /if \(refreshRequestedWhileActive\)[\s\S]*refreshAuthoritative\(\)/);
 });
 
 test('Nexus bridge exposes only fixed-purpose authenticated operations', () => {
@@ -174,6 +239,24 @@ test('Variables exposes global and component scopes with explicit override contr
   assert.match(styles, /\.override-control/);
 });
 
+test('Variables supports search, portable JSON, and sanitized revision history', () => {
+  const app = fs.readFileSync(path.join(nexusRoot, 'source', 'app.js'), 'utf8');
+  assert.match(app, /id="settings-search"/);
+  assert.match(app, /function exportVariables\(\)/);
+  assert.match(app, /function importVariables\(event\)/);
+  assert.match(app, /kind: 'cyrune-settings'/);
+  assert.match(app, /settingsHistory/);
+  assert.match(app, /record\.changedKeys/);
+});
+
+test('Project renders protocol readiness and bounded component TODO summaries', () => {
+  const app = fs.readFileSync(path.join(nexusRoot, 'source', 'app.js'), 'utf8');
+  assert.match(app, /Protocol compatibility matrix/);
+  assert.match(app, /function loadTodoSummaries\(\)/);
+  assert.match(app, /component\.protocols/);
+  assert.match(app, /open\.slice\(0, 3\)/);
+});
+
 test('TODO actions use the fixed VS Code operation while changelogs have no open link', () => {
   const app = fs.readFileSync(path.join(nexusRoot, 'source', 'app.js'), 'utf8');
   assert.match(app, /data-open-todo=/);
@@ -191,6 +274,8 @@ test('Activity renders only sanitized validation receipt fields', () => {
   assert.match(app, /Latest coordinated validation/);
   assert.match(app, /Failed or interrupted runs never replace the last known-good receipt/);
   assert.doesNotMatch(app, /receipt\?\.(?:output|path|command|environment)/);
+  assert.match(app, /snapshot\?\.events/);
+  assert.match(app, /Recent bounded events/);
 });
 
 test('component manifest, model, and changelog versions align', () => {

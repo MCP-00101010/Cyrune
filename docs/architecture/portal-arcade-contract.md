@@ -18,6 +18,7 @@ Portal does not scan collections, scrape or mutate game metadata, manage Arcade 
 - Arcade receives its own bounded collection, metadata, artwork, scraper, profile, maintenance, job, and launcher capabilities.
 - Portal can never call Arcade rename, delete, scrape, import, collection-maintenance, profile-management, or arbitrary filesystem operations.
 - Arcade business logic and its canonical HTML/CSS/JavaScript remain outside Relay. Frontend changes take effect after an ordinary page reload without rebuilding or reinstalling Relay.
+- `Arcade/arcade_service.py` and `Arcade/arcade_core` are the canonical service and package names, and Host prefers `arcadeRoot`. The former module, package, and root-key names remain read-compatible aliases during the migration window and must not become new call sites.
 
 ## Portable Game Item
 
@@ -63,6 +64,7 @@ Host owns the opaque `gameKey` mapping to stable library/game/emulator/profile i
 - Bound native request/response sizes, transfers, thumbnails, metadata strings, search pages, job histories, configuration counts, and remote artwork.
 - Use only validated HTTPS scraper and remote-artwork origins. Treat provider results as untrusted until preview/apply validation.
 - Keep credentials out of Portal/Arcade portable state, extension storage, diagnostics, logs, caches, and migration receipts.
+- Treat Nexus `privacy.allowOptionalNetwork` as an authoritative permission. Arcade checks it before scraper work, Host fails closed before native dispatch, and Relay checks the fixed `arcade` profile before fetching remote artwork. Browser rendering must never bypass Relay with a direct remote image URL.
 - Test first/repeated/retried/multi-game delivery; missing/changed/rebound resources; multiple cards sharing a binding; client/Relay/Host reloads; native reconnection; unavailable/corrupt artwork; and portable cache exclusion whenever the relevant contract changes.
 
 ## Compatibility

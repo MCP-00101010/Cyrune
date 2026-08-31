@@ -1,5 +1,61 @@
 # Cyrune Nexus Changelog
 
+## [0.3.0] — 2026-08-31
+
+### Added
+
+- Added a project-wide protocol compatibility matrix and component TODO summaries backed by the existing allowlisted document service.
+- Added settings search, schema-checked JSON import/export, and sanitized human-readable revision history from Host.
+
+### Changed
+
+- Document reads now degrade from authenticated Host to direct local files and finally to the last bounded browser cache for resilient direct-file and offline use.
+
+### Validation
+
+- The coordinated release gate passes all 26 Nexus tests, JavaScript syntax checks, infrastructure/version validation, and sanitized validation-receipt generation, including authoritative document coalescing and Host-to-file-to-cache recovery.
+
+## [0.2.0] — 2026-08-31
+
+### Added
+
+- Added the generated six-component registry, fixed declarative adapter layer and protocol compatibility diagnostics, replacing Nexus's duplicated component/version array.
+- Added bounded operational-event presentation and source manifests for every Cyrune component.
+
+### Changed
+
+- Component navigation, source versions, documents, capabilities, schemas and page links now originate in validated component-owned manifests.
+- Coordinated validation now gates the protocol catalogue, compatibility register, generated registry and conservative affected-suite selection.
+
+### Validation
+
+- All 23 Nexus tests pass, covering registry load order, adapter allowlisting, compatible/outdated protocol advertisements, bounded event presentation and version alignment in addition to existing settings and status behaviour. The full coordinated gate also passes.
+
+## [0.1.11] — 2026-08-31
+
+### Changed
+
+- Moved authoritative document loading and revision-aware caching into a dedicated service module. Concurrent TODO/changelog requests now share one bounded read and older revision caches are discarded.
+- Updated monitored Portal and Relay releases to 0.11.227 and 1.0.63.
+
+### Fixed
+
+- A settings-revision broadcast received during an active health refresh now queues one follow-up refresh instead of being silently lost.
+
+### Validation
+
+- All 22 Nexus tests pass, covering the service, cache revisions, refresh race, script order, model/manifest alignment, and coordinated version validation.
+
+## [0.1.10] — 2026-08-31
+
+### Changed
+
+- Updated the monitored Relay component release to 1.0.62 after Arcade optional-network enforcement moved into the authenticated artwork path.
+
+### Validation
+
+- Nexus model/manifest alignment and coordinated version validation cover the monitoring-only release.
+
 ## [0.1.9] — 2026-08-31
 
 ### Added

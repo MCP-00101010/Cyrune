@@ -1,5 +1,15 @@
 'use strict';
 
+const RELAY_PROTOCOLS = Object.freeze({
+  'portal-relay': 1,
+  'arcade-relay': 1,
+  'nexus-relay': 2,
+  'host-native': 2
+});
+const RELAY_COMPONENT_CAPABILITIES = Object.freeze([
+  'browser-sessions', 'durable-intake', 'exact-page-auth', 'native-transport', 'notifications'
+]);
+
 // Tab ID of the currently registered Cyrune Portal page.
 let morpheusTabId = null;
 
@@ -24,7 +34,6 @@ let fileSchemeAccessRequired = false;
 // every caller receives the result for its own snapshot.
 const nativeSaveQueue = [];
 let nativeSaveQueueRunning = false;
-let assetWriteSessions = new Map();
 
 const MENU_IMPORT_BOOKMARK_ID = 'morpheus-import-bookmark';
 const DATABASE_READ_CHUNK_BYTES = 512 * 1024;
@@ -42,6 +51,13 @@ const MAX_EMUGUI_TRANSFER_BYTES = 32 * 1024 * 1024;
 const MAX_EMUGUI_REMOTE_ASSET_BYTES = 4 * 1024 * 1024;
 const EMUGUI_REMOTE_ASSET_TIMEOUT_MS = 30000;
 const EMUGUI_REMOTE_ASSET_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/avif']);
+const ARCADE_REMOTE_ARTWORK_HOSTS = new Set([
+  'cdn.thegamesdb.net',
+  'images.thegamesdb.net',
+  'media.screenscraper.fr',
+  'screenscraper.fr',
+  'www.screenscraper.fr'
+]);
 const DIRECTORY_APPROVAL_TIMEOUT_MS = 300000;
 const TRANSLATOR_ASSET_TIMEOUT_MS = 45000;
 const TRANSLATOR_ASSET_MAX_CHUNK_BYTES = 1024 * 1024;
@@ -50,10 +66,19 @@ const NOTIFICATION_JOBS_KEY = 'morpheusNotificationJobsV1';
 const NOTIFICATION_EVENTS_KEY = 'morpheusNotificationEventsV1';
 const NOTIFICATION_PENDING_ACTION_KEY = 'morpheusNotificationPendingActionV1';
 const LAST_HUB_URL_KEY = 'morpheusLastHubUrlV1';
+const PORTAL_SNAPSHOT_KEY = 'cyrunePortalSnapshotV1';
+const PORTAL_SNAPSHOT_MIGRATION_RECEIPT_KEY = 'cyrunePortalSnapshotMigrationReceiptV1';
+const DURABLE_INTAKE_KEY = 'cyruneDurableIntakeV1';
 const NOTIFICATION_ALARM_PREFIX = 'morpheus-notification:';
 const MAX_NOTIFICATION_JOBS = 256;
 const MAX_NOTIFICATION_EVENTS = 200;
+const MAX_DURABLE_INTAKE_ITEMS = 128;
+const MAX_DURABLE_INTAKE_BYTES = 4 * 1024 * 1024;
+const MAX_DURABLE_DELIVERY_BYTES = 1024 * 1024;
 let notificationMutation = Promise.resolve();
+let relaySnapshotMutation = Promise.resolve();
+let durableIntakeMutation = Promise.resolve();
+let durableIntakeDrain = null;
 const TRANSLATOR_ASSET_ROOT = 'https://firefox-settings-attachments.cdn.mozilla.net/';
 const TRANSLATOR_ASSETS = Object.freeze({
   'ende:model:2.1': { location: 'main-workspace/translations-models/23db71e7-b6d9-45eb-a47d-0290d7d8ef63.bin', size: 31561787, hash: '8df29d9494d19f47fd5d97c6a73474c6f657e9f81c1a607c431d02befdf3810f' },
@@ -223,7 +248,7 @@ function refreshNativeStorage() {
       const ping = await sendPersistentNativeMessage({ type: 'PING' });
       nativeAvailable = ping?.ok === true;
       if (!nativeAvailable) throw new Error('Native host did not return ok');
-      const config = await sendPersistentNativeMessage({ type: 'READ_CONFIG' });
+      const config = await sendPersistentNativeMessage({ type: 'PORTAL_GET_STORAGE_CONFIG' });
       saveFilePath = normalizeDatabasePath(config?.config?.databasePath || '');
       nativeError = '';
     } catch (error) {
@@ -345,6 +370,16 @@ function createHubSessionToken() {
   return `${Date.now()}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
 }
 
+function sanitizeClientProtocols(value) {
+  const allowed = new Set(['portal-relay', 'arcade-relay', 'arcade-service', 'nexus-relay', 'component-settings']);
+  const output = {};
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return output;
+  for (const [name, version] of Object.entries(value)) {
+    if (allowed.has(name) && Number.isInteger(version) && version > 0 && version <= 100) output[name] = version;
+  }
+  return output;
+}
+
 function selectRegisteredHub() {
   const candidates = [...hubRegistrations.entries()]
     .sort((left, right) => {
@@ -371,12 +406,16 @@ function rememberMorpheusTab(tab, pageUrl = '', options = {}) {
     active,
     registeredAt: now,
     lastActiveAt: active ? now : (existing?.lastActiveAt || 0),
-    sessionToken: options.sessionToken || existing?.sessionToken || createHubSessionToken()
+    sessionToken: options.sessionToken || existing?.sessionToken || createHubSessionToken(),
+    protocols: Object.keys(options.protocols || {}).length ? sanitizeClientProtocols(options.protocols) : (existing?.protocols || {})
   };
   hubRegistrations.set(tab.id, registration);
   void browser.storage.local.set({ [LAST_HUB_URL_KEY]: url }).catch(() => {});
   selectRegisteredHub();
   hubRelayError = '';
+  if (options.drainIntake !== false) {
+    setTimeout(() => { void drainDurableIntake().catch(() => {}); }, 0);
+  }
   return registration;
 }
 
@@ -397,7 +436,7 @@ function authorizeHubPageRequest(msg, sender) {
     && (!sender.tab.url || sender.tab.url === registration.url);
 }
 
-async function registerEmuGuiPage(sender, pageUrl) {
+async function registerEmuGuiPage(sender, pageUrl, protocols = {}) {
   const tabId = sender?.tab?.id;
   const url = String(pageUrl || sender?.tab?.url || '');
   if (tabId === undefined || !url || (sender.tab.url && sender.tab.url !== url)) {
@@ -412,9 +451,18 @@ async function registerEmuGuiPage(sender, pageUrl) {
   const authorized = result?.ok === true && result.authorized === true;
   if (!authorized) return { ok: false, error: 'This is not the configured Cyrune Arcade page' };
   const transport = 'extension';
-  const registration = { url, sessionToken: createHubSessionToken(), registeredAt: Date.now(), transport };
+  const registration = { url, sessionToken: createHubSessionToken(), registeredAt: Date.now(), transport,
+    protocols: sanitizeClientProtocols(protocols) };
   emuguiRegistrations.set(tabId, registration);
-  return { ok: true, emuguiSessionToken: registration.sessionToken, transport };
+  return {
+    ok: true,
+    arcadeSessionToken: registration.sessionToken,
+    emuguiSessionToken: registration.sessionToken,
+    transport,
+    relayVersion: browser.runtime.getManifest?.()?.version || '',
+    protocols: RELAY_PROTOCOLS,
+    capabilities: RELAY_COMPONENT_CAPABILITIES
+  };
 }
 
 function authorizeEmuGuiPageRequest(msg, sender) {
@@ -426,7 +474,7 @@ function authorizeEmuGuiPageRequest(msg, sender) {
     && (!sender.tab.url || sender.tab.url === registration.url);
 }
 
-async function registerNexusPage(sender, pageUrl) {
+async function registerNexusPage(sender, pageUrl, protocols = {}) {
   const tabId = sender?.tab?.id;
   const url = canonicalNexusDocumentUrl(pageUrl || sender?.tab?.url || '');
   const senderUrl = canonicalNexusDocumentUrl(sender?.tab?.url || '');
@@ -439,13 +487,16 @@ async function registerNexusPage(sender, pageUrl) {
   if (result?.ok !== true || result.authorized !== true) {
     return { ok: false, error: 'This is not the configured Cyrune Nexus page' };
   }
-  const registration = { url, sessionToken: createHubSessionToken(), registeredAt: Date.now() };
+  const registration = { url, sessionToken: createHubSessionToken(), registeredAt: Date.now(),
+    protocols: sanitizeClientProtocols(protocols) };
   nexusRegistrations.set(tabId, registration);
   return {
     ok: true,
     nexusSessionToken: registration.sessionToken,
     relayVersion: browser.runtime.getManifest?.()?.version || '',
-    nativeAvailable: true
+    nativeAvailable: true,
+    protocols: RELAY_PROTOCOLS,
+    capabilities: RELAY_COMPONENT_CAPABILITIES
   };
 }
 
@@ -488,7 +539,14 @@ async function getNexusStatus() {
     fileSchemeAccess,
     fileSchemeAccessRequired,
     nexusRole: true,
-    nativeAvailable
+    nativeAvailable,
+    protocols: RELAY_PROTOCOLS,
+    capabilities: RELAY_COMPONENT_CAPABILITIES
+  };
+  snapshot.services.clients = {
+    portal: { available: hubRegistrations.size > 0, protocols: selectRegisteredHub()?.[1]?.protocols || {} },
+    arcade: { available: emuguiRegistrations.size > 0, protocols: [...emuguiRegistrations.values()][0]?.protocols || {} },
+    nexus: { available: nexusRegistrations.size > 0, protocols: [...nexusRegistrations.values()][0]?.protocols || {} }
   };
   return { ok: true, snapshot };
 }
@@ -505,6 +563,18 @@ async function broadcastNexusSettingsChanged(revision) {
       browser.tabs.sendMessage(tabId, { type: 'MW_CYRUNE_SETTINGS_CHANGED', revision }).catch(() => null)
     )
   ]);
+}
+
+async function broadcastPortalStateChanged(fileInfo, sourceTabId = null) {
+  await Promise.all([...hubRegistrations.keys()]
+    .filter(tabId => tabId !== sourceTabId)
+    .map(tabId => browser.tabs.sendMessage(tabId, {
+      type: 'MW_PORTAL_STATE_CHANGED',
+      revision: Number(fileInfo?.revision || 0),
+      version: fileInfo?.version || null,
+      contentHash: fileInfo?.contentHash || '',
+      authority: fileInfo?.authority || (nativeAvailable && saveFilePath ? 'host' : 'relay')
+    }).catch(() => null)));
 }
 
 async function discoverMorpheusTab(tab, { inject = false } = {}) {
@@ -569,23 +639,6 @@ async function ensureMorpheusTab() {
   return null;
 }
 
-function deriveHubRootPath() {
-  const pagePath = fileUrlToPath(hubPageUrl);
-  if (pagePath) return dirname(pagePath);
-  return dirname(saveFilePath || '');
-}
-
-function slugifyAssetSegment(value, fallback) {
-  return (value || fallback || 'asset')
-    .trim()
-    .toLowerCase()
-    .replace(/&/g, ' and ')
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/-+/g, '-')
-    .replace(/^-|-$/g, '')
-    .slice(0, 80) || fallback || 'asset';
-}
-
 function assetExtensionFromUrl(url, fallback = 'webp') {
   try {
     const parsed = new URL(url);
@@ -602,29 +655,6 @@ function assetExtensionFromUrl(url, fallback = 'webp') {
   return fallback;
 }
 
-function createAssetWriteSession({ kind = 'background', collectionName = '', itemName = '', extension = 'webp' } = {}) {
-  const databasePath = normalizeDatabasePath(saveFilePath);
-  const assetRoot = databasePath ? dirname(databasePath) : deriveHubRootPath();
-  if (!assetRoot) throw new Error('Portal data root is unavailable');
-  const safeKind = slugifyAssetSegment(kind, 'asset');
-  const safeCollection = slugifyAssetSegment(collectionName, 'collection');
-  const safeItem = slugifyAssetSegment(itemName, 'background');
-  const safeExt = slugifyAssetSegment(extension, 'webp').replace(/-/g, '') || 'webp';
-  const suffix = `${new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14)}-${Math.random().toString(36).slice(2, 8)}`;
-  const fileName = `${safeItem}-${safeKind}-${suffix}.${safeExt}`;
-  const relativePath = [
-    ...(databasePath ? [] : ['assets']),
-    `${safeKind}s`,
-    safeCollection,
-    fileName
-  ].join('/');
-  const finalPath = joinPath(assetRoot, ...relativePath.split('/'));
-  const tempPath = `${finalPath}.tmp-${suffix}`;
-  const publicPath = databasePath || !fileUrlToPath(hubPageUrl) ? pathToFileUrl(finalPath) : relativePath;
-  const sessionId = `asset-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-  return { sessionId, finalPath, tempPath, publicPath, relativePath };
-}
-
 function normalizeDatabasePath(path) {
   const trimmed = typeof path === 'string' ? path.trim() : '';
   return trimmed || null;
@@ -632,7 +662,13 @@ function normalizeDatabasePath(path) {
 
 function getStorageInfo() {
   return {
+    component: 'relay',
+    componentVersion: browser.runtime.getManifest?.()?.version || '',
+    protocols: RELAY_PROTOCOLS,
+    componentCapabilities: RELAY_COMPONENT_CAPABILITIES,
     nativeAvailable,
+    storageMode: nativeAvailable && saveFilePath ? 'host' : 'relay',
+    authoritativeStorageAvailable: true,
     storageInfoReady,
     databasePath: saveFilePath || null,
     nativeError: nativeAvailable ? '' : nativeError,
@@ -640,7 +676,7 @@ function getStorageInfo() {
     fileSchemeAccess,
     fileSchemeAccessRequired,
     extensionId: browser.runtime.id || '',
-    capabilities: ['urlHealth', 'serviceMonitor', 'systemMetrics', 'approvedDirectories', 'gitWorkspace', 'recentFiles', 'applicationLauncher', 'emuguiService', 'commandPalette', 'browserSessions', 'backupTimeline', 'portableBundles', 'translationModels', 'notificationScheduler', 'cyruneSettings']
+    capabilities: ['portalAuthority', 'durableIntake', 'urlHealth', 'serviceMonitor', 'systemMetrics', 'approvedDirectories', 'gitWorkspace', 'recentFiles', 'applicationLauncher', 'emuguiService', 'commandPalette', 'browserSessions', 'backupTimeline', 'portableBundles', 'translationModels', 'notificationScheduler', 'cyruneSettings']
   };
 }
 
@@ -868,7 +904,7 @@ async function launchBrowserSession(tabs, options = {}) {
 async function listDatabaseBackups() {
   await ensureNativeStorageReady();
   if (!nativeAvailable || !saveFilePath) throw new Error('A native shared database must be configured');
-  return sendNativeRequest({ type: 'LIST_DATABASE_BACKUPS', databasePath: saveFilePath });
+  return sendNativeRequest({ type: 'PORTAL_LIST_DATABASE_BACKUPS' });
 }
 
 async function readDatabaseBackup(name) {
@@ -876,7 +912,7 @@ async function readDatabaseBackup(name) {
   if (!nativeAvailable || !saveFilePath) throw new Error('A native shared database must be configured');
   let offset = 0; let readVersion = null; let metadata = null; const chunks = [];
   while (true) {
-    const res = await sendNativeRequest({ type: 'READ_DATABASE_BACKUP_CHUNK', databasePath: saveFilePath, name, offset, length: PAGE_DATABASE_READ_CHUNK_BYTES, expectedVersion: readVersion });
+    const res = await sendNativeRequest({ type: 'PORTAL_READ_DATABASE_BACKUP_CHUNK', name, offset, length: PAGE_DATABASE_READ_CHUNK_BYTES, expectedVersion: readVersion });
     readVersion ||= res.readVersion;
     metadata ||= res;
     chunks.push(res.chunk || '');
@@ -893,7 +929,7 @@ async function readDatabaseBackup(name) {
 async function createDatabaseBackup() {
   await ensureNativeStorageReady();
   if (!nativeAvailable || !saveFilePath) throw new Error('A native shared database must be configured');
-  return sendNativeRequest({ type: 'CREATE_DATABASE_BACKUP', databasePath: saveFilePath });
+  return sendNativeRequest({ type: 'PORTAL_CREATE_DATABASE_BACKUP' });
 }
 
 async function writeHostConfig() {
@@ -901,8 +937,8 @@ async function writeHostConfig() {
   if (!nativeAvailable) return false;
   try {
     await sendNativeRequest({
-      type: 'WRITE_CONFIG',
-      config: { databasePath: saveFilePath || '' }
+      type: 'PORTAL_SET_DATABASE_PATH',
+      databasePath: saveFilePath || ''
     });
     return true;
   } catch {
@@ -978,8 +1014,196 @@ function makeDeliveryId(prefix = 'delivery') {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
+async function contentSha256(content) {
+  const bytes = new TextEncoder().encode(String(content || ''));
+  const digest = await crypto.subtle.digest('SHA-256', bytes);
+  return [...new Uint8Array(digest)].map(value => value.toString(16).padStart(2, '0')).join('');
+}
+
+function relaySnapshotVersion(revision, contentHash) {
+  return `relay:${Math.max(0, Number(revision) || 0)}:${String(contentHash || '')}`;
+}
+
+function relaySnapshotFileInfo(envelope) {
+  if (!envelope) return { exists: false, authority: 'relay', version: null, contentHash: '', size: 0 };
+  return {
+    exists: true,
+    authority: 'relay',
+    version: relaySnapshotVersion(envelope.revision, envelope.contentHash),
+    contentHash: envelope.contentHash,
+    size: new TextEncoder().encode(envelope.content || '').byteLength,
+    updatedAt: envelope.updatedAt || null,
+    revision: envelope.revision
+  };
+}
+
+function mutateRelaySnapshot(task) {
+  const next = relaySnapshotMutation.then(task, task);
+  relaySnapshotMutation = next.catch(() => {});
+  return next;
+}
+
+async function readRelaySnapshotEnvelope() {
+  const stored = await browser.storage.local.get([PORTAL_SNAPSHOT_KEY, 'morpheusState']);
+  const envelope = stored?.[PORTAL_SNAPSHOT_KEY];
+  if (envelope && envelope.schemaVersion === 1 && Number.isInteger(envelope.revision)
+      && envelope.revision >= 0 && typeof envelope.content === 'string'
+      && typeof envelope.contentHash === 'string') {
+    const actualHash = await contentSha256(envelope.content);
+    if (actualHash !== envelope.contentHash) throw new Error('Relay-owned Portal snapshot failed content verification');
+    return envelope;
+  }
+  if (typeof stored?.morpheusState !== 'string') return null;
+
+  const legacyContent = stored.morpheusState;
+  const contentHash = await contentSha256(legacyContent);
+  const migrated = {
+    schemaVersion: 1,
+    revision: 1,
+    contentHash,
+    content: legacyContent,
+    updatedAt: new Date().toISOString()
+  };
+  await browser.storage.local.set({
+    [PORTAL_SNAPSHOT_KEY]: migrated,
+    [PORTAL_SNAPSHOT_MIGRATION_RECEIPT_KEY]: {
+      schemaVersion: 1,
+      source: 'morpheusState',
+      destination: PORTAL_SNAPSHOT_KEY,
+      revision: migrated.revision,
+      contentHash,
+      completedAt: migrated.updatedAt
+    }
+  });
+  const verified = (await browser.storage.local.get(PORTAL_SNAPSHOT_KEY))?.[PORTAL_SNAPSHOT_KEY];
+  if (!verified || verified.contentHash !== contentHash || await contentSha256(verified.content) !== contentHash) {
+    throw new Error('Legacy Portal snapshot migration could not be verified');
+  }
+  await browser.storage.local.remove('morpheusState');
+  return verified;
+}
+
+function scheduleRelaySnapshotSave(content, expectedVersion = null, expectedHash = '') {
+  return mutateRelaySnapshot(async () => {
+    const current = await readRelaySnapshotEnvelope();
+    const incomingHash = await contentSha256(content);
+    const currentInfo = relaySnapshotFileInfo(current);
+    const versionMatches = expectedVersion == null || expectedVersion === currentInfo.version;
+    const hashMatches = !expectedHash || expectedHash === currentInfo.contentHash;
+    if ((!versionMatches || !hashMatches) && currentInfo.contentHash !== incomingHash) {
+      return { ok: false, conflict: true, fileInfo: currentInfo, databasePath: null, storageMode: 'relay' };
+    }
+    if (currentInfo.contentHash === incomingHash) {
+      return { ok: true, conflict: false, fileInfo: currentInfo, databasePath: null, storageMode: 'relay', unchanged: true };
+    }
+    const saved = {
+      schemaVersion: 1,
+      revision: (current?.revision || 0) + 1,
+      contentHash: incomingHash,
+      content,
+      updatedAt: new Date().toISOString()
+    };
+    await browser.storage.local.set({ [PORTAL_SNAPSHOT_KEY]: saved });
+    const verified = await readRelaySnapshotEnvelope();
+    if (!verified || verified.revision !== saved.revision || verified.contentHash !== incomingHash) {
+      throw new Error('Relay-owned Portal snapshot verification failed');
+    }
+    return { ok: true, conflict: false, fileInfo: relaySnapshotFileInfo(verified), databasePath: null, storageMode: 'relay' };
+  });
+}
+
+function sanitizeDurableDelivery(message) {
+  const type = String(message?.type || '');
+  if (!['MW_RECEIVE_TAB', 'MW_RECEIVE_IMPORT_ITEMS', 'MW_RECEIVE_GAME', 'MW_UPDATE_GAME_BINDING'].includes(type)) {
+    throw new Error('Unsupported durable delivery type');
+  }
+  const deliveryId = String(message?.deliveryId || '').trim().slice(0, 160);
+  if (!deliveryId) throw new Error('A durable delivery ID is required');
+  const payload = { ...message, deliveryId };
+  const serialized = JSON.stringify(payload);
+  if (new TextEncoder().encode(serialized).byteLength > MAX_DURABLE_DELIVERY_BYTES) {
+    throw new Error('Delivery exceeds the Relay intake limit');
+  }
+  return { deliveryId, type, payload, bytes: new TextEncoder().encode(serialized).byteLength };
+}
+
+async function readDurableIntake() {
+  const stored = (await browser.storage.local.get(DURABLE_INTAKE_KEY))?.[DURABLE_INTAKE_KEY];
+  if (!stored || stored.schemaVersion !== 1 || !Array.isArray(stored.items)) return [];
+  return stored.items.filter(item => item && typeof item.deliveryId === 'string' && item.payload);
+}
+
+function mutateDurableIntake(task) {
+  const next = durableIntakeMutation.then(task, task);
+  durableIntakeMutation = next.catch(() => {});
+  return next;
+}
+
+async function enqueueDurableDelivery(message) {
+  const delivery = sanitizeDurableDelivery(message);
+  return mutateDurableIntake(async () => {
+    const items = await readDurableIntake();
+    if (items.some(item => item.deliveryId === delivery.deliveryId)) {
+      return { ok: true, queued: true, duplicate: true, deliveryId: delivery.deliveryId, pendingCount: items.length };
+    }
+    const record = { ...delivery, createdAt: new Date().toISOString(), attempts: 0 };
+    const next = [...items, record];
+    const totalBytes = next.reduce((sum, item) => sum + (Number(item.bytes) || 0), 0);
+    if (next.length > MAX_DURABLE_INTAKE_ITEMS || totalBytes > MAX_DURABLE_INTAKE_BYTES) {
+      throw new Error('Relay durable intake is full; open Portal and retry');
+    }
+    await browser.storage.local.set({
+      [DURABLE_INTAKE_KEY]: { schemaVersion: 1, items: next, updatedAt: new Date().toISOString() }
+    });
+    return { ok: true, queued: true, deliveryId: delivery.deliveryId, pendingCount: next.length };
+  });
+}
+
+async function removeDurableDelivery(deliveryId) {
+  return mutateDurableIntake(async () => {
+    const items = await readDurableIntake();
+    const next = items.filter(item => item.deliveryId !== deliveryId);
+    await browser.storage.local.set({
+      [DURABLE_INTAKE_KEY]: { schemaVersion: 1, items: next, updatedAt: new Date().toISOString() }
+    });
+    return next.length;
+  });
+}
+
+async function deliverOrQueue(message) {
+  try {
+    const result = await sendToMorpheus(message);
+    if (result?.ok === true) {
+      await removeDurableDelivery(message.deliveryId);
+      return { ...result, deliveryId: message.deliveryId };
+    }
+    if (result?.conflict === true) return result;
+  } catch {}
+  return enqueueDurableDelivery(message);
+}
+
+async function drainDurableIntake() {
+  if (durableIntakeDrain) return durableIntakeDrain;
+  durableIntakeDrain = (async () => {
+    const items = await readDurableIntake();
+    let delivered = 0;
+    for (const item of items) {
+      try {
+        const result = await sendToMorpheus(item.payload);
+        if (result?.ok !== true) break;
+        await removeDurableDelivery(item.deliveryId);
+        delivered += 1;
+      } catch {
+        break;
+      }
+    }
+    return { delivered, pendingCount: (await readDurableIntake()).length };
+  })().finally(() => { durableIntakeDrain = null; });
+  return durableIntakeDrain;
+}
+
 async function sendImportItemsToMorpheus(items, source = '', deliveryId = '') {
-  return sendToMorpheus({
+  return deliverOrQueue({
     type: 'MW_RECEIVE_IMPORT_ITEMS',
     items: items || [],
     source,
@@ -1018,11 +1242,7 @@ async function getDatabaseFileInfo() {
     };
   }
   try {
-    const res = await sendNativeRequest({
-      type: 'STAT_FILE',
-      path: saveFilePath,
-      includeHash: false
-    });
+    const res = await sendNativeRequest({ type: 'PORTAL_DATABASE_STAT', includeHash: false });
     return {
       databasePath: saveFilePath || null,
       fileInfo: res?.fileInfo || null
@@ -1052,7 +1272,7 @@ function decodeChunkedText(chunks, totalSize) {
   return new TextDecoder('utf-8').decode(bytes);
 }
 
-async function readNativeFileChunkedOnce(path) {
+async function readNativeFileChunkedOnce(_path) {
   let offset = 0;
   let totalSize = 0;
   let fileInfo = null;
@@ -1061,8 +1281,7 @@ async function readNativeFileChunkedOnce(path) {
 
   while (true) {
     const res = await sendPersistentNativeMessage({
-      type: 'READ_FILE_CHUNK',
-      path,
+      type: 'PORTAL_DATABASE_READ_CHUNK',
       offset,
       length: DATABASE_READ_CHUNK_BYTES,
       expectedVersion: readVersion
@@ -1116,8 +1335,7 @@ async function loadSharedStateChunk(offset = 0, length = PAGE_DATABASE_READ_CHUN
   const safeOffset = Math.max(0, Number(offset) || 0);
   const safeLength = Math.max(1, Math.min(PAGE_DATABASE_READ_CHUNK_BYTES, Number(length) || PAGE_DATABASE_READ_CHUNK_BYTES));
   const res = await sendPersistentNativeMessage({
-    type: 'READ_FILE_CHUNK',
-    path: saveFilePath,
+    type: 'PORTAL_DATABASE_READ_CHUNK',
     offset: safeOffset,
     length: safeLength,
     expectedVersion: expectedVersion || null
@@ -1137,61 +1355,43 @@ async function loadSharedStateChunk(offset = 0, length = PAGE_DATABASE_READ_CHUN
 async function beginAssetWrite(options = {}) {
   await ensureNativeStorageReady();
   if (!nativeAvailable) return { ok: false, error: 'Native host not available' };
-  const session = createAssetWriteSession(options);
   const res = await sendNativeRequest({
-    type: 'BEGIN_FILE_WRITE',
-    tempPath: session.tempPath
+    type: 'PORTAL_BEGIN_ASSET_WRITE',
+    collectionName: options.collectionName || '',
+    itemName: options.itemName || '',
+    extension: options.extension || 'webp'
   });
   if (!res?.ok) return { ok: false, error: res?.error || 'Failed to begin asset write' };
-  assetWriteSessions.set(session.sessionId, session);
   return {
     ok: true,
-    sessionId: session.sessionId,
-    publicPath: session.publicPath,
-    relativePath: session.relativePath,
-    chunkChars: ASSET_WRITE_CHUNK_CHARS
+    sessionId: res.sessionId,
+    publicPath: res.publicPath,
+    relativePath: res.relativePath,
+    chunkChars: Math.min(ASSET_WRITE_CHUNK_CHARS, Number(res.chunkChars) || ASSET_WRITE_CHUNK_CHARS)
   };
 }
 
 async function appendAssetWriteChunk(sessionId, chunk) {
-  const session = assetWriteSessions.get(sessionId);
-  if (!session) return { ok: false, error: 'Unknown asset write session' };
   return sendNativeRequest({
-    type: 'APPEND_FILE_CHUNK',
-    tempPath: session.tempPath,
+    type: 'PORTAL_APPEND_ASSET_WRITE',
+    sessionId,
     chunk: chunk || ''
   });
 }
 
 async function finishAssetWrite(sessionId) {
-  const session = assetWriteSessions.get(sessionId);
-  if (!session) return { ok: false, error: 'Unknown asset write session' };
-  try {
-    const res = await sendNativeRequest({
-      type: 'FINISH_FILE_WRITE',
-      tempPath: session.tempPath,
-      path: session.finalPath
-    });
-    return {
-      ok: res?.ok !== false,
-      error: res?.error || '',
-      fileInfo: res?.fileInfo || null,
-      publicPath: session.publicPath,
-      relativePath: session.relativePath
-    };
-  } finally {
-    assetWriteSessions.delete(sessionId);
-  }
+  const res = await sendNativeRequest({ type: 'PORTAL_FINISH_ASSET_WRITE', sessionId });
+  return {
+    ok: res?.ok !== false,
+    error: res?.error || '',
+    fileInfo: res?.fileInfo || null,
+    publicPath: res?.publicPath || '',
+    relativePath: res?.relativePath || ''
+  };
 }
 
 async function abortAssetWrite(sessionId) {
-  const session = assetWriteSessions.get(sessionId);
-  if (!session) return { ok: true };
-  assetWriteSessions.delete(sessionId);
-  return sendNativeRequest({
-    type: 'DELETE_FILE',
-    path: session.tempPath
-  });
+  return sendNativeRequest({ type: 'PORTAL_ABORT_ASSET_WRITE', sessionId });
 }
 
 async function cacheAssetUrl(options = {}) {
@@ -1199,24 +1399,19 @@ async function cacheAssetUrl(options = {}) {
   if (!nativeAvailable) return { ok: false, error: 'Native host not available' };
   const url = typeof options.url === 'string' ? options.url.trim() : '';
   if (!/^https?:\/\//i.test(url)) return { ok: false, error: 'Only http and https URLs can be cached' };
-  const session = createAssetWriteSession({
-    kind: options.kind || 'background',
+  const res = await sendNativeRequest({
+    type: 'PORTAL_CACHE_ASSET_URL',
+    url,
     collectionName: options.collectionName || '',
     itemName: options.itemName || '',
-    extension: options.extension || assetExtensionFromUrl(url)
-  });
-  const res = await sendNativeRequest({
-    type: 'DOWNLOAD_URL_TO_FILE',
-    url,
-    path: session.finalPath,
-    tempPath: session.tempPath,
+    extension: options.extension || assetExtensionFromUrl(url),
     maxBytes: options.maxBytes || MAX_BACKGROUND_ASSET_DOWNLOAD_BYTES
   });
   if (!res?.ok) return { ok: false, error: res?.error || 'Failed to cache URL asset' };
   return {
     ok: true,
-    publicPath: session.publicPath,
-    relativePath: session.relativePath,
+    publicPath: res.publicPath || '',
+    relativePath: res.relativePath || '',
     fileInfo: res.fileInfo || null,
     contentType: res.contentType || '',
     bytes: res.bytes || 0
@@ -1624,14 +1819,14 @@ async function sendEmuGuiGameToHub(message) {
     : await createEmuGuiHubBinding(message.gameId, message.emulatorId, message.profileId);
   if (binding?.ok === false || !binding?.game) throw new Error(binding?.error || 'Cyrune Arcade could not create the game binding');
   const deliveryId = message.deliveryId || makeDeliveryId('game');
-  const delivered = await sendToMorpheus({
+  const delivered = await deliverOrQueue({
     type: rebindGameKey ? 'MW_UPDATE_GAME_BINDING' : 'MW_RECEIVE_GAME',
     deliveryId,
     targetBoardId: message.targetBoardId || '',
     targetTabId: message.targetTabId || '',
     game: binding.game
   });
-  if (!delivered?.ok) throw new Error(delivered?.error || 'The Hub rejected the game shortcut');
+  if (!delivered?.ok) throw new Error(delivered?.error || 'Relay could not accept the game shortcut');
   return { ...delivered, ok: true, deliveryId, game: binding.game };
 }
 
@@ -1669,6 +1864,15 @@ async function runEmuGuiPageRpc(message) {
 }
 
 async function fetchEmuGuiRemoteAsset(url) {
+  let settings;
+  try {
+    settings = await nexusNativeRequest({ type: 'NEXUS_GET_COMPONENT_SETTINGS', component: 'arcade' });
+  } catch {
+    return { ok: false, error: 'Arcade optional-network permission is unavailable' };
+  }
+  if (settings?.profile?.values?.privacy?.allowOptionalNetwork !== true) {
+    return { ok: false, error: 'Optional network access is disabled in Cyrune Nexus' };
+  }
   let target;
   try {
     target = new URL(String(url || ''));
@@ -1676,6 +1880,9 @@ async function fetchEmuGuiRemoteAsset(url) {
     return { ok: false, error: 'Cyrune Arcade artwork URL is invalid' };
   }
   if (target.protocol !== 'https:') return { ok: false, error: 'Only HTTPS Cyrune Arcade artwork URLs are supported' };
+  if (!ARCADE_REMOTE_ARTWORK_HOSTS.has(target.hostname.toLowerCase())) {
+    return { ok: false, error: 'Cyrune Arcade artwork origin is not approved' };
+  }
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), EMUGUI_REMOTE_ASSET_TIMEOUT_MS);
@@ -1691,7 +1898,9 @@ async function fetchEmuGuiRemoteAsset(url) {
     if (!response.ok) return { ok: false, error: `Cyrune Arcade artwork returned ${response.status}` };
     let finalUrl;
     try { finalUrl = new URL(response.url || target.href); } catch { finalUrl = null; }
-    if (!finalUrl || finalUrl.protocol !== 'https:') return { ok: false, error: 'Cyrune Arcade artwork redirected to an unsupported URL' };
+    if (!finalUrl || finalUrl.protocol !== 'https:' || !ARCADE_REMOTE_ARTWORK_HOSTS.has(finalUrl.hostname.toLowerCase())) {
+      return { ok: false, error: 'Cyrune Arcade artwork redirected to an unsupported origin' };
+    }
     const contentType = String(response.headers?.get?.('content-type') || '').split(';', 1)[0].trim().toLowerCase();
     if (!EMUGUI_REMOTE_ASSET_TYPES.has(contentType)) return { ok: false, error: 'Cyrune Arcade artwork returned an unsupported image type' };
     const declaredLength = Number(response.headers?.get?.('content-length') || 0);
@@ -1823,8 +2032,7 @@ async function openGameInEmuGui(gameKey, rebind = false) {
 async function writeNativeSnapshot(content, expectedVersion = null, expectedHash = '', databasePath = saveFilePath) {
   try {
     const res = await sendNativeRequest({
-      type: 'WRITE_FILE_IF_UNCHANGED',
-      path: databasePath,
+      type: 'PORTAL_DATABASE_WRITE',
       content,
       expectedVersion,
       expectedHash: expectedHash || ''
@@ -1877,8 +2085,6 @@ async function saveState(json, { expectedVersion = null, expectedHash = '' } = {
   await ensureNativeStorageReady();
   const jsonPath = extractDatabasePath(json);
   if (jsonPath && jsonPath !== saveFilePath) await setDatabasePath(jsonPath);
-  let mirrored = false;
-  let mirrorError = null;
   const canWriteDisk = nativeAvailable && saveFilePath;
 
   // Extension storage is only a fallback for setups without native disk storage.
@@ -1890,14 +2096,6 @@ async function saveState(json, { expectedVersion = null, expectedHash = '' } = {
     } catch (e) {
       console.warn('Cyrune Relay: extension storage mirror cleanup failed', e);
     }
-  } else {
-    try {
-      await browser.storage.local.set({ morpheusState: json });
-      mirrored = true;
-    } catch (e) {
-      mirrorError = e;
-      console.warn('Cyrune Relay: extension storage mirror failed', e);
-    }
   }
 
   // Write to disk via the extension-wide FIFO. Page-side state already
@@ -1907,8 +2105,7 @@ async function saveState(json, { expectedVersion = null, expectedHash = '' } = {
     if (diskResult.ok || diskResult.conflict) return diskResult;
   }
 
-  if (mirrored) return { ok: true, conflict: false, fileInfo: null, databasePath: saveFilePath || null };
-  throw (mirrorError || new Error('No save target available'));
+  return scheduleRelaySnapshotSave(json, expectedVersion, expectedHash);
 }
 
 
@@ -1936,12 +2133,13 @@ async function loadState() {
     }
   }
   // Extension storage is only authoritative when shared storage is not active.
-  const stored = await browser.storage.local.get('morpheusState');
+  const stored = await readRelaySnapshotEnvelope();
   return {
-    json: stored.morpheusState || null,
-    fileInfo: null,
+    json: stored?.content || null,
+    fileInfo: relaySnapshotFileInfo(stored),
     fromDisk: false,
-    databasePath: saveFilePath || null
+    databasePath: null,
+    storageMode: 'relay'
   };
 }
 
@@ -1984,6 +2182,85 @@ async function pickDatabasePath(title, defaultName) {
 // Message router
 // ---------------------------------------------------------------------------
 
+function handleNexusRuntimeMessage(msg, sender, sendResponse) {
+  switch (msg.type) {
+    case 'MW_NEXUS_REGISTER':
+      registerNexusPage(sender, msg.pageUrl, msg.protocols)
+        .then(sendResponse)
+        .catch(error => sendResponse({ ok: false, error: error?.message || String(error) }));
+      return true;
+    case 'MW_NEXUS_PING':
+      refreshFileSchemeAccess()
+        .then(() => sendResponse({
+          ok: true,
+          relayVersion: browser.runtime.getManifest?.()?.version || '',
+          nativeAvailable,
+          fileSchemeAccess,
+          protocols: RELAY_PROTOCOLS,
+          capabilities: RELAY_COMPONENT_CAPABILITIES,
+          operations: ['nexusSettings', 'nexusStatus', 'nexusDocuments', 'nexusTodoEditor', 'repositoryRemoteCheck', 'componentSettings']
+        }))
+        .catch(error => sendResponse({ ok: false, error: error?.message || String(error) }));
+      return true;
+    case 'MW_NEXUS_GET_SETTINGS':
+      nexusNativeRequest({ type: 'NEXUS_GET_SETTINGS' })
+        .then(sendResponse)
+        .catch(error => sendResponse({ ok: false, error: error?.message || String(error) }));
+      return true;
+    case 'MW_NEXUS_SAVE_SETTINGS': {
+      let serialized = '';
+      try { serialized = JSON.stringify(msg.settings); } catch {}
+      if (!serialized || serialized.length > MAX_NEXUS_SETTINGS_BYTES) {
+        sendResponse({ ok: false, error: 'Nexus settings payload is invalid or too large' });
+        return true;
+      }
+      nexusNativeRequest({
+        type: 'NEXUS_SAVE_SETTINGS', settings: msg.settings, expectedRevision: msg.expectedRevision
+      }).then(async response => {
+        if (response?.ok === true && response.conflict !== true) {
+          await broadcastNexusSettingsChanged(response.settings?.revision || 0);
+        }
+        sendResponse(response);
+      }).catch(error => sendResponse({ ok: false, error: error?.message || String(error) }));
+      return true;
+    }
+    case 'MW_NEXUS_GET_STATUS':
+      getNexusStatus().then(sendResponse)
+        .catch(error => sendResponse({ ok: false, error: error?.message || String(error) }));
+      return true;
+    case 'MW_NEXUS_GET_DOCUMENT': {
+      const component = String(msg.component || '').toLowerCase();
+      const documentType = String(msg.documentType || '').toLowerCase();
+      const allowedComponents = new Set(['portal', 'widgets', 'arcade', 'relay', 'host', 'nexus', 'project']);
+      const allowedTypes = new Set(['todo', 'changelog', 'project']);
+      if (!allowedComponents.has(component) || !allowedTypes.has(documentType)) {
+        sendResponse({ ok: false, error: 'Unsupported Nexus component document' });
+        return true;
+      }
+      nexusNativeRequest({ type: 'NEXUS_GET_DOCUMENT', component, documentType }).then(sendResponse)
+        .catch(error => sendResponse({ ok: false, error: error?.message || String(error) }));
+      return true;
+    }
+    case 'MW_NEXUS_OPEN_TODO': {
+      const component = String(msg.component || '').toLowerCase();
+      const allowedComponents = new Set(['portal', 'widgets', 'arcade', 'relay', 'host', 'nexus', 'project']);
+      if (!allowedComponents.has(component)) {
+        sendResponse({ ok: false, error: 'Unsupported Nexus TODO' });
+        return true;
+      }
+      nexusNativeRequest({ type: 'NEXUS_OPEN_TODO', component }).then(sendResponse)
+        .catch(error => sendResponse({ ok: false, error: error?.message || String(error) }));
+      return true;
+    }
+    case 'MW_NEXUS_CHECK_REMOTE':
+      nexusNativeRequest({ type: 'NEXUS_CHECK_REMOTE' }).then(sendResponse)
+        .catch(error => sendResponse({ ok: false, error: error?.message || String(error) }));
+      return true;
+    default:
+      return false;
+  }
+}
+
 browser.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (HUB_PAGE_REQUEST_TYPES.has(msg?.type) && !authorizeHubPageRequest(msg, sender)) {
     sendResponse({ ok: false, error: 'This request is not authorized for the registered Hub page' });
@@ -1997,6 +2274,7 @@ browser.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     sendResponse({ ok: false, error: 'This request is not authorized for Cyrune Nexus' });
     return false;
   }
+  if (handleNexusRuntimeMessage(msg, sender, sendResponse)) return true;
   switch (msg.type) {
 
     case 'MW_PING':
@@ -2012,7 +2290,8 @@ browser.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     case 'MW_REGISTER':
       {
       const registration = rememberMorpheusTab(sender.tab, msg.pageUrl || sender.tab?.url || '', {
-        active: msg.active === true
+        active: msg.active === true,
+        protocols: msg.protocols
       });
       if (!registration) {
         sendResponse({ ok: false, error: 'Hub registration came from an unsupported page' });
@@ -2023,7 +2302,7 @@ browser.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
 
     case 'MW_EMUGUI_REGISTER':
-      registerEmuGuiPage(sender, msg.pageUrl)
+      registerEmuGuiPage(sender, msg.pageUrl, msg.protocols)
         .then(sendResponse)
         .catch(error => sendResponse({ ok: false, error: error?.message || String(error) }));
       return true;
@@ -2040,94 +2319,10 @@ browser.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         .catch(error => sendResponse({ ok: false, error: error?.message || String(error) }));
       return true;
 
-    case 'MW_NEXUS_REGISTER':
-      registerNexusPage(sender, msg.pageUrl)
-        .then(sendResponse)
-        .catch(error => sendResponse({ ok: false, error: error?.message || String(error) }));
-      return true;
-
-    case 'MW_NEXUS_PING':
-      refreshFileSchemeAccess()
-        .then(() => sendResponse({
-          ok: true,
-          relayVersion: browser.runtime.getManifest?.()?.version || '',
-          nativeAvailable,
-          fileSchemeAccess,
-          capabilities: ['nexusSettings', 'nexusStatus', 'nexusDocuments', 'nexusTodoEditor', 'repositoryRemoteCheck', 'componentSettings']
-        }))
-        .catch(error => sendResponse({ ok: false, error: error?.message || String(error) }));
-      return true;
-
-    case 'MW_NEXUS_GET_SETTINGS':
-      nexusNativeRequest({ type: 'NEXUS_GET_SETTINGS' })
-        .then(sendResponse)
-        .catch(error => sendResponse({ ok: false, error: error?.message || String(error) }));
-      return true;
-
-    case 'MW_NEXUS_SAVE_SETTINGS': {
-      let serialized = '';
-      try { serialized = JSON.stringify(msg.settings); } catch {}
-      if (!serialized || serialized.length > MAX_NEXUS_SETTINGS_BYTES) {
-        sendResponse({ ok: false, error: 'Nexus settings payload is invalid or too large' });
-        break;
-      }
-      nexusNativeRequest({
-        type: 'NEXUS_SAVE_SETTINGS',
-        settings: msg.settings,
-        expectedRevision: msg.expectedRevision
-      }).then(async response => {
-        if (response?.ok === true && response.conflict !== true) {
-          await broadcastNexusSettingsChanged(response.settings?.revision || 0);
-        }
-        sendResponse(response);
-      }).catch(error => sendResponse({ ok: false, error: error?.message || String(error) }));
-      return true;
-    }
-
-    case 'MW_NEXUS_GET_STATUS':
-      getNexusStatus()
-        .then(sendResponse)
-        .catch(error => sendResponse({ ok: false, error: error?.message || String(error) }));
-      return true;
-
-    case 'MW_NEXUS_GET_DOCUMENT': {
-      const component = String(msg.component || '').toLowerCase();
-      const documentType = String(msg.documentType || '').toLowerCase();
-      const allowedComponents = new Set(['portal', 'widgets', 'arcade', 'relay', 'host', 'nexus', 'project']);
-      const allowedTypes = new Set(['todo', 'changelog', 'project']);
-      if (!allowedComponents.has(component) || !allowedTypes.has(documentType)) {
-        sendResponse({ ok: false, error: 'Unsupported Nexus component document' });
-        break;
-      }
-      nexusNativeRequest({ type: 'NEXUS_GET_DOCUMENT', component, documentType })
-        .then(sendResponse)
-        .catch(error => sendResponse({ ok: false, error: error?.message || String(error) }));
-      return true;
-    }
-
-    case 'MW_NEXUS_OPEN_TODO': {
-      const component = String(msg.component || '').toLowerCase();
-      const allowedComponents = new Set(['portal', 'widgets', 'arcade', 'relay', 'host', 'nexus', 'project']);
-      if (!allowedComponents.has(component)) {
-        sendResponse({ ok: false, error: 'Unsupported Nexus TODO' });
-        break;
-      }
-      nexusNativeRequest({ type: 'NEXUS_OPEN_TODO', component })
-        .then(sendResponse)
-        .catch(error => sendResponse({ ok: false, error: error?.message || String(error) }));
-      return true;
-    }
-
-    case 'MW_NEXUS_CHECK_REMOTE':
-      nexusNativeRequest({ type: 'NEXUS_CHECK_REMOTE' })
-        .then(sendResponse)
-        .catch(error => sendResponse({ ok: false, error: error?.message || String(error) }));
-      return true;
-
     case 'MW_GET_STATUS':
       if (!nativeAvailable) void ensureNativeStorageReady();
-      ensureMorpheusTab()
-        .then(tab => sendResponse({ ok: true, morpheusOpen: !!tab, ...getStorageInfo() }))
+      Promise.all([ensureMorpheusTab(), readDurableIntake()])
+        .then(([tab, intake]) => sendResponse({ ok: true, morpheusOpen: !!tab, pendingIntake: intake.length, ...getStorageInfo() }))
         .catch(error => sendResponse({
           ok: true,
           morpheusOpen: false,
@@ -2191,7 +2386,12 @@ browser.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         expectedVersion: msg.expectedVersion ?? null,
         expectedHash: msg.expectedHash || ''
       })
-        .then(result => sendResponse(result || { ok: true }))
+        .then(async result => {
+          if (result?.ok === true && result.conflict !== true) {
+            await broadcastPortalStateChanged(result.fileInfo || null, sender?.tab?.id ?? null);
+          }
+          sendResponse(result || { ok: true });
+        })
         .catch(e => sendResponse({ ok: false, error: e.message }));
       return true;
 
@@ -2434,16 +2634,9 @@ browser.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     case 'MW_LIST_THEMES': {
       ensureNativeStorageReady()
         .then(() => {
-          const dir = deriveThemesDir();
-          if (!dir || !nativeAvailable) return sendResponse({ ok: true, themes: [] });
-          return sendNativeRequest({ type: 'LIST_DIR', path: dir, ext: '.json' })
-            .then(res => Promise.all((res?.files || []).map(async f => {
-              try {
-                const r = await sendNativeRequest({ type: 'READ_FILE', path: joinThemePath(f) });
-                return (r?.ok && r.content) ? JSON.parse(r.content) : null;
-              } catch { return null; }
-            })))
-            .then(themes => sendResponse({ ok: true, themes: themes.filter(Boolean) }));
+          if (!nativeAvailable || !saveFilePath) return sendResponse({ ok: true, themes: [] });
+          return sendNativeRequest({ type: 'PORTAL_LIST_THEMES' })
+            .then(result => sendResponse({ ok: true, themes: Array.isArray(result?.themes) ? result.themes : [] }));
         })
         .catch(() => sendResponse({ ok: true, themes: [] }));
       return true;
@@ -2454,12 +2647,10 @@ browser.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         .then(() => {
           const theme = msg.theme;
           const themeId = theme?.id || 'custom';
-          const path = joinThemePath(themeId + '.json');
-          if (!path) return sendResponse({ ok: false, error: 'Theme ID must contain only letters, numbers, hyphens, or underscores' });
+          if (!joinThemePath(themeId + '.json')) return sendResponse({ ok: false, error: 'Theme ID must contain only letters, numbers, hyphens, or underscores' });
           if (!nativeAvailable) return sendResponse({ ok: false, error: 'Not available' });
           return sendNativeRequest({
-            type: 'WRITE_THEME_FILE',
-            themesDir: deriveThemesDir(),
+            type: 'PORTAL_WRITE_THEME',
             themeId,
             content: JSON.stringify(theme, null, 2)
           })
@@ -2471,7 +2662,7 @@ browser.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
     case 'MW_SEND_TAB': {
       const deliveryId = msg.deliveryId || makeDeliveryId('tab');
-      sendToMorpheus({
+      deliverOrQueue({
             type: 'MW_RECEIVE_TAB',
             deliveryId,
             targetBoardId: msg.targetBoardId || '',
@@ -2482,7 +2673,7 @@ browser.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           })
         .then(result => sendResponse(result?.ok
           ? { ...result, ok: true, deliveryId }
-          : { ok: false, conflict: result?.conflict === true, error: result?.error || 'The hub rejected the delivery' }))
+          : { ok: false, conflict: result?.conflict === true, error: result?.error || 'Relay could not accept the delivery' }))
         .catch(e => sendResponse({ ok: false, error: e.message }));
       return true;
       }
@@ -2574,6 +2765,10 @@ if (browser.tabs.onUpdated) {
     const nexusRegistration = nexusRegistrations.get(tabId);
     if (nexusRegistration && changeInfo.url && canonicalNexusDocumentUrl(changeInfo.url) !== nexusRegistration.url) {
       nexusRegistrations.delete(tabId);
+    }
+    const arcadeRegistration = emuguiRegistrations.get(tabId);
+    if (arcadeRegistration && changeInfo.url && changeInfo.url !== arcadeRegistration.url) {
+      emuguiRegistrations.delete(tabId);
     }
     if (changeInfo.status === 'complete' && isPotentialHubUrl(tab?.url || '')) {
       void discoverMorpheusTab(tab, { inject: true });

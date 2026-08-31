@@ -4,6 +4,61 @@ Historical entries below are preserved from Portal releases whose release notes 
 
 ---
 
+## [1.1.0] — 2026-08-31
+
+### Added
+
+- Added a bounded Relay-owned Portal snapshot with revision/hash envelopes, compare-and-swap writes, content-free legacy migration receipts, reread verification, and cross-tab change broadcasts.
+- Added durable, quota-bound Inbox/Import/Arcade delivery intake with delivery-ID deduplication, popup pending state, ordered replay, and a single replay drain.
+
+### Changed
+
+- Popup generic send/import actions can queue safely while Portal is closed, and storage diagnostics distinguish Host disk from Relay authority.
+
+### Validation
+
+- The coordinated release gate passes all 15 Relay tests plus the 101-test Portal integration suite, JavaScript syntax checks, package round-trip checks, and `web-ext lint` with no warnings or notices.
+
+## [1.0.64] — 2026-08-31
+
+### Added
+
+- Added Relay's schema-1 component manifest and explicit protocol/capability advertisements to authenticated Portal, Arcade and Nexus registration/status responses.
+- Added release-gated protocol-catalogue and compatibility-register validation while retaining the exact eight-file XPI payload and installed identifiers.
+
+### Changed
+
+- Nexus status now receives Relay protocol versions and baseline component capabilities for compatibility diagnostics.
+
+### Validation
+
+- All 15 Relay tests and 14 packaging tests pass. Runtime advertisements align with the component manifest, the exact package boundary is preserved, and `web-ext lint` reports zero errors, notices or warnings.
+
+## [1.0.63] — 2026-08-31
+
+### Changed
+
+- Portal database, backup, theme, and managed-background traffic now uses fixed-purpose Host operations whose targets are resolved by Host instead of path-shaped generic filesystem messages.
+- Remote Arcade artwork is restricted to the declared scraper/CDN host allowlist and redirects are revalidated before image data is accepted.
+
+### Fixed
+
+- Arcade page registrations are revoked as soon as their tab navigates, preventing a stale session from retaining page-role authority after a URL change.
+
+### Validation
+
+- All 14 Relay tests, packaging/version checks, manifest validation, and `web-ext lint` pass with zero errors, notices, or warnings.
+
+## [1.0.62] — 2026-08-31
+
+### Fixed
+
+- Remote Arcade artwork is now fetched only when Host's authoritative Nexus `arcade` profile explicitly allows optional network access. Missing settings fail closed, and HTTPS/type/size bounds remain enforced.
+
+### Validation
+
+- Relay routing/runtime tests, package-boundary tests, manifest validation, and `web-ext lint` cover the release.
+
 ## [1.0.61] — 2026-08-31
 
 ### Changed

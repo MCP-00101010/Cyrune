@@ -32,7 +32,7 @@
   padding: 7px;
   border-color: transparent;
   background: transparent;
-  font-size: 12px;
+  font-size:calc(12px * var(--widget-text-scale, 1));
 }
 
 .calculator-tabs button.active {
@@ -86,7 +86,7 @@
 .calculator-result.is-error output,
 .calculator-converter-output output.is-error {
   color: var(--danger);
-  font-size: 12px;
+  font-size:calc(12px * var(--widget-text-scale, 1));
   font-weight: 500;
   line-height: 1.35;
 }
@@ -95,7 +95,7 @@
 .calculator-swap {
   flex: 0 0 auto;
   padding: 6px 9px;
-  font-size: 11px;
+  font-size:calc(11px * var(--widget-text-scale, 1));
 }
 
 .calculator-copy:disabled {
@@ -112,7 +112,7 @@
 .calculator-memory button {
   padding: 6px 3px;
   color: color-mix(in srgb, var(--accent) 74%, var(--text));
-  font-size: 11px;
+  font-size:calc(11px * var(--widget-text-scale, 1));
 }
 
 .calculator-keypad {
@@ -124,7 +124,7 @@
 .calculator-keypad button {
   min-height: 34px;
   padding: 6px 3px;
-  font-size: 14px;
+  font-size:calc(14px * var(--widget-text-scale, 1));
 }
 
 .calculator-keypad button:hover,
@@ -155,7 +155,7 @@
   margin-bottom: 5px;
   color: var(--text-muted);
   cursor: pointer;
-  font-size: 11px;
+  font-size:calc(11px * var(--widget-text-scale, 1));
 }
 
 .calculator-history-item {
@@ -192,6 +192,6 @@
 
 @container (max-width: 260px) {
   .calculator-history { display: none; }
-  .calculator-expression { font-size: 14px; }
+  .calculator-expression { font-size:calc(14px * var(--widget-text-scale, 1)); }
   .calculator-keypad button { min-height: 31px; }
 }

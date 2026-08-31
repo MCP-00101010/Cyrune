@@ -14,7 +14,7 @@
   overflow: hidden;
   border-bottom: 1px solid var(--border);
   color: var(--text);
-  font-size: 0.88rem;
+  font-size: calc(0.88rem * var(--widget-text-scale, 1));
   font-weight: 700;
   line-height: 1.35;
   text-overflow: ellipsis;
@@ -43,7 +43,7 @@
   background: var(--panel-muted);
   color: var(--text-muted);
   font: inherit;
-  font-size: 0.7rem;
+  font-size: calc(0.7rem * var(--widget-text-scale, 1));
   cursor: pointer;
 }
 .widget-rss-tab > span:first-child {
@@ -71,7 +71,7 @@
   border-radius: 999px;
   background: var(--accent);
   color: #fff;
-  font-size: 0.56rem;
+  font-size: calc(0.56rem * var(--widget-text-scale, 1));
   font-weight: 700;
   line-height: 1;
 }
@@ -91,7 +91,7 @@
   background: var(--panel-muted);
   color: var(--text);
   font: inherit;
-  font-size: 0.72rem;
+  font-size: calc(0.72rem * var(--widget-text-scale, 1));
 }
 .widget-rss-search:focus {
   border-color: var(--accent);
@@ -104,7 +104,7 @@
   background: var(--panel-muted);
   color: var(--text-muted);
   font: inherit;
-  font-size: 0.65rem;
+  font-size: calc(0.65rem * var(--widget-text-scale, 1));
   cursor: pointer;
 }
 .widget-rss-mark-read:hover,
@@ -125,7 +125,7 @@
   border-radius: 7px;
   background: var(--panel-muted);
   color: var(--text-muted);
-  font-size: 0.64rem;
+  font-size: calc(0.64rem * var(--widget-text-scale, 1));
   line-height: 1.35;
 }
 .widget-rss-status .is-error {
@@ -203,7 +203,7 @@
   min-width: 0;
   overflow: hidden;
   color: var(--text);
-  font-size: 0.76rem;
+  font-size: calc(0.76rem * var(--widget-text-scale, 1));
   font-weight: 600;
   line-height: 1.35;
   text-decoration: none;
@@ -224,7 +224,7 @@
   border: 0;
   background: transparent;
   color: var(--text-muted);
-  font-size: 0.86rem;
+  font-size: calc(0.86rem * var(--widget-text-scale, 1));
   line-height: 1;
   cursor: pointer;
 }
@@ -239,7 +239,7 @@
   min-width: 0;
   gap: 8px;
   color: var(--text-muted);
-  font-size: 0.6rem;
+  font-size: calc(0.6rem * var(--widget-text-scale, 1));
   line-height: 1.2;
 }
 .widget-rss-meta span {
@@ -257,7 +257,7 @@
   margin: 0;
   overflow: hidden;
   color: var(--text-muted);
-  font-size: 0.68rem;
+  font-size: calc(0.68rem * var(--widget-text-scale, 1));
   line-height: 1.4;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 3;
@@ -265,7 +265,7 @@
 .widget-rss-empty {
   padding: 20px 12px;
   color: var(--text-muted);
-  font-size: 0.72rem;
+  font-size: calc(0.72rem * var(--widget-text-scale, 1));
   line-height: 1.45;
   text-align: center;
 }
@@ -283,7 +283,7 @@
 }
 .rss-settings-feed-label {
   color: var(--text);
-  font-size: 0.82rem;
+  font-size: calc(0.82rem * var(--widget-text-scale, 1));
 }
 .rss-settings-feed-list {
   display: flex;
@@ -323,7 +323,7 @@
 .rss-settings-feed-actions .icon-btn.is-danger {
   border: 1px solid var(--danger);
   color: var(--danger);
-  font-size: 1rem;
+  font-size: calc(1rem * var(--widget-text-scale, 1));
   font-weight: 700;
 }
 .rss-settings-add-feed {

@@ -302,6 +302,10 @@ function applySettings() {
   r.setProperty('--title-font-size', `${sectionSize('title', 'titleFontSize', preset.title)}px`);
   r.setProperty('--title-line-thickness', `${overrides.title ? style.titleLineThickness : 1}px`);
   r.setProperty('--global-font-color', globalColor);
+  const widgetFontScale = ['90', '100', '115', '130', '150'].includes(String(style.widgetFontScale))
+    ? Number(style.widgetFontScale) / 100
+    : 1;
+  r.setProperty('--widget-text-scale', String(widgetFontScale));
   r.setProperty('--board-title-font-size', `${sectionSize('boardTitle', 'boardTitleFontSize', preset.boardTitle)}px`);
   r.setProperty('--tags-display', s.showTags ? 'flex' : 'none');
   r.setProperty('--tags-grid-display', s.showTags ? 'grid' : 'none');
@@ -465,18 +469,17 @@ function renderInboxPanel(options = {}) {
   clearUnusedWidgetRuntimes();
 }
 
-function renderAll() {
+function prepareRenderState() {
   invalidateDerivedCaches();
   syncBoardCompatibilityState();
   if (state.activeBoardId && !state.activeTabId) {
     const activeBoard = state.boards.find(b => b.id === state.activeBoardId);
     state.activeTabId = activeBoard?.tabs?.[0]?.id || null;
   }
-  applySettings();
-  elements.hubNameEl.textContent = state.hubName || 'Cyrune Portal';
-  document.title = state.hubName || 'Cyrune Portal';
-  renderNav();
-  renderEssentials();
+}
+
+function renderContentSurfaces(options = {}) {
+  if (options.prepare !== false) prepareRenderState();
   renderBoard({ reuseDerivedCaches: true });
   updateInboxBadge();
   if (typeof updateImportManagerBadge === 'function') updateImportManagerBadge();
@@ -491,6 +494,16 @@ function renderAll() {
   if (typeof setsManagerPanelOpen !== 'undefined' && setsManagerPanelOpen && typeof renderSetManagerPanel === 'function') {
     renderSetManagerPanel();
   }
+}
+
+function renderAll() {
+  prepareRenderState();
+  applySettings();
+  elements.hubNameEl.textContent = state.hubName || 'Cyrune Portal';
+  document.title = state.hubName || 'Cyrune Portal';
+  renderNav();
+  renderEssentials();
+  renderContentSurfaces({ prepare: false });
 }
 
 function _showTagPicker(show) {

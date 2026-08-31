@@ -311,7 +311,7 @@ function buildCommandPaletteEntries() {
       group: 'Games',
       label: entry.item.title || 'Game',
       detail: `${entry.location} · ${status.state === 'ready' ? 'Ready' : status.state}`,
-      keywords: `game emugui launch play ${(entry.item.tags || []).map(id => resolveTag(id)?.name || id).join(' ')}`,
+      keywords: `game arcade launch play ${(entry.item.tags || []).map(id => resolveTag(id)?.name || id).join(' ')}`,
       run: () => void launchGameShortcut(entry.item)
     });
   }

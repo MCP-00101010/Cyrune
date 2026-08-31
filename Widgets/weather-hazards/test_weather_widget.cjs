@@ -28,6 +28,8 @@ function loadWidgets(fetchImpl = async () => ({ ok: true, json: async () => ({})
   vm.runInContext(fs.readFileSync(networkFilename, 'utf8'), context, { filename: networkFilename });
   const filename = path.join(__dirname, '..', 'core', 'widgets.js');
   vm.runInContext(fs.readFileSync(filename, 'utf8'), context, { filename });
+  const responseFilename = path.join(__dirname, '..', 'core', 'widget-response.js');
+  vm.runInContext(fs.readFileSync(responseFilename, 'utf8'), context, { filename: responseFilename });
   const sdkFilename = path.join(__dirname, '..', 'core', 'widget-sdk.js');
   vm.runInContext(fs.readFileSync(sdkFilename, 'utf8'), context, { filename: sdkFilename });
   for (const moduleName of ['weather-widget.js', 'weather-map-widget.js']) {

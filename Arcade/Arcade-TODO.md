@@ -1,15 +1,12 @@
 # Cyrune Arcade TODO
 
-## Component Versioning
+## Versioning Follow-up
 
-- Introduce an independent semantic Arcade version with one authoritative declaration, a matching component manifest, visible About/status reporting, changelog enforcement, and repository validation without coupling it to Portal or Relay releases.
+- Surface the authoritative Arcade component version in a compact visible About/status view; its manifest, Nexus reporting, changelog enforcement and repository validation are implemented.
 
 ## Metadata Editing
 
 - Extend the first-pass metadata editor with dedicated `Set Country` and `Set Language` quick actions.
-- Replace comma-separated country/language inputs with proper searchable multi-select controls.
-- Add preview-before-save for TOSEC filename changes.
-- Add undo/history for rename and metadata edits.
 - Preserve existing TOSEC-style filename structure where possible.
 - TOSEC casing rule:
   - Lowercase ISO 639-1 tags are languages, for example `(en)`, `(de)`, `(es)`, `(ru)`.
@@ -24,7 +21,6 @@
   - keep the renamed item selected if possible
   - update POK matching if title or memory tags changed
 - Bulk metadata editing exists, but needs more guardrails:
-  - dry-run summary before applying large edits
   - clearer field-specific warnings for title/system/status changes
   - optional backup of `collection-metadata.json` before bulk changes
 
@@ -41,15 +37,12 @@
 ## Performance / Large Collections
 
 - Virtual scrolling for the game list is implemented while preserving selection, launch, checkbox, context-menu, and sortable-header behaviour.
-- Reduce the initial all-games API transfer after the monorepo path migration is complete.
-  - The 2026-08-25 baseline for 12,933 games is a 16.545 MiB JSON payload, about 5.05 seconds to construct the library, 0.53 seconds to materialise API dictionaries, and 0.85 seconds to serialise them with tracing enabled.
-  - Prefer a versioned summary-record contract plus on-selection detail loading, paging, or incremental loading.
-  - Preserve fast client-side filtering and sorting, or replace them with equivalently responsive bounded service operations.
+- The summary transfer now measures 8.66 MiB for 12,933 games, about 45% below the former full payload. Add paging only if repeat runs or slower machines show this remains material.
 
 ## Reliability Follow-ups
 
 - The 2026-08-25 health pass added atomic persistence, persisted-shape validation, concurrent state protection, failed collection-switch rollback, HTTPS scraper endpoint validation, bounded job history, and regression tests. See `HEALTH-AUDIT.md`.
-- Add recoverable filesystem-plus-metadata transactions for rename/import/delete/restore workflows after the monorepo path migration.
+- Rename, delete, import, and restore now roll back filesystem and metadata changes on failure. Add a small crash-recovery journal only if real interrupted-process cases show in-memory rollback is insufficient.
 - Establish shared Ruff and type-checking policy after the final Python package layout exists; the current mypy/Python 3.14 combination crashes internally.
 
 ## Emulator Profiles

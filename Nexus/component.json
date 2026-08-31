@@ -1,10 +1,15 @@
 {
+  "schemaVersion": 1,
   "id": "nexus",
-  "name": "Cyrune Nexus",
-  "version": "0.1.9",
+  "name": "Nexus",
+  "version": "0.3.0",
+  "kind": "page",
   "entrypoint": "index.html",
-  "todo": "Nexus-TODO.md",
-  "changelog": "Nexus-CHANGELOG.md",
-  "settingsSchema": 2,
-  "statusSnapshotSchema": 2
+  "icon": "assets/icons/nexus.svg",
+  "summary": "Project health, shared variables, validation state and component coordination.",
+  "documents": { "todo": "Nexus-TODO.md", "changelog": "Nexus-CHANGELOG.md" },
+  "capabilities": ["component-registry", "project-status", "protocol-readiness", "settings-portability", "shared-settings", "validation-receipts"],
+  "protocols": { "nexus-relay": 2, "component-settings": 2 },
+  "schemas": { "settings": 2, "statusSnapshot": 2 },
+  "nexus": { "accent": "pink", "adapter": "nexus" }
 }

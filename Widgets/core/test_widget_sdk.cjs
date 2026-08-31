@@ -5,7 +5,7 @@ const test = require('node:test');
 const vm = require('node:vm');
 
 const root = path.join(__dirname, '..', '..', 'Portal');
-const sdkSource = fs.readFileSync(path.join(__dirname, 'widget-sdk.js'), 'utf8');
+const sdkSource = `${fs.readFileSync(path.join(__dirname, 'widget-response.js'), 'utf8')}\n${fs.readFileSync(path.join(__dirname, 'widget-sdk.js'), 'utf8')}`;
 
 test('standalone SDK fixture uses the Widgets component favicon', () => {
   const fixture = fs.readFileSync(path.join(__dirname, 'sdk', 'fixture.html'), 'utf8');
@@ -229,6 +229,36 @@ test('cache data stays outside portable widget state and respects descriptor quo
   assert.doesNotMatch(JSON.stringify(result.widget), /storedAt|expiresAt/);
 });
 
+test('widget presets are bounded, portable, importable, and reversible on apply', () => {
+  const context = makeContext({
+    notes: {
+      name: 'Notes', category: 'Personal & Productivity', description: 'Notes', allowedIn: ['column'],
+      defaultConfig: { colour: 'blue' }, defaultData: {}, render() {}, renderSettings() {}
+    }
+  });
+  const result = vm.runInContext(`(() => {
+    const widget = {
+      widgetType: 'notes', title: 'Work',
+      config: { colour: 'green', apiToken: 'never-export', filePath: 'C:\\\\private\\\\notes.txt' },
+      data: { text: 'portable content' }
+    };
+    const saved = WidgetSDK.presets.save(widget, 'Green work notes', { includeData: true });
+    widget.title = 'Changed'; widget.config = { colour: 'red' }; widget.data = {};
+    const applied = WidgetSDK.presets.apply(widget, saved.id);
+    const exported = WidgetSDK.presets.export('notes');
+    WidgetSDK.presets.remove(saved.id);
+    const imported = WidgetSDK.presets.import(exported, { conflict: 'replace' });
+    return { saved, widget, previous: applied.previous, imported, count: WidgetSDK.presets.list('notes').length };
+  })()`, context);
+  assert.equal(result.saved.config.colour, 'green');
+  assert.equal(result.saved.config.apiToken, undefined);
+  assert.equal(result.saved.config.filePath, undefined);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.widget.data)), { text: 'portable content' });
+  assert.equal(result.previous.title, 'Changed');
+  assert.equal(result.imported.length, 1);
+  assert.equal(result.count, 1);
+});
+
 test('runtime teardown cancels schedules and invokes cleanup once', async () => {
   const context = makeContext();
   vm.runInContext(`globalThis.ticks = 0; globalThis.cleanups = 0;
@@ -444,9 +474,41 @@ test('network requests are aborted when their widget is torn down', async () => 
   assert.equal(await pending, 'aborted');
 });
 
+test('network service enforces actual response bytes without trusting Content-Length', async () => {
+  const context = makeContext({
+    weather: {
+      name: 'Weather', category: 'Weather & Network', description: 'Forecast', allowedIn: ['column'],
+      defaultConfig: {}, defaultData: {}, render() {}, capabilities: { network: { domains: ['api.open-meteo.com'] } }
+    }
+  });
+  await assert.rejects(
+    vm.runInContext(`WidgetSDK.network.request(
+      'https://api.open-meteo.com/v1/forecast',
+      { widgetType: 'weather', maxResponseBytes: 1024 }, 1000,
+      async () => ({
+        ok: true, status: 200, headers: { get: () => null },
+        arrayBuffer: async () => new Uint8Array(2048).buffer
+      })
+    )`, context),
+    /exceeds the 1024-byte limit/
+  );
+
+  const payload = await vm.runInContext(`WidgetSDK.network.request(
+    'https://api.open-meteo.com/v1/forecast',
+    { widgetType: 'weather', maxResponseBytes: 1024 }, 1000,
+    async () => ({
+      ok: true, status: 200, statusText: 'OK', url: 'https://api.open-meteo.com/v1/forecast',
+      headers: { get: name => name === 'content-type' ? 'application/json' : null },
+      arrayBuffer: async () => Uint8Array.from([123, 34, 111, 107, 34, 58, 116, 114, 117, 101, 125]).buffer
+    })
+  ).then(response => response.json())`, context);
+  assert.deepEqual(JSON.parse(JSON.stringify(payload)), { ok: true });
+});
+
 test('SDK files are ordered and the example manifest covers the contract surface', () => {
   const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
   assert.ok(html.indexOf('../Widgets/core/widgets.js') < html.indexOf('../Widgets/core/widget-sdk.js'));
+  assert.ok(html.indexOf('../Widgets/core/widget-response.js') < html.indexOf('../Widgets/core/widget-sdk.js'));
   assert.ok(html.indexOf('../Widgets/core/widget-sdk.js') < html.indexOf('nasa-apod-widget.js'));
   assert.ok(html.indexOf('weather-widget.js') < html.indexOf('weather-map-widget.js'));
   assert.ok(html.indexOf('ip-info-widget.js') < html.indexOf('calendar-widget.js'));

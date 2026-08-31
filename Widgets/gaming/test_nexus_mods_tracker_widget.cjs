@@ -54,7 +54,7 @@ function loadTracker(fetchImpl, apiKey = 'personal-test-key') {
       createElement: () => ({ append() {}, appendChild() {} })
     }
   });
-  for (const filename of ['../Widgets/core/widget-network.js', '../Widgets/core/widgets.js', '../Widgets/core/widget-sdk.js']) {
+  for (const filename of ['../Widgets/core/widget-network.js', '../Widgets/core/widgets.js', '../Widgets/core/widget-response.js', '../Widgets/core/widget-sdk.js']) {
     vm.runInContext(fs.readFileSync(path.join(root, filename), 'utf8'), context, { filename });
   }
   vm.runInContext(trackerSource, context, { filename: 'nexus-mods-tracker-widget.js' });

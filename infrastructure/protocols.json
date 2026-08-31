@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "protocols": {
+    "arcade-relay": { "version": 1, "participants": ["arcade", "relay"], "maxMessageBytes": 1048576, "summary": "Authenticated Arcade page requests routed through Relay." },
+    "arcade-service": { "version": 1, "participants": ["arcade", "host"], "maxMessageBytes": 1048576, "summary": "Fixed-purpose Arcade service, metadata and launch operations." },
+    "component-settings": { "version": 2, "participants": ["arcade", "host", "nexus", "portal", "relay", "widgets"], "maxMessageBytes": 65536, "summary": "Revisioned shared settings with component-scoped overrides." },
+    "host-native": { "version": 2, "participants": ["host", "relay"], "maxMessageBytes": 8388608, "summary": "Bounded native messaging between Relay and Host." },
+    "nexus-relay": { "version": 2, "participants": ["nexus", "relay"], "maxMessageBytes": 524288, "summary": "Authenticated Nexus status, settings and document operations." },
+    "portal-relay": { "version": 1, "participants": ["portal", "relay"], "maxMessageBytes": 8388608, "summary": "Authenticated Portal persistence and bridge operations." },
+    "widget-sdk": { "version": 3, "participants": ["portal", "widgets"], "maxMessageBytes": 1048576, "summary": "Widget descriptor, bridge and provider contract." }
+  }
+}

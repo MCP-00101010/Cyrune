@@ -1,6 +1,6 @@
 from types import SimpleNamespace
 
-from emugui_core.scraping import ScraperAdapter, ScraperService
+from arcade_core.scraping import ScraperAdapter, ScraperService
 
 
 def test_scraper_service_routes_configured_providers_and_contains_errors():
@@ -35,3 +35,19 @@ def test_scraper_service_enforces_provider_state_before_dispatch():
     assert service.preview("jetpac", "disabled")["error"] == "Disabled is disabled"
     assert service.preview("jetpac", "unconfigured")["error"] == "Needs Setup is not configured yet"
     assert "not implemented" in service.preview("jetpac", "future")["error"]
+
+
+def test_scraper_service_enforces_optional_network_policy():
+    service = ScraperService(
+        get_game=lambda _game_id: object(),
+        provider_config=lambda: {
+            "remote": {"type": "remote", "name": "Remote", "enabled": True, "configured": True},
+        },
+        adapters={"remote": ScraperAdapter("remote", lambda *_args: {"ok": True})},
+        optional_network_allowed=lambda: False,
+    )
+
+    assert service.preview("game", "remote") == {
+        "ok": False,
+        "error": "Optional network access is disabled in Cyrune Nexus",
+    }

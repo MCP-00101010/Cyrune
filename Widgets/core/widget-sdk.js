@@ -14,6 +14,9 @@ const WIDGET_SDK_CAPABILITIES = Object.freeze([
 const WIDGET_SDK_ASSET_DB_NAME = 'morpheus-widget-sdk-assets-v1';
 const WIDGET_SDK_ASSET_DB_VERSION = 1;
 const WIDGET_SDK_DEFAULT_ASSET_QUOTA = 64 * 1024 * 1024;
+const WIDGET_SDK_PRESET_KEY = 'morpheus-widget-sdk-presets:v1';
+const WIDGET_SDK_PRESET_LIMIT = 64;
+const WIDGET_SDK_PRESET_MAX_BYTES = 64 * 1024;
 
 const WIDGET_BUILTIN_MANIFEST = Object.freeze({
   clock: { capabilities: { timers: true }, responsive: { minWidth: 160, preferredWidth: 260, compactBelow: 210 } },
@@ -58,6 +61,10 @@ const WIDGET_BUILTIN_MANIFEST = Object.freeze({
       extensionRelay: { optional: true }, secureCredentials: { optional: true }, timers: true, localCache: { quotaBytes: 512 * 1024 }
     },
     responsive: { minWidth: 300, preferredWidth: 680 }
+  },
+  dailyBriefing: {
+    capabilities: { timers: true, localCache: { quotaBytes: 128 * 1024 } },
+    responsive: { minWidth: 240, preferredWidth: 560, compactBelow: 340 }
   },
   calculatorConverter: {
     capabilities: { localCache: { quotaBytes: 128 * 1024 } },
@@ -138,6 +145,131 @@ function _widgetSdkClone(value) {
     try { return structuredClone(value); } catch {}
   }
   return JSON.parse(JSON.stringify(value));
+}
+
+function _widgetSdkPresetRecords() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(WIDGET_SDK_PRESET_KEY) || '[]');
+    return Array.isArray(parsed) ? parsed.filter(record => record && typeof record === 'object') : [];
+  } catch {
+    return [];
+  }
+}
+
+function _widgetSdkPresetPortableValue(value, key = '') {
+  if (/password|secret|credential|api[-_]?key|token|filesystem|file[-_]?path|native[-_]?path/i.test(key)) return undefined;
+  if (typeof value === 'string' && (/^(?:[a-z]:[\\/]|\\\\|file:\/\/)/i.test(value.trim()))) return undefined;
+  if (Array.isArray(value)) return value.map(item => _widgetSdkPresetPortableValue(item)).filter(item => item !== undefined);
+  if (value && typeof value === 'object') {
+    const portable = {};
+    Object.entries(value).forEach(([childKey, childValue]) => {
+      const sanitized = _widgetSdkPresetPortableValue(childValue, childKey);
+      if (sanitized !== undefined) portable[childKey] = sanitized;
+    });
+    return portable;
+  }
+  return ['string', 'number', 'boolean'].includes(typeof value) || value === null ? value : undefined;
+}
+
+function _widgetSdkPresetNormalize(record) {
+  const widgetType = String(record?.widgetType || '').trim();
+  if (!WIDGET_REGISTRY[widgetType]) throw new Error(`Unknown widget type: ${widgetType || '(missing)'}.`);
+  const name = String(record?.name || '').trim().slice(0, 80);
+  if (!name) throw new Error('Preset name is required.');
+  const normalized = {
+    schemaVersion: 1,
+    id: String(record?.id || `${widgetType}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`).slice(0, 120),
+    widgetType,
+    name,
+    title: String(record?.title || '').slice(0, 160),
+    config: _widgetSdkPresetPortableValue(record?.config || {}) || {},
+    updatedAt: new Date().toISOString()
+  };
+  if (record?.includeData === true || record?.data !== undefined) normalized.data = _widgetSdkPresetPortableValue(record?.data || {}) || {};
+  if (JSON.stringify(normalized).length > WIDGET_SDK_PRESET_MAX_BYTES) throw new Error(`Preset exceeds the ${WIDGET_SDK_PRESET_MAX_BYTES / 1024} KiB limit.`);
+  return normalized;
+}
+
+function _widgetSdkPresetWrite(records) {
+  if (!Array.isArray(records) || records.length > WIDGET_SDK_PRESET_LIMIT) throw new Error(`A maximum of ${WIDGET_SDK_PRESET_LIMIT} widget presets is supported.`);
+  localStorage.setItem(WIDGET_SDK_PRESET_KEY, JSON.stringify(records));
+}
+
+function _widgetSdkPresetList(widgetType = '') {
+  const requestedType = String(widgetType || '');
+  return _widgetSdkPresetRecords()
+    .filter(record => !requestedType || record.widgetType === requestedType)
+    .map(_widgetSdkClone)
+    .sort((left, right) => left.name.localeCompare(right.name));
+}
+
+function _widgetSdkPresetSave(widget, name, options = {}) {
+  const normalized = _widgetSdkPresetNormalize({
+    id: options.id,
+    widgetType: widget?.widgetType,
+    name,
+    title: widget?.title,
+    config: widget?.config,
+    data: options.includeData === true ? widget?.data : undefined,
+    includeData: options.includeData === true
+  });
+  const records = _widgetSdkPresetRecords();
+  const existingIndex = records.findIndex(record => record.id === normalized.id);
+  if (existingIndex >= 0) records[existingIndex] = normalized;
+  else records.push(normalized);
+  _widgetSdkPresetWrite(records);
+  return _widgetSdkClone(normalized);
+}
+
+function _widgetSdkPresetRemove(id) {
+  const records = _widgetSdkPresetRecords();
+  const next = records.filter(record => record.id !== String(id));
+  if (next.length === records.length) return false;
+  _widgetSdkPresetWrite(next);
+  return true;
+}
+
+function _widgetSdkPresetApply(widget, presetOrId) {
+  const preset = typeof presetOrId === 'string' ? _widgetSdkPresetRecords().find(record => record.id === presetOrId) : presetOrId;
+  const normalized = _widgetSdkPresetNormalize(preset);
+  if (normalized.widgetType !== widget?.widgetType) throw new Error('Preset belongs to a different widget type.');
+  const previous = { title: widget.title, config: _widgetSdkClone(widget.config || {}), data: _widgetSdkClone(widget.data || {}) };
+  widget.title = normalized.title || widget.title;
+  widget.config = { ..._widgetSdkClone(WIDGET_REGISTRY[widget.widgetType]?.defaultConfig || {}), ..._widgetSdkClone(normalized.config) };
+  if (normalized.data !== undefined) widget.data = _widgetSdkClone(normalized.data);
+  return { preset: _widgetSdkClone(normalized), previous };
+}
+
+function _widgetSdkPresetExport(widgetType = '') {
+  return JSON.stringify({ schemaVersion: 1, presets: _widgetSdkPresetList(widgetType) }, null, 2);
+}
+
+function _widgetSdkPresetImport(payload, options = {}) {
+  const document = typeof payload === 'string' ? JSON.parse(payload) : payload;
+  if (document?.schemaVersion !== 1 || !Array.isArray(document.presets)) throw new Error('Unsupported widget preset document.');
+  const strategy = ['skip', 'replace', 'rename'].includes(options.conflict) ? options.conflict : 'rename';
+  const records = _widgetSdkPresetRecords();
+  const imported = [];
+  document.presets.forEach(candidate => {
+    let normalized = _widgetSdkPresetNormalize(candidate);
+    const conflictIndex = records.findIndex(record => record.id === normalized.id || (record.widgetType === normalized.widgetType && record.name.toLowerCase() === normalized.name.toLowerCase()));
+    if (conflictIndex >= 0 && strategy === 'skip') return;
+    if (conflictIndex >= 0 && strategy === 'replace') {
+      normalized.id = records[conflictIndex].id;
+      records[conflictIndex] = normalized;
+    } else {
+      if (conflictIndex >= 0) {
+        const baseName = normalized.name;
+        let suffix = 2;
+        while (records.some(record => record.widgetType === normalized.widgetType && record.name.toLowerCase() === normalized.name.toLowerCase())) normalized.name = `${baseName} (${suffix++})`.slice(0, 80);
+        normalized.id = `${normalized.widgetType}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      }
+      records.push(normalized);
+    }
+    imported.push(_widgetSdkClone(normalized));
+  });
+  _widgetSdkPresetWrite(records);
+  return imported;
 }
 
 function _widgetSdkSettingsSchema(defaultConfig) {
@@ -634,9 +766,7 @@ function _widgetSdkNetworkRequest(input, options, timeoutMs, executor) {
         try {
           const response = await executor(input, { ...options, signal: controller?.signal || parentSignal, __widgetSdkManaged: true }, timeoutMs);
           const maxBytes = Math.max(1024, Number(options.maxResponseBytes) || WIDGET_SDK_MAX_RESPONSE_BYTES);
-          const contentLength = Number(response?.headers?.get?.('content-length') || 0);
-          if (contentLength > maxBytes) throw new Error(`Widget response exceeds the ${maxBytes}-byte limit.`);
-          return response;
+          return await WidgetResponseBuffer.bound(response, maxBytes, controller);
         } finally {
           if (requestKey && _widgetSdkNetworkState.get(requestKey) === state) _widgetSdkNetworkState.delete(requestKey);
           parentSignal?.removeEventListener?.('abort', abortFromParent);
@@ -757,6 +887,7 @@ const WidgetSDK = Object.freeze({
     subscribeShared: listener => globalThis.CyruneSettings?.subscribe?.(listener) || (() => {}),
     resolve: _widgetSdkResolveSharedSetting
   }),
+  presets: Object.freeze({ list: _widgetSdkPresetList, save: _widgetSdkPresetSave, remove: _widgetSdkPresetRemove, apply: _widgetSdkPresetApply, export: _widgetSdkPresetExport, import: _widgetSdkPresetImport }),
   state: Object.freeze({ migrate: _widgetSdkMigrateState }),
   cache: Object.freeze({ get: _widgetSdkCacheGet, set: _widgetSdkCacheSet, remove: _widgetSdkCacheRemove, migrateLegacy: _widgetSdkCacheMigrateLegacy }),
   assets: Object.freeze({ metadata: _widgetSdkAssetMetadata, list: _widgetSdkAssetList, get: _widgetSdkAssetGet, set: _widgetSdkAssetSet, remove: _widgetSdkAssetRemove, clear: _widgetSdkAssetClear }),

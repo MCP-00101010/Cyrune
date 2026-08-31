@@ -44,6 +44,7 @@ const context = vm.createContext({
   isDynamicFolder: folder => folder.folderMode === 'dynamic',
   saveState: () => Promise.resolve(),
   renderBoard: () => {},
+  renderContentSurfaces: () => {},
   renderAll: () => {},
   pushUndoSnapshot: () => {},
   showNotice: message => { noticeMessage = message; },

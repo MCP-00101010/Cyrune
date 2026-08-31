@@ -1,8 +1,8 @@
 from pathlib import Path
 from types import SimpleNamespace
 
-import emugui_core.launching as launching
-from emugui_core.launching import (
+import arcade_core.launching as launching
+from arcade_core.launching import (
     GameLaunchService,
     emulator_adapter,
     launch_visible,

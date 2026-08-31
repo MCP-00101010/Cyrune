@@ -5,6 +5,52 @@ Format: `[version] — date` followed by Added / Changed / Fixed sections.
 
 ---
 
+## [0.12.0] — 2026-08-31
+
+### Added
+
+- Added Relay-owned authoritative Portal storage for installations without Host disk persistence, including revision/content-hash compare-and-swap saves, verified legacy browser-snapshot migration, and cross-tab change refreshes.
+- Added an explicit cached read-only mode that restores attempted mutations and reconnects to authoritative storage automatically.
+- Added Widget text-size controls and reusable preset controls to the Widget settings panel.
+
+### Changed
+
+- Portal database startup, reload, recovery, external delivery, and saves now use the authenticated Relay authority in either Host or Relay storage mode.
+- External Relay deliveries to Import Manager now refresh its staged-item badge and any already-open panel without automatically opening the manager or interrupting the active Portal view.
+
+### Validation
+
+- The coordinated release gate passes all 101 Portal tests, JavaScript syntax checks, shared migration/packaging/tooling suites, infrastructure and version validation, zero-warning Relay lint, and sanitized Nexus receipt generation.
+
+## [0.11.228] — 2026-08-31
+
+### Changed
+
+- Added Portal's schema-1 component manifest with its version, entry point, icon, capabilities, protocol contracts, portable-state schema and Nexus document metadata.
+- Portal version metadata now participates in the generated Nexus registry and coordinated infrastructure validation.
+- Replaced the implicit portable-state schema jump with an ordered migration registry and explicit rejection of data written by a newer Portal release.
+
+### Validation
+
+- All 98 Portal tests pass. Manifest paths, protocol declarations, generated-registry freshness, application/display version alignment, JavaScript syntax and the full coordinated release gate also pass.
+
+## [0.11.227] — 2026-08-31
+
+### Changed
+
+- Coalesced same-turn browser-cache writes so rapid edits persist only the newest snapshot while keeping the existing authoritative Relay save ordering.
+- Bounded Undo history by both entry count and serialized bytes, skipped duplicate snapshots, and moved background-asset handling and drop-zone styling into focused source modules.
+- Binding status refreshes now update only board, search, Inbox, Import Manager, and Sets surfaces rather than rebuilding navigation, essentials, and settings.
+- Added canonical Arcade bridge and launcher names in active Portal code while retaining the old bridge method aliases and wire identifiers for compatibility.
+
+### Fixed
+
+- Large Portal states can no longer retain an effectively unbounded Undo payload in memory.
+
+### Validation
+
+- All 97 Portal tests pass, including write coalescing, compatibility aliases, targeted rendering, module ordering, opaque asset sessions, and the updated fixed-purpose persistence path; the coordinated repository validator also passes.
+
 ## [0.11.226] — 2026-08-31
 
 ### Changed

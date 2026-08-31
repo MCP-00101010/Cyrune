@@ -33,7 +33,7 @@ function loadApod(fetchImpl) {
       createElement: () => ({ append() {}, appendChild() {} })
     }
   });
-  for (const filename of ['../Widgets/core/widget-network.js', '../Widgets/core/widgets.js', '../Widgets/core/widget-sdk.js', '../Widgets/space-astronomy/nasa-apod-widget.js']) {
+  for (const filename of ['../Widgets/core/widget-network.js', '../Widgets/core/widgets.js', '../Widgets/core/widget-response.js', '../Widgets/core/widget-sdk.js', '../Widgets/space-astronomy/nasa-apod-widget.js']) {
     vm.runInContext(fs.readFileSync(path.join(root, filename), 'utf8'), context, { filename });
   }
   vm.runInContext('WidgetSDK.registry.adoptBuiltins()', context);

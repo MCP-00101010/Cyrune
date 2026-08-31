@@ -10,8 +10,9 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$componentVersion = (Get-Content -LiteralPath (Join-Path $scriptDir 'component.json') -Raw | ConvertFrom-Json).version
 
-Write-Host "Cyrune Host installer" -ForegroundColor Cyan
+Write-Host "Cyrune Host $componentVersion installer" -ForegroundColor Cyan
 Write-Host ""
 
 # --- Find Python ---
@@ -65,6 +66,7 @@ if (-not (Test-Path $configDir)) { New-Item -ItemType Directory -Path $configDir
 if (-not (Test-Path $configPath)) {
     $config = [ordered]@{
         databasePath = ""
+        arcadeRoot = ""
         emuguiRoot = ""
         approvedDirectories = @{}
         approvedApplications = @{}
@@ -83,7 +85,7 @@ if (-not (Test-Path $manifestDir)) { New-Item -ItemType Directory -Path $manifes
 
 $manifest = [ordered]@{
     name                = "morpheus_webhub"
-    description         = "Cyrune native messaging host"
+    description         = "Cyrune Host $componentVersion"
     path                = $batPath
     type                = "stdio"
     allowed_extensions  = @($allowedExtensionIds)

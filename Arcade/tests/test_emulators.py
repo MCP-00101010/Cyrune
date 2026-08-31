@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from emugui_core.emulators import EmulatorConfigError, EmulatorConfigService, validate_emulator
+from arcade_core.emulators import EmulatorConfigError, EmulatorConfigService, validate_emulator
 
 
 def make_service(tmp_path):

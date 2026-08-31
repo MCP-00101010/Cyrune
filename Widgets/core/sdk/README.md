@@ -18,8 +18,9 @@ Network capabilities list exact hostnames. Use `user-configured` only when the U
 
 - `WidgetSDK.runtime.schedule(key, task, intervalMs)` provides one visibility-aware schedule per key, error backoff, and cancellation.
 - `WidgetSDK.runtime.requestFrame(key, callback)` provides a cancellable animation frame that is included in widget teardown.
-- `WidgetSDK.network.request(...)` is used by the Portal network helper to enforce declared domains, concurrency, timeouts, and response-size bounds.
+- `WidgetSDK.network.request(...)` is used by the Portal network helper to enforce declared domains, concurrency, timeouts, and response-size bounds. `widget-response.js` verifies the actual streamed body size and returns a reusable response-like buffer; `Content-Length` is only an early rejection hint.
 - `WidgetSDK.cache.get/set/remove(widgetType, widgetId, key)` stores small browser-local, expiring values within a per-widget quota; `migrateLegacy(...)` moves an older local-storage entry into that namespace once.
+- `WidgetSDK.presets.list/save/apply/remove/export/import(...)` manages bounded reusable browser-local presets. Portable configuration is included by default; user content is opt-in, while credentials, cache/runtime state, and machine-local paths are excluded. Import conflicts support rename, replace, or skip, and applying inside Portal settings remains reversible with Cancel.
 - `WidgetSDK.assets.metadata/list/get/set/remove/clear(widgetType, key)` stores explicitly declared large binary assets in IndexedDB, outside portable Portal state and the small local-storage cache.
 - `WidgetSDK.extensionRelay.invoke(widgetType, method, ...args)` and `supports(...)` gate optional extension operations behind the descriptor capability.
 - `WidgetSDK.nativeHost.invoke(widgetType, method, ...args)` and `supports(...)` gate fixed-purpose native operations behind the descriptor capability and native availability.

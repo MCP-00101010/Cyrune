@@ -28,7 +28,7 @@
 .translator-language-select {
   height: 34px;
   padding: 0 8px;
-  font-size: 12px;
+  font-size:calc(12px * var(--widget-text-scale, 1));
 }
 
 .translator-swap,
@@ -46,7 +46,7 @@
   height: 34px;
   padding: 0;
   color: var(--accent);
-  font-size: 18px;
+  font-size:calc(18px * var(--widget-text-scale, 1));
 }
 
 .translator-input,
@@ -55,7 +55,7 @@
   resize: vertical;
   padding: 10px;
   font: inherit;
-  font-size: 13px;
+  font-size:calc(13px * var(--widget-text-scale, 1));
   line-height: 1.45;
   cursor: text;
   user-select: text;
@@ -71,7 +71,7 @@
   justify-content: flex-end;
   margin-top: -5px;
   color: var(--text-muted);
-  font-size: 10px;
+  font-size:calc(10px * var(--widget-text-scale, 1));
 }
 
 .translator-actions {
@@ -83,7 +83,7 @@
 .translator-actions button {
   min-height: 31px;
   padding: 6px 10px;
-  font-size: 11px;
+  font-size:calc(11px * var(--widget-text-scale, 1));
 }
 
 .translator-actions .translator-primary {
@@ -112,7 +112,7 @@
 .translator-status {
   min-height: 15px;
   color: var(--text-muted);
-  font-size: 10px;
+  font-size:calc(10px * var(--widget-text-scale, 1));
   line-height: 1.4;
 }
 
@@ -129,7 +129,7 @@
 .translator-history summary {
   color: var(--text-muted);
   cursor: pointer;
-  font-size: 11px;
+  font-size:calc(11px * var(--widget-text-scale, 1));
 }
 
 .translator-history-list {
@@ -159,7 +159,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 10px;
+  font-size:calc(10px * var(--widget-text-scale, 1));
 }
 
 .translator-history-item strong {
@@ -187,7 +187,7 @@
 .translator-model-detail span,
 .translator-model-message {
   color: var(--text-muted);
-  font-size: 11px;
+  font-size:calc(11px * var(--widget-text-scale, 1));
   line-height: 1.4;
 }
 

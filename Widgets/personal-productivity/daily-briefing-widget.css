@@ -1,0 +1,64 @@
+.widget-daily-briefing {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.daily-briefing-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--text);
+}
+
+.daily-briefing-header span,
+.daily-briefing-section small,
+.daily-briefing-empty {
+  color: var(--muted);
+  font-size: calc(0.76rem * var(--widget-text-scale, 1));
+}
+
+.daily-briefing-section {
+  display: grid;
+  gap: 5px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.daily-briefing-section h4,
+.daily-briefing-section p {
+  margin: 0;
+}
+
+.daily-briefing-section h4 {
+  font-size: calc(0.82rem * var(--widget-text-scale, 1));
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--accent);
+}
+
+.daily-briefing-section ul {
+  display: grid;
+  gap: 5px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.daily-briefing-section li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: baseline;
+}
+
+.daily-briefing-section li > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.daily-briefing-section small {
+  text-align: right;
+}

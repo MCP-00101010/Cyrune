@@ -33,3 +33,32 @@ test('Import Manager exposes distinct item and path selectors', () => {
   assert.match(importSource, /function getImportManagerItemById\(itemId,/);
   assert.doesNotMatch(`${stateSource}\n${importSource}`, /function findImportManagerItemById\(/);
 });
+
+test('Undo history uses canonical snapshots with duplicate and memory bounds', () => {
+  const appSource = fs.readFileSync(path.join(__dirname, '..', 'source', 'app.js'), 'utf8');
+  assert.match(appSource, /const MAX_UNDO_BYTES = 8 \* 1024 \* 1024/);
+  assert.match(appSource, /serializeStateSnapshot\(\)/);
+  assert.match(appSource, /undoStack\[undoStack\.length - 1\] === snapshot/);
+  assert.match(appSource, /trimHistoryStack\(undoStack, undoStackBytes\)/);
+  assert.match(appSource, /trimHistoryStack\(redoStack, redoStackBytes\)/);
+});
+
+test('binding status changes use targeted content rendering', () => {
+  const renderSource = fs.readFileSync(path.join(__dirname, '..', 'source', 'render.js'), 'utf8');
+  const gameSource = fs.readFileSync(path.join(__dirname, '..', 'source', 'game-launcher.js'), 'utf8');
+  const applicationSource = fs.readFileSync(path.join(__dirname, '..', 'source', 'application-launcher.js'), 'utf8');
+  assert.match(renderSource, /function renderContentSurfaces\(options = \{\}\)/);
+  assert.match(renderSource, /renderContentSurfaces\(\{ prepare: false \}\)/);
+  assert.match(gameSource, /renderContentSurfaces\(\)/);
+  assert.match(applicationSource, /renderContentSurfaces\(\)/);
+});
+
+test('background asset presentation is split from the main stylesheet', () => {
+  const root = path.join(__dirname, '..');
+  const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
+  const styles = fs.readFileSync(path.join(root, 'source', 'styles.css'), 'utf8');
+  const backgroundStyles = fs.readFileSync(path.join(root, 'source', 'background-assets.css'), 'utf8');
+  assert.match(html, /source\/background-assets\.css/);
+  assert.doesNotMatch(styles, /\.bg-drop-zone\s*\{/);
+  assert.match(backgroundStyles, /\.bg-drop-zone\.has-preview/);
+});

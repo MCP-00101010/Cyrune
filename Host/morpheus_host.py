@@ -11,6 +11,7 @@ import os
 import shutil
 import time
 import base64
+import binascii
 import mimetypes
 import urllib.request
 import urllib.parse
@@ -63,10 +64,12 @@ NEXUS_DATA_ROOT = default_nexus_data_root()
 NEXUS_SETTINGS_PATH = os.path.join(NEXUS_DATA_ROOT, 'settings.json')
 NEXUS_HISTORY_PATH = os.path.join(NEXUS_DATA_ROOT, 'settings-history.json')
 NEXUS_VALIDATION_PATH = os.path.join(NEXUS_DATA_ROOT, 'validation.json')
+NEXUS_EVENTS_PATH = os.path.join(NEXUS_DATA_ROOT, 'events.json')
 NEXUS_SETTINGS_SCHEMA_VERSION = 2
 MAX_NEXUS_SETTINGS_BYTES = 64 * 1024
 MAX_NEXUS_DOCUMENT_BYTES = 512 * 1024
 MAX_NEXUS_HISTORY = 100
+MAX_NEXUS_EVENTS = 200
 MAX_DOWNLOAD_BYTES = 25 * 1024 * 1024
 MAX_FAVICON_BYTES = 1024 * 1024
 MAX_APPLICATION_ICON_BYTES = 480 * 1024
@@ -94,6 +97,17 @@ EMUGUI_TRANSFER_TTL_SECONDS = 180
 EMUGUI_MODULE = None
 EMUGUI_MODULE_PATH = ''
 EMUGUI_TRANSFERS = {}
+PORTAL_ASSET_WRITE_SESSIONS = {}
+
+HOST_COMPONENT_MANIFEST_PATH = os.path.join(HOST_DIR, 'component.json')
+try:
+    with open(HOST_COMPONENT_MANIFEST_PATH, 'r', encoding='utf-8') as _host_manifest_file:
+        HOST_COMPONENT_MANIFEST = json.load(_host_manifest_file)
+except (OSError, json.JSONDecodeError):
+    HOST_COMPONENT_MANIFEST = {}
+HOST_VERSION = str(HOST_COMPONENT_MANIFEST.get('version') or 'Unknown')
+HOST_PROTOCOLS = dict(HOST_COMPONENT_MANIFEST.get('protocols') or {})
+HOST_CAPABILITIES = list(HOST_COMPONENT_MANIFEST.get('capabilities') or [])
 
 
 # ---------------------------------------------------------------------------
@@ -798,6 +812,67 @@ def atomic_write_text(path, content):
                 pass
 
 
+NEXUS_EVENT_SUMMARIES = {
+    'settings-conflict': 'A stale Nexus settings revision was rejected.',
+    'settings-saved': 'Authoritative Nexus settings were updated.',
+    'status-failed': 'A Nexus status snapshot could not be produced.'
+}
+
+
+def _record_nexus_event_unlocked(component, code, severity='info'):
+    """Persist one bounded operational event without paths, payloads or exception text."""
+    if component not in {'portal', 'widgets', 'arcade', 'relay', 'host', 'nexus'}:
+        raise ValueError('Unsupported event component')
+    if code not in NEXUS_EVENT_SUMMARIES or severity not in {'info', 'attention', 'error'}:
+        raise ValueError('Unsupported operational event')
+    events = []
+    try:
+        if os.path.getsize(NEXUS_EVENTS_PATH) <= 256 * 1024:
+            with open(NEXUS_EVENTS_PATH, 'r', encoding='utf-8') as source:
+                loaded = json.load(source)
+            if isinstance(loaded, list):
+                events = [item for item in loaded if isinstance(item, dict)][-MAX_NEXUS_EVENTS + 1:]
+    except (FileNotFoundError, OSError, json.JSONDecodeError):
+        events = []
+    events.append({
+        'component': component,
+        'code': code,
+        'severity': severity,
+        'summary': NEXUS_EVENT_SUMMARIES[code],
+        'timestamp': int(time.time() * 1000)
+    })
+    atomic_write_text(NEXUS_EVENTS_PATH, json.dumps(events, ensure_ascii=False, indent=2) + '\n')
+
+
+def record_nexus_event(component, code, severity='info'):
+    with database_write_lock(NEXUS_EVENTS_PATH):
+        _record_nexus_event_unlocked(component, code, severity)
+
+
+def sanitized_nexus_events():
+    try:
+        if os.path.getsize(NEXUS_EVENTS_PATH) > 256 * 1024:
+            return []
+        with open(NEXUS_EVENTS_PATH, 'r', encoding='utf-8') as source:
+            events = json.load(source)
+    except (FileNotFoundError, OSError, json.JSONDecodeError):
+        return []
+    sanitized = []
+    for event in events[-MAX_NEXUS_EVENTS:]:
+        if not isinstance(event, dict):
+            continue
+        component = event.get('component')
+        code = event.get('code')
+        severity = event.get('severity')
+        timestamp = event.get('timestamp')
+        if (component in {'portal', 'widgets', 'arcade', 'relay', 'host', 'nexus'}
+                and code in NEXUS_EVENT_SUMMARIES and severity in {'info', 'attention', 'error'}
+                and isinstance(timestamp, int) and not isinstance(timestamp, bool) and timestamp >= 0):
+            sanitized.append({'component': component, 'code': code, 'severity': severity,
+                              'summary': NEXUS_EVENT_SUMMARIES[code], 'timestamp': timestamp})
+    return sanitized
+
+
 def write_file_if_unchanged(path, content, expected_version=None, expected_hash=''):
     with database_write_lock(path):
         current_info = get_file_info(path, include_hash=True)
@@ -1028,15 +1103,263 @@ def load_config():
     return {}
 
 
+def configured_portal_database_path(required=False):
+    """Resolve the one Host-owned Portal database target."""
+    configured = str(load_config().get('databasePath', '') or '').strip()
+    path = os.path.realpath(configured) if configured else ''
+    if required and not path:
+        raise ValueError('The Portal database is not configured')
+    return path
+
+
+def portal_storage_config():
+    """Return only the Portal storage field Relay needs during compatibility cutover."""
+    return {'databasePath': configured_portal_database_path()}
+
+
+def set_portal_database_path(path):
+    candidate = str(path or '').strip()
+    if candidate:
+        candidate = os.path.realpath(candidate)
+        if os.path.splitext(candidate)[1].lower() != '.json':
+            raise ValueError('The Portal database must be a JSON file')
+    save_config({'databasePath': candidate})
+    return portal_storage_config()
+
+
+def portal_database_file_info(include_hash=False):
+    return get_file_info(configured_portal_database_path(required=True), include_hash=include_hash)
+
+
+def portal_database_read_chunk(offset=0, length=512 * 1024, expected_version=None):
+    return read_file_chunk(
+        configured_portal_database_path(required=True),
+        offset,
+        length,
+        expected_version
+    )
+
+
+def portal_database_write(content, expected_version=None, expected_hash=''):
+    return write_file_if_unchanged(
+        configured_portal_database_path(required=True),
+        content,
+        expected_version=expected_version,
+        expected_hash=expected_hash
+    )
+
+
+def portal_themes_dir():
+    database_path = configured_portal_database_path(required=True)
+    return os.path.join(os.path.dirname(database_path), 'themes')
+
+
+def list_portal_themes():
+    directory = portal_themes_dir()
+    if not os.path.isdir(directory):
+        return []
+    themes = []
+    for name in sorted(os.listdir(directory))[:256]:
+        if not name.lower().endswith('.json'):
+            continue
+        theme_id = name[:-5]
+        try:
+            path = resolve_theme_path(directory, theme_id)
+            with open(path, 'r', encoding='utf-8') as source:
+                content = source.read(256 * 1024 + 1)
+            if len(content) > 256 * 1024:
+                continue
+            theme = json.loads(content)
+            if isinstance(theme, dict):
+                themes.append(theme)
+        except (OSError, UnicodeError, ValueError, json.JSONDecodeError):
+            continue
+    return themes
+
+
+def write_portal_theme(theme_id, content):
+    serialized = str(content or '')
+    if len(serialized.encode('utf-8')) > 256 * 1024:
+        raise ValueError('Theme content exceeds the 256 KiB limit')
+    parsed = json.loads(serialized)
+    if not isinstance(parsed, dict) or str(parsed.get('id', '')) != str(theme_id or ''):
+        raise ValueError('Theme content does not match its identifier')
+    path = resolve_theme_path(portal_themes_dir(), theme_id)
+    atomic_write_text(path, serialized)
+    return get_file_info(path)
+
+
+def _portal_asset_root():
+    database_path = configured_portal_database_path()
+    return os.path.dirname(database_path) if database_path else os.path.join(CYRUNE_REPO_ROOT, 'Portal')
+
+
+def require_portal_asset_path(path, temporary=False):
+    root = os.path.realpath(_portal_asset_root())
+    candidate = os.path.realpath(str(path or '').strip())
+    if not candidate:
+        raise ValueError('Portal asset path is missing')
+    relative = os.path.relpath(candidate, root).replace('\\', '/')
+    allowed_prefixes = ('backgrounds/', 'assets/backgrounds/')
+    if relative.startswith('../') or relative == '..' or not relative.startswith(allowed_prefixes):
+        raise ValueError('Portal asset path is outside the managed background store')
+    name = os.path.basename(candidate)
+    if temporary:
+        if '.tmp-' not in name:
+            raise ValueError('Portal temporary asset path is invalid')
+        name = name.split('.tmp-', 1)[0]
+    extension = os.path.splitext(name)[1].lower().lstrip('.')
+    if extension not in {'avif', 'bmp', 'gif', 'jpg', 'jpeg', 'png', 'svg', 'webp'}:
+        raise ValueError('Portal asset type is unsupported')
+    return candidate
+
+
+def _portal_asset_slug(value, fallback):
+    slug = re.sub(r'[^a-z0-9]+', '-', str(value or fallback or 'asset').strip().lower())
+    slug = re.sub(r'-+', '-', slug).strip('-')[:80]
+    return slug or fallback or 'asset'
+
+
+def create_portal_asset_target(collection_name='', item_name='', extension='webp'):
+    configured_database = configured_portal_database_path()
+    safe_extension = _portal_asset_slug(extension, 'webp').replace('-', '')
+    if safe_extension == 'jpeg':
+        safe_extension = 'jpg'
+    if safe_extension not in {'avif', 'bmp', 'gif', 'jpg', 'png', 'svg', 'webp'}:
+        raise ValueError('Portal asset type is unsupported')
+    collection = _portal_asset_slug(collection_name, 'collection')
+    item = _portal_asset_slug(item_name, 'background')
+    suffix = f'{time.strftime("%Y%m%d%H%M%S")}-{secrets.token_hex(3)}'
+    relative_path = '/'.join([
+        *([] if configured_database else ['assets']),
+        'backgrounds', collection, f'{item}-background-{suffix}.{safe_extension}'
+    ])
+    final_path = require_portal_asset_path(os.path.join(_portal_asset_root(), *relative_path.split('/')))
+    temp_path = require_portal_asset_path(f'{final_path}.tmp-{suffix}', temporary=True)
+    public_path = Path(final_path).as_uri() if configured_database else relative_path
+    return {
+        'finalPath': final_path,
+        'tempPath': temp_path,
+        'relativePath': relative_path,
+        'publicPath': public_path
+    }
+
+
+def cleanup_portal_asset_write_sessions(max_sessions=8):
+    now = time.monotonic()
+    stale = [identifier for identifier, session in PORTAL_ASSET_WRITE_SESSIONS.items()
+             if now - session['createdAt'] > 300]
+    while len(PORTAL_ASSET_WRITE_SESSIONS) - len(stale) >= max_sessions:
+        remaining = [identifier for identifier in PORTAL_ASSET_WRITE_SESSIONS if identifier not in stale]
+        stale.append(min(remaining, key=lambda identifier: PORTAL_ASSET_WRITE_SESSIONS[identifier]['createdAt']))
+    for identifier in stale:
+        session = PORTAL_ASSET_WRITE_SESSIONS.pop(identifier, None)
+        if not session:
+            continue
+        try:
+            os.remove(session['tempPath'])
+        except FileNotFoundError:
+            pass
+
+
+def begin_portal_asset_write(collection_name='', item_name='', extension='webp'):
+    cleanup_portal_asset_write_sessions()
+    target = create_portal_asset_target(collection_name, item_name, extension)
+    session_id = f'asset_{secrets.token_urlsafe(18)}'
+    os.makedirs(os.path.dirname(target['tempPath']), exist_ok=True)
+    with open(target['tempPath'], 'wb'):
+        pass
+    PORTAL_ASSET_WRITE_SESSIONS[session_id] = {**target, 'bytes': 0, 'createdAt': time.monotonic()}
+    return {
+        'sessionId': session_id,
+        'publicPath': target['publicPath'],
+        'relativePath': target['relativePath'],
+        'chunkChars': 512 * 1024
+    }
+
+
+def require_portal_asset_write_session(session_id):
+    identifier = str(session_id or '')
+    session = PORTAL_ASSET_WRITE_SESSIONS.get(identifier)
+    if not session:
+        raise ValueError('Unknown Portal asset write session')
+    if time.monotonic() - session['createdAt'] > 300:
+        PORTAL_ASSET_WRITE_SESSIONS.pop(identifier, None)
+        try:
+            os.remove(session['tempPath'])
+        except FileNotFoundError:
+            pass
+        raise ValueError('Portal asset write session expired')
+    return identifier, session
+
+
+def append_portal_asset_write(session_id, chunk):
+    _identifier, session = require_portal_asset_write_session(session_id)
+    encoded = str(chunk or '')
+    if len(encoded) > 1024 * 1024:
+        raise ValueError('Portal asset chunk is too large')
+    data = base64.b64decode(encoded.encode('ascii'), validate=True)
+    if session['bytes'] + len(data) > MAX_DOWNLOAD_BYTES:
+        raise ValueError('Portal asset exceeds the managed size limit')
+    with open(session['tempPath'], 'ab') as target:
+        target.write(data)
+    session['bytes'] += len(data)
+    return len(data)
+
+
+def finish_portal_asset_write(session_id):
+    identifier, session = require_portal_asset_write_session(session_id)
+    try:
+        os.makedirs(os.path.dirname(session['finalPath']), exist_ok=True)
+        os.replace(session['tempPath'], session['finalPath'])
+        return {
+            'fileInfo': get_file_info(session['finalPath']),
+            'publicPath': session['publicPath'],
+            'relativePath': session['relativePath']
+        }
+    except Exception:
+        try:
+            os.remove(session['tempPath'])
+        except FileNotFoundError:
+            pass
+        raise
+    finally:
+        PORTAL_ASSET_WRITE_SESSIONS.pop(identifier, None)
+
+
+def abort_portal_asset_write(session_id):
+    identifier, session = require_portal_asset_write_session(session_id)
+    PORTAL_ASSET_WRITE_SESSIONS.pop(identifier, None)
+    try:
+        os.remove(session['tempPath'])
+    except FileNotFoundError:
+        pass
+
+
+def cache_portal_asset_url(url, collection_name='', item_name='', extension='webp', max_bytes=MAX_DOWNLOAD_BYTES):
+    target = create_portal_asset_target(collection_name, item_name, extension)
+    bounded_max = min(MAX_DOWNLOAD_BYTES, max(1, int(max_bytes or MAX_DOWNLOAD_BYTES)))
+    result = download_url_to_file(url, target['finalPath'], target['tempPath'], bounded_max)
+    return {
+        'fileInfo': get_file_info(target['finalPath']),
+        'publicPath': target['publicPath'],
+        'relativePath': target['relativePath'],
+        **result
+    }
+
+
 def save_config(config):
     config = config or {}
-    emugui_root = config.get('emuguiRoot')
-    if emugui_root is None:
-        emugui_root = load_config().get('emuguiRoot', '')
-    emugui_root = str(emugui_root or '').strip()
+    current_config = load_config()
+    arcade_root = config.get('arcadeRoot')
+    if arcade_root is None:
+        arcade_root = config.get('emuguiRoot')
+    if arcade_root is None:
+        arcade_root = current_config.get('arcadeRoot', current_config.get('emuguiRoot', ''))
+    arcade_root = str(arcade_root or '').strip()
     approved = config.get('approvedDirectories')
     if approved is None:
-        approved = load_config().get('approvedDirectories', {})
+        approved = current_config.get('approvedDirectories', {})
     if not isinstance(approved, dict):
         approved = {}
     safe_approved = {}
@@ -1053,7 +1376,7 @@ def save_config(config):
         }
     applications = config.get('approvedApplications')
     if applications is None:
-        applications = load_config().get('approvedApplications', {})
+        applications = current_config.get('approvedApplications', {})
     if not isinstance(applications, dict):
         applications = {}
     safe_applications = {}
@@ -1086,7 +1409,7 @@ def save_config(config):
         }
     games = config.get('approvedGames')
     if games is None:
-        games = load_config().get('approvedGames', {})
+        games = current_config.get('approvedGames', {})
     if not isinstance(games, dict):
         games = {}
     safe_games = {}
@@ -1113,9 +1436,14 @@ def save_config(config):
             'profileName': str(entry.get('profileName', '') or '')[:120],
             'approvedAt': int(entry.get('approvedAt', 0) or 0)
         }
+    database_path = config.get('databasePath')
+    if database_path is None:
+        database_path = current_config.get('databasePath', '')
     data = {
-        'databasePath': config.get('databasePath', '') or '',
-        'emuguiRoot': os.path.realpath(emugui_root) if emugui_root else '',
+        'databasePath': database_path or '',
+        'arcadeRoot': os.path.realpath(arcade_root) if arcade_root else '',
+        # Retained for Host downgrades installed before the Arcade rename.
+        'emuguiRoot': os.path.realpath(arcade_root) if arcade_root else '',
         'approvedDirectories': safe_approved,
         'approvedApplications': safe_applications,
         'approvedGames': safe_games
@@ -1288,6 +1616,35 @@ def _validate_nexus_location(settings, label='Nexus'):
         raise ValueError(f'{label} precise coordinates require their privacy permission')
 
 
+def _migrate_nexus_settings_v1(candidate):
+    migrated = _clone_json(candidate)
+    migrated['schemaVersion'] = 2
+    migrated['overrides'] = {}
+    return migrated
+
+
+NEXUS_SETTINGS_MIGRATIONS = {1: _migrate_nexus_settings_v1}
+
+
+def migrate_nexus_settings(candidate):
+    migrated = _clone_json(candidate)
+    version = migrated.get('schemaVersion', 1)
+    if not isinstance(version, int) or isinstance(version, bool) or version < 1:
+        raise ValueError('Unsupported Nexus settings schema version')
+    if version > NEXUS_SETTINGS_SCHEMA_VERSION:
+        raise ValueError('Nexus settings were written by a newer Cyrune release')
+    while version < NEXUS_SETTINGS_SCHEMA_VERSION:
+        migrate = NEXUS_SETTINGS_MIGRATIONS.get(version)
+        if not migrate:
+            raise ValueError('A required Nexus settings migration is unavailable')
+        migrated = migrate(migrated)
+        next_version = migrated.get('schemaVersion')
+        if next_version != version + 1:
+            raise ValueError('A Nexus settings migration did not advance exactly one version')
+        version = next_version
+    return migrated
+
+
 def validate_nexus_settings(candidate):
     if not isinstance(candidate, dict):
         raise ValueError('Nexus settings must be an object')
@@ -1297,12 +1654,13 @@ def validate_nexus_settings(candidate):
         raise ValueError('Nexus settings must be JSON-compatible') from error
     if len(encoded) > MAX_NEXUS_SETTINGS_BYTES:
         raise ValueError('Nexus settings payload is too large')
+    candidate = migrate_nexus_settings(candidate)
     allowed_top = set(NEXUS_DEFAULT_SETTINGS)
     unknown_top = set(candidate) - allowed_top
     if unknown_top:
         raise ValueError(f'Unknown Nexus settings section: {sorted(unknown_top)[0]}')
-    schema_version = candidate.get('schemaVersion', 1)
-    if schema_version not in {1, NEXUS_SETTINGS_SCHEMA_VERSION}:
+    schema_version = candidate.get('schemaVersion')
+    if schema_version != NEXUS_SETTINGS_SCHEMA_VERSION:
         raise ValueError('Unsupported Nexus settings schema version')
     output = _clone_json(NEXUS_DEFAULT_SETTINGS)
     for section, defaults in NEXUS_DEFAULT_SETTINGS.items():
@@ -1320,7 +1678,7 @@ def validate_nexus_settings(candidate):
             output[section][key] = _validate_nexus_setting_value(path, value)
     _validate_nexus_location(output)
 
-    supplied_overrides = candidate.get('overrides', {}) if schema_version == NEXUS_SETTINGS_SCHEMA_VERSION else {}
+    supplied_overrides = candidate.get('overrides', {})
     if not isinstance(supplied_overrides, dict):
         raise ValueError('Nexus component overrides must be an object')
     unknown_components = set(supplied_overrides) - set(NEXUS_COMPONENT_OVERRIDE_PATHS)
@@ -1405,6 +1763,15 @@ def nexus_component_settings(component):
     }
 
 
+def arcade_optional_network_allowed():
+    """Return Arcade's authoritative effective optional-network permission."""
+    try:
+        profile = nexus_component_settings('arcade')
+        return profile.get('values', {}).get('privacy', {}).get('allowOptionalNetwork') is True
+    except Exception:
+        return False
+
+
 def _nexus_changed_keys(before, after):
     keys = []
     for path in _setting_leaf_paths(after):
@@ -1432,6 +1799,29 @@ def _append_nexus_history(record):
     atomic_write_text(NEXUS_HISTORY_PATH, json.dumps(history, ensure_ascii=False, indent=2) + '\n')
 
 
+def load_nexus_history():
+    try:
+        with open(NEXUS_HISTORY_PATH, 'r', encoding='utf-8') as source:
+            loaded = json.load(source)
+    except (FileNotFoundError, OSError, json.JSONDecodeError):
+        return []
+    if not isinstance(loaded, list):
+        return []
+    history = []
+    for item in loaded[-MAX_NEXUS_HISTORY:]:
+        if not isinstance(item, dict):
+            continue
+        revision = item.get('revision')
+        updated_at = item.get('updatedAt')
+        if not isinstance(revision, int) or isinstance(revision, bool) or revision < 1:
+            continue
+        if not isinstance(updated_at, int) or isinstance(updated_at, bool) or updated_at < 0:
+            continue
+        changed_keys = [str(key)[:160] for key in item.get('changedKeys', []) if isinstance(key, str)][:64]
+        history.append({'revision': revision, 'updatedAt': updated_at, 'changedKeys': changed_keys})
+    return history
+
+
 def save_nexus_settings(candidate, expected_revision):
     if not isinstance(expected_revision, int) or isinstance(expected_revision, bool) or expected_revision < 0:
         raise ValueError('Expected Nexus settings revision is invalid')
@@ -1439,6 +1829,10 @@ def save_nexus_settings(candidate, expected_revision):
     with database_write_lock(NEXUS_SETTINGS_PATH):
         current = load_nexus_settings()
         if current['revision'] != expected_revision:
+            try:
+                record_nexus_event('nexus', 'settings-conflict', 'attention')
+            except OSError:
+                pass
             return {'conflict': True, 'settings': current, 'storage': nexus_storage_status()}
         saved = validated
         saved['revision'] = current['revision'] + 1
@@ -1461,6 +1855,10 @@ def save_nexus_settings(candidate, expected_revision):
             _append_nexus_history({'revision': saved['revision'], 'updatedAt': saved['updatedAt'], 'changedKeys': changed_keys})
         except OSError:
             history_recorded = False
+        try:
+            record_nexus_event('nexus', 'settings-saved')
+        except OSError:
+            pass
         return {'conflict': False, 'settings': saved, 'changedKeys': changed_keys,
                 'historyRecorded': history_recorded, 'storage': nexus_storage_status()}
 
@@ -1544,17 +1942,26 @@ def open_nexus_todo(component):
 
 def _read_component_version(component_id):
     try:
-        if component_id == 'portal':
-            text = Path(CYRUNE_REPO_ROOT, 'Portal', 'source', 'app.js').read_text(encoding='utf-8')
-            match = re.search(r"APP_VERSION\s*=\s*'([^']+)'", text)
-            return match.group(1) if match else 'Unknown'
-        if component_id == 'relay':
-            return str(json.loads(Path(CYRUNE_REPO_ROOT, 'Relay', 'manifest.json').read_text(encoding='utf-8')).get('version') or 'Unknown')
-        if component_id == 'nexus':
-            return str(json.loads(Path(CYRUNE_REPO_ROOT, 'Nexus', 'component.json').read_text(encoding='utf-8')).get('version') or 'Unknown')
+        if component_id not in {'portal', 'widgets', 'arcade', 'relay', 'host', 'nexus'}:
+            return 'Unknown'
+        manifest = json.loads(Path(CYRUNE_REPO_ROOT, component_id.capitalize(), 'component.json').read_text(encoding='utf-8'))
+        return str(manifest.get('version') or 'Unknown')
     except (OSError, ValueError, json.JSONDecodeError):
         return 'Unknown'
-    return 'Unversioned'
+
+
+def _read_component_contract(component_id):
+    try:
+        if component_id not in {'portal', 'widgets', 'arcade', 'relay', 'host', 'nexus'}:
+            return {}, []
+        manifest = json.loads(Path(CYRUNE_REPO_ROOT, component_id.capitalize(), 'component.json').read_text(encoding='utf-8'))
+        protocols = manifest.get('protocols') if isinstance(manifest.get('protocols'), dict) else {}
+        capabilities = manifest.get('capabilities') if isinstance(manifest.get('capabilities'), list) else []
+        return ({str(key): value for key, value in protocols.items()
+                 if isinstance(value, int) and not isinstance(value, bool) and 0 < value <= 100},
+                [str(value)[:64] for value in capabilities if isinstance(value, str)][:40])
+    except (OSError, ValueError, json.JSONDecodeError):
+        return {}, []
 
 
 def _component_updated_ms(component_id):
@@ -1711,7 +2118,7 @@ def _sanitized_validation_receipt():
             sanitized['tests'] = sanitized_tests
         checks = receipt.get('checks')
         if isinstance(checks, dict):
-            allowed_checks = {'syntax', 'manifest', 'versions', 'packaging', 'lint'}
+            allowed_checks = {'syntax', 'manifest', 'versions', 'packaging', 'lint', 'infrastructure'}
             allowed_states = {'passed', 'failed', 'skipped', 'unavailable'}
             sanitized['checks'] = {
                 key: (value if isinstance(value, bool) else str(value))
@@ -1804,14 +2211,21 @@ def nexus_project_status():
     sampled_at = int(time.time() * 1000)
     component_names = {'portal': 'Portal', 'widgets': 'Widgets', 'arcade': 'Arcade',
                        'relay': 'Relay', 'host': 'Host', 'nexus': 'Nexus'}
-    components = [
-        {'id': component_id, 'name': name, 'version': _read_component_version(component_id),
-         'updatedMs': _component_updated_ms(component_id), 'sampledAt': sampled_at}
-        for component_id, name in component_names.items()
-    ]
+    components = []
+    for component_id, name in component_names.items():
+        protocols, capabilities = _read_component_contract(component_id)
+        components.append({
+            'id': component_id, 'name': name, 'version': _read_component_version(component_id),
+            'updatedMs': _component_updated_ms(component_id), 'sampledAt': sampled_at,
+            'protocols': protocols, 'capabilities': capabilities
+        })
     portal_path = str(load_config().get('databasePath', '') or '')
     portal_info = get_file_info(portal_path, include_hash=True)
-    portal_record = {'location': portal_path, **portal_info, 'sampledAt': sampled_at}
+    portal_record = {
+        'location': 'Configured external database' if portal_path else 'Not configured',
+        **portal_info,
+        'sampledAt': sampled_at
+    }
     if portal_info.get('exists') and (portal_info.get('size') or 0) <= 64 * 1024 * 1024:
         try:
             with open(portal_path, 'r', encoding='utf-8') as source:
@@ -1861,7 +2275,7 @@ def nexus_project_status():
     arcade_state_path = os.path.join(arcade_root, 'state.json')
     arcade_schema = _json_object_metadata(arcade_state_path, max_bytes=8 * 1024 * 1024)
     arcade_record = {
-        'location': arcade_root,
+        'location': 'Managed Arcade data',
         **get_file_info(arcade_state_path, include_hash=True),
         'sampledAt': sampled_at,
         'schema': {'valid': arcade_schema.get('valid'), 'version': arcade_schema.get('schemaVersion')},
@@ -1904,7 +2318,7 @@ def nexus_project_status():
 
     nexus_info = get_file_info(NEXUS_SETTINGS_PATH, include_hash=True)
     nexus_record = {
-        'location': NEXUS_DATA_ROOT,
+        'location': 'Managed Nexus settings',
         **nexus_info,
         'sampledAt': sampled_at,
         'backup': _nexus_backup_health()
@@ -1937,15 +2351,15 @@ def nexus_project_status():
         'schemaVersion': 2,
         'sampledAt': sampled_at,
         'components': components,
-        'services': {'host': {'available': True, 'version': 'Unversioned', 'sampledAt': sampled_at,
+        'services': {'host': {'available': True, 'version': HOST_VERSION, 'sampledAt': sampled_at,
                               'health': _nexus_health('healthy', 'host-healthy', 'Host is responding',
                                                       'No action is required.', sampled_at),
-                              'capabilities': ['nexusSettings', 'nexusStatus', 'nexusDocuments',
-                                               'nexusTodoEditor', 'repositoryStatus',
-                                               'repositoryRemoteCheck']}},
+                              'capabilities': HOST_CAPABILITIES,
+                              'protocols': HOST_PROTOCOLS}},
         'data': {'portal': portal_record, 'arcade': arcade_record, 'nexus': nexus_record},
         'repository': nexus_repository_status(),
-        'validation': _sanitized_validation_receipt()
+        'validation': _sanitized_validation_receipt(),
+        'events': sanitized_nexus_events()
     }
 
 
@@ -1954,11 +2368,14 @@ def nexus_project_status():
 # ---------------------------------------------------------------------------
 
 def _configured_emugui_service():
-    configured_root = str(load_config().get('emuguiRoot', '') or '').strip()
+    config = load_config()
+    configured_root = str(config.get('arcadeRoot', config.get('emuguiRoot', '')) or '').strip()
     if not configured_root:
         raise RuntimeError('Cyrune Arcade is not configured in Cyrune Host')
     root = os.path.realpath(configured_root)
-    service_path = os.path.join(root, 'emugui_service.py')
+    service_path = os.path.join(root, 'arcade_service.py')
+    if not os.path.isfile(service_path):
+        service_path = os.path.join(root, 'emugui_service.py')
     if not os.path.isdir(root) or not os.path.isfile(service_path):
         raise FileNotFoundError('The configured Cyrune Arcade installation is unavailable')
     return root, service_path
@@ -1970,7 +2387,7 @@ def _load_emugui_module():
     if EMUGUI_MODULE is not None and EMUGUI_MODULE_PATH == service_path:
         return EMUGUI_MODULE
 
-    module_name = 'morpheus_emugui_native_service'
+    module_name = 'cyrune_arcade_native_service'
     spec = importlib.util.spec_from_file_location(module_name, service_path)
     if spec is None or spec.loader is None:
         raise RuntimeError('The Cyrune Arcade service could not be loaded')
@@ -1994,7 +2411,7 @@ def _load_emugui_module():
                 sys.path.remove(root)
             except ValueError:
                 pass
-    if not callable(getattr(module, 'dispatch_emugui_read', None)):
+    if not callable(getattr(module, 'dispatch_arcade_read', None)) and not callable(getattr(module, 'dispatch_emugui_read', None)):
         raise RuntimeError('The configured Cyrune Arcade installation does not expose the native service contract')
     configure_secrets = getattr(module, 'configure_native_secret_service', None)
     if callable(configure_secrets):
@@ -2004,6 +2421,9 @@ def _load_emugui_module():
             delete_secret=secret_delete,
             status=secret_status,
         )
+    configure_network = getattr(module, 'configure_optional_network_policy', None)
+    if callable(configure_network):
+        configure_network(arcade_optional_network_allowed)
     EMUGUI_MODULE = module
     EMUGUI_MODULE_PATH = service_path
     return module
@@ -2030,8 +2450,10 @@ def emugui_api_request(method, path, query=None, body=None):
         raise ValueError('The Cyrune Arcade API request is invalid')
     if len(json.dumps({'query': query, 'body': body}, ensure_ascii=False)) > MAX_EMUGUI_RPC_REQUEST_BYTES:
         raise ValueError('The Cyrune Arcade API request is too large')
+    if path == '/api/scrape-preview' and str(body.get('provider', 'manual')) != 'manual' and not arcade_optional_network_allowed():
+        raise PermissionError('Optional network access is disabled in Cyrune Nexus')
     module = _load_emugui_module()
-    dispatcher = getattr(module, 'dispatch_emugui_api', None)
+    dispatcher = getattr(module, 'dispatch_arcade_api', None) or getattr(module, 'dispatch_emugui_api', None)
     if not callable(dispatcher):
         raise RuntimeError('The configured Cyrune Arcade installation does not expose the API service contract')
     result = dispatcher(method, path, query, body)
@@ -2044,7 +2466,7 @@ def emugui_api_request(method, path, query=None, body=None):
 
 def emugui_asset(relative_path):
     module = _load_emugui_module()
-    reader = getattr(module, 'read_emugui_asset', None)
+    reader = getattr(module, 'read_arcade_asset', None) or getattr(module, 'read_emugui_asset', None)
     if not callable(reader):
         raise RuntimeError('The configured Cyrune Arcade installation does not expose the asset service contract')
     result = reader(str(relative_path or ''), MAX_EMUGUI_ASSET_BYTES)
@@ -3272,36 +3694,29 @@ def forget_approved_application(app_key):
 # Message handlers
 # ---------------------------------------------------------------------------
 
-def handle(msg):
-    msg_type = msg.get('type', '')
+NEXUS_MESSAGE_TYPES = frozenset({
+    'NEXUS_AUTHORIZE_PAGE', 'NEXUS_GET_SETTINGS', 'NEXUS_GET_COMPONENT_SETTINGS',
+    'NEXUS_SAVE_SETTINGS', 'NEXUS_GET_DOCUMENT', 'NEXUS_OPEN_TODO',
+    'NEXUS_CHECK_REMOTE', 'NEXUS_GET_STATUS'
+})
 
-    if msg_type == 'PING':
-        reply_ok(version='1.0')
 
-    elif msg_type == 'READ_CONFIG':
-        reply_ok(config=load_config())
-
-    elif msg_type == 'WRITE_CONFIG':
-        try:
-            save_config(msg.get('config', {}))
-            reply_ok(config=load_config())
-        except Exception as e:
-            reply_err(str(e))
-
-    elif msg_type == 'NEXUS_AUTHORIZE_PAGE':
+def handle_nexus_message(msg_type, msg):
+    """Dispatch the fixed Nexus protocol independently of the legacy native router."""
+    if msg_type not in NEXUS_MESSAGE_TYPES:
+        return False
+    if msg_type == 'NEXUS_AUTHORIZE_PAGE':
         try:
             reply_ok(authorized=authorize_nexus_page(msg.get('pageUrl', '')))
         except Exception:
             send_message({'ok': False, 'errorCode': 'nexus-authorization-failed',
                           'error': 'Cyrune Nexus page authorization failed'})
-
     elif msg_type == 'NEXUS_GET_SETTINGS':
         try:
-            reply_ok(settings=load_nexus_settings(), storage=nexus_storage_status())
+            reply_ok(settings=load_nexus_settings(), history=load_nexus_history(), storage=nexus_storage_status())
         except Exception:
             send_message({'ok': False, 'errorCode': 'nexus-settings-unavailable',
                           'error': 'Authoritative Cyrune Nexus settings are unavailable'})
-
     elif msg_type == 'NEXUS_GET_COMPONENT_SETTINGS':
         try:
             reply_ok(profile=nexus_component_settings(msg.get('component', '')))
@@ -3311,7 +3726,6 @@ def handle(msg):
         except Exception:
             send_message({'ok': False, 'errorCode': 'nexus-settings-unavailable',
                           'error': 'Authoritative Cyrune component settings are unavailable'})
-
     elif msg_type == 'NEXUS_SAVE_SETTINGS':
         try:
             reply_ok(**save_nexus_settings(msg.get('settings'), msg.get('expectedRevision')))
@@ -3323,14 +3737,12 @@ def handle(msg):
         except Exception:
             send_message({'ok': False, 'errorCode': 'nexus-settings-save-failed',
                           'error': 'Authoritative Cyrune Nexus settings could not be saved'})
-
     elif msg_type == 'NEXUS_GET_DOCUMENT':
         try:
             reply_ok(document=read_nexus_document(msg.get('component', ''), msg.get('documentType', '')))
         except Exception:
             send_message({'ok': False, 'errorCode': 'nexus-document-unavailable',
                           'error': 'The requested Cyrune project document is unavailable'})
-
     elif msg_type == 'NEXUS_OPEN_TODO':
         try:
             reply_ok(**open_nexus_todo(msg.get('component', '')))
@@ -3343,7 +3755,6 @@ def handle(msg):
         except Exception:
             send_message({'ok': False, 'errorCode': 'nexus-todo-open-failed',
                           'error': 'The requested Cyrune TODO could not be opened in Visual Studio Code'})
-
     elif msg_type == 'NEXUS_CHECK_REMOTE':
         try:
             reply_ok(remote=nexus_repository_remote_status())
@@ -3356,13 +3767,176 @@ def handle(msg):
         except Exception:
             send_message({'ok': False, 'errorCode': 'nexus-remote-unavailable',
                           'error': 'Cyrune origin could not be checked; local repository status is unchanged'})
-
     elif msg_type == 'NEXUS_GET_STATUS':
         try:
             reply_ok(snapshot=nexus_project_status())
         except Exception:
+            try:
+                record_nexus_event('host', 'status-failed', 'error')
+            except OSError:
+                pass
             send_message({'ok': False, 'errorCode': 'nexus-status-unavailable',
                           'error': 'The Cyrune project status snapshot is unavailable'})
+    return True
+
+def handle(msg):
+    msg_type = msg.get('type', '')
+
+    if msg_type == 'PING':
+        reply_ok(component='host', version=HOST_VERSION, protocols=HOST_PROTOCOLS,
+                 capabilities=HOST_CAPABILITIES)
+
+    elif msg_type == 'READ_CONFIG':
+        reply_ok(config=load_config())
+
+    elif msg_type == 'PORTAL_GET_STORAGE_CONFIG':
+        try:
+            reply_ok(config=portal_storage_config())
+        except Exception:
+            reply_err('Portal storage configuration is unavailable')
+
+    elif msg_type == 'PORTAL_SET_DATABASE_PATH':
+        try:
+            reply_ok(config=set_portal_database_path(msg.get('databasePath', '')))
+        except ValueError as error:
+            reply_err(str(error))
+        except Exception:
+            reply_err('Portal storage configuration could not be saved')
+
+    elif msg_type == 'PORTAL_DATABASE_STAT':
+        try:
+            reply_ok(fileInfo=portal_database_file_info(include_hash=msg.get('includeHash') is True))
+        except ValueError as error:
+            reply_err(str(error))
+        except Exception:
+            reply_err('Portal database status is unavailable')
+
+    elif msg_type == 'PORTAL_DATABASE_READ_CHUNK':
+        try:
+            reply_ok(**portal_database_read_chunk(
+                msg.get('offset', 0), msg.get('length', 512 * 1024), msg.get('expectedVersion') or None
+            ))
+        except ValueError as error:
+            reply_err(str(error))
+        except Exception:
+            reply_err('Portal database could not be read consistently')
+
+    elif msg_type == 'PORTAL_DATABASE_WRITE':
+        try:
+            reply_ok(**portal_database_write(
+                str(msg.get('content', '') or ''),
+                msg.get('expectedVersion') or None,
+                msg.get('expectedHash') or ''
+            ))
+        except ValueError as error:
+            reply_err(str(error))
+        except Exception:
+            reply_err('Portal database could not be saved')
+
+    elif msg_type == 'PORTAL_LIST_DATABASE_BACKUPS':
+        try:
+            reply_ok(backups=list_database_backups(configured_portal_database_path(required=True)))
+        except ValueError as error:
+            reply_err(str(error))
+        except Exception:
+            reply_err('Portal database backups are unavailable')
+
+    elif msg_type == 'PORTAL_READ_DATABASE_BACKUP_CHUNK':
+        try:
+            reply_ok(**read_database_backup_chunk(
+                configured_portal_database_path(required=True), msg.get('name', ''),
+                msg.get('offset', 0), msg.get('length', 512 * 1024),
+                msg.get('expectedVersion') or None
+            ))
+        except ValueError as error:
+            reply_err(str(error))
+        except Exception:
+            reply_err('Portal database backup is unavailable')
+
+    elif msg_type == 'PORTAL_CREATE_DATABASE_BACKUP':
+        try:
+            database_path = configured_portal_database_path(required=True)
+            with database_write_lock(database_path):
+                backup_path = backup_database_file(database_path, force=True)
+            if not backup_path:
+                raise ValueError('The configured Portal database is missing or empty')
+            reply_ok(name=os.path.basename(backup_path), fileInfo=get_file_info(backup_path, include_hash=True))
+        except ValueError as error:
+            reply_err(str(error))
+        except Exception:
+            reply_err('Portal database backup could not be created')
+
+    elif msg_type == 'PORTAL_LIST_THEMES':
+        try:
+            reply_ok(themes=list_portal_themes())
+        except ValueError:
+            reply_ok(themes=[])
+        except Exception:
+            reply_err('Portal themes are unavailable')
+
+    elif msg_type == 'PORTAL_WRITE_THEME':
+        try:
+            reply_ok(fileInfo=write_portal_theme(msg.get('themeId', ''), msg.get('content', '')))
+        except (ValueError, json.JSONDecodeError) as error:
+            reply_err(str(error))
+        except Exception:
+            reply_err('Portal theme could not be saved')
+
+    elif msg_type == 'PORTAL_BEGIN_ASSET_WRITE':
+        try:
+            reply_ok(**begin_portal_asset_write(
+                msg.get('collectionName', ''), msg.get('itemName', ''), msg.get('extension', 'webp')
+            ))
+        except ValueError as error:
+            reply_err(str(error))
+        except Exception:
+            reply_err('Portal asset write could not be started')
+
+    elif msg_type == 'PORTAL_APPEND_ASSET_WRITE':
+        try:
+            reply_ok(written=append_portal_asset_write(msg.get('sessionId', ''), msg.get('chunk', '')))
+        except (ValueError, binascii.Error) as error:
+            reply_err(str(error))
+        except Exception:
+            reply_err('Portal asset chunk could not be saved')
+
+    elif msg_type == 'PORTAL_FINISH_ASSET_WRITE':
+        try:
+            reply_ok(**finish_portal_asset_write(msg.get('sessionId', '')))
+        except ValueError as error:
+            reply_err(str(error))
+        except Exception:
+            reply_err('Portal asset write could not be completed')
+
+    elif msg_type == 'PORTAL_ABORT_ASSET_WRITE':
+        try:
+            abort_portal_asset_write(msg.get('sessionId', ''))
+            reply_ok()
+        except ValueError as error:
+            reply_err(str(error))
+        except Exception:
+            reply_err('Portal asset write could not be cancelled')
+
+    elif msg_type == 'PORTAL_CACHE_ASSET_URL':
+        try:
+            reply_ok(**cache_portal_asset_url(
+                msg.get('url', ''), msg.get('collectionName', ''), msg.get('itemName', ''),
+                msg.get('extension', 'webp'), msg.get('maxBytes', MAX_DOWNLOAD_BYTES)
+            ))
+        except ValueError as error:
+            reply_err(str(error))
+        except Exception:
+            reply_err('Portal remote asset could not be cached')
+
+    elif msg_type == 'WRITE_CONFIG':
+        try:
+            save_config(msg.get('config', {}))
+            reply_ok(config=load_config())
+        except Exception as e:
+            reply_err(str(e))
+
+    elif handle_nexus_message(msg_type, msg):
+        pass
 
     elif msg_type == 'READ_FILE':
         path = msg.get('path', '')

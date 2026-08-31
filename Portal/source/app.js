@@ -1,4 +1,4 @@
-const APP_VERSION = '0.11.226';
+const APP_VERSION = '0.12.0';
 
 document.documentElement.classList.add('hub-booting');
 
@@ -24,12 +24,48 @@ let sharedRecoveryPromptOpen = false;
 let lastBridgeNativeReady = false;
 let lastBridgeRecoveryPath = '';
 let hubInitializationPromise = null;
+let portalReadOnlyMode = false;
+let portalReadOnlySnapshot = '';
+
+function authoritativePortalStorageReady() {
+  return typeof bridge !== 'undefined' && bridge.storageIsAvailable?.() === true;
+}
+
+function setPortalReadOnlyMode(enabled, message = '') {
+  portalReadOnlyMode = enabled === true;
+  document.documentElement.classList.toggle('portal-readonly', portalReadOnlyMode);
+  let banner = document.getElementById('portalReadOnlyBanner');
+  if (portalReadOnlyMode) {
+    portalReadOnlySnapshot = typeof serializeStateSnapshot === 'function' ? serializeStateSnapshot() : JSON.stringify(state || {});
+    if (!banner) {
+      banner = document.createElement('div');
+      banner.id = 'portalReadOnlyBanner';
+      banner.className = 'portal-readonly-banner';
+      banner.setAttribute('role', 'status');
+      document.body.appendChild(banner);
+    }
+    banner.textContent = message || 'Read-only: reconnect Cyrune Relay to edit shared Portal data. Your last cached view remains available.';
+  } else {
+    portalReadOnlySnapshot = '';
+    banner?.remove();
+  }
+}
 
 // --- Undo / redo ---
 
 const MAX_UNDO = 50;
+const MAX_UNDO_BYTES = 8 * 1024 * 1024;
 let undoStack = [];
 let redoStack = [];
+let undoStackBytes = 0;
+let redoStackBytes = 0;
+
+function trimHistoryStack(stack, byteTotal) {
+  while (stack.length > MAX_UNDO || (byteTotal > MAX_UNDO_BYTES && stack.length > 1)) {
+    byteTotal -= stack.shift().length * 2;
+  }
+  return Math.max(0, byteTotal);
+}
 
 // --- Bulk selection ---
 
@@ -69,16 +105,25 @@ function updateBulkToolbar() {
 }
 
 function pushUndoSnapshot() {
-  undoStack.push(JSON.stringify(state));
-  if (undoStack.length > MAX_UNDO) undoStack.shift();
+  const snapshot = typeof serializeStateSnapshot === 'function' ? serializeStateSnapshot() : JSON.stringify(state);
+  if (undoStack[undoStack.length - 1] === snapshot) return;
+  undoStack.push(snapshot);
+  undoStackBytes += snapshot.length * 2;
+  undoStackBytes = trimHistoryStack(undoStack, undoStackBytes);
   redoStack = [];
+  redoStackBytes = 0;
   updateUndoRedoUI();
 }
 
 function undo() {
   if (!undoStack.length) return;
-  redoStack.push(JSON.stringify(state));
-  restoreStateSnapshot(undoStack.pop());
+  const current = typeof serializeStateSnapshot === 'function' ? serializeStateSnapshot() : JSON.stringify(state);
+  redoStack.push(current);
+  redoStackBytes += current.length * 2;
+  redoStackBytes = trimHistoryStack(redoStack, redoStackBytes);
+  const snapshot = undoStack.pop();
+  undoStackBytes -= snapshot.length * 2;
+  restoreStateSnapshot(snapshot);
   cleanTrashAfterRestore();
   saveState();
   renderAll();
@@ -88,8 +133,13 @@ function undo() {
 
 function redo() {
   if (!redoStack.length) return;
-  undoStack.push(JSON.stringify(state));
-  restoreStateSnapshot(redoStack.pop());
+  const current = typeof serializeStateSnapshot === 'function' ? serializeStateSnapshot() : JSON.stringify(state);
+  undoStack.push(current);
+  undoStackBytes += current.length * 2;
+  undoStackBytes = trimHistoryStack(undoStack, undoStackBytes);
+  const snapshot = redoStack.pop();
+  redoStackBytes -= snapshot.length * 2;
+  restoreStateSnapshot(snapshot);
   cleanTrashAfterRestore();
   saveState();
   renderAll();
@@ -261,25 +311,27 @@ async function reloadHubData(options = {}) {
     if (source === 'shared') {
       if (typeof bridge === 'undefined') throw new Error('Bridge unavailable');
       await bridge.whenReady;
-      if (!bridge.isAvailable() || !bridge.nativeIsAvailable()) throw new Error('Shared storage unavailable');
+      if (!authoritativePortalStorageReady()) throw new Error('Authoritative Portal storage unavailable');
       const loaded = await bridge.loadState();
       if (loaded?.error) throw new Error(loaded.error);
-      if (loaded?.fromDisk !== true) throw new Error('Shared database was not read from disk');
+      if (bridge.storageMode?.() === 'host' && loaded?.fromDisk !== true) throw new Error('Shared database was not read from disk');
       snapshot = loaded?.json || null;
       fileInfo = loaded?.fileInfo || null;
       databasePath = (loaded?.databasePath || state.databasePath || '').trim();
+      const authorityKey = databasePath || bridge.storageMode?.() || 'relay';
       if (!snapshot) throw new Error('No shared hub data was returned');
       restoreStateSnapshot(snapshot);
       if (databasePath) state.databasePath = databasePath;
-      if (typeof acceptSharedDiskSnapshot === 'function') acceptSharedDiskSnapshot(fileInfo, databasePath);
-      else if (fileInfo) setSharedDiskBaseline(fileInfo, databasePath);
-      else resetSharedDiskBaseline(databasePath);
+      if (typeof acceptSharedDiskSnapshot === 'function') acceptSharedDiskSnapshot(fileInfo, authorityKey);
+      else if (fileInfo) setSharedDiskBaseline(fileInfo, authorityKey);
+      else resetSharedDiskBaseline(authorityKey);
       persistStateToLocalCache(snapshot, {
         source: 'shared',
         databasePath,
         sharedBaselineVersion: fileInfo?.version ?? null,
-        sharedBaselinePath: databasePath
+        sharedBaselinePath: authorityKey
       });
+      setPortalReadOnlyMode(false);
       startSharedDiskPolling();
     } else {
       snapshot = localStorage.getItem(STORAGE_KEY) || serializeStateSnapshot();
@@ -289,6 +341,7 @@ async function reloadHubData(options = {}) {
         source: 'local',
         databasePath: state.databasePath || ''
       });
+      setPortalReadOnlyMode(true);
     }
 
     undoStack = [];
@@ -330,7 +383,7 @@ function shouldShowSharedAutoRefreshNotice() {
 }
 
 function getReloadHubSource() {
-  if (typeof bridge !== 'undefined' && bridge.isAvailable() && bridge.nativeIsAvailable() && state.databasePath) {
+  if (authoritativePortalStorageReady()) {
     return 'shared';
   }
   return 'local';
@@ -350,6 +403,7 @@ function parseIsoTime(value) {
 }
 
 async function prepareForExternalDelivery() {
+  if (portalReadOnlyMode) return { ok: false, conflict: false, error: 'Portal is read-only until Cyrune Relay reconnects.' };
   if (sharedDiskSyncIsBlocked()) {
     return { ok: false, conflict: true, error: 'Shared database sync is paused in this hub tab.' };
   }
@@ -365,7 +419,7 @@ async function prepareForExternalDelivery() {
   if (hasPendingSharedDiskChanges()) {
     return { ok: false, conflict: false, error: 'This hub tab still has unsaved changes.' };
   }
-  if (typeof bridge === 'undefined' || !bridge.isAvailable() || !bridge.nativeIsAvailable() || !state.databasePath) {
+  if (!authoritativePortalStorageReady() || bridge.storageMode?.() !== 'host' || !state.databasePath) {
     return { ok: true };
   }
 
@@ -482,7 +536,7 @@ async function persistExternalTabDelivery(detail = {}, allowRebase = true) {
           : 'The bookmark was added locally but could not be saved yet.')
     };
   }
-  return { ok: true, persisted: result.persisted || (bridge.nativeIsAvailable() ? 'shared' : 'local') };
+  return { ok: true, persisted: result.persisted || 'shared' };
 }
 
 async function persistExternalGameDelivery(detail = {}, allowRebase = true) {
@@ -542,7 +596,7 @@ async function persistExternalGameDelivery(detail = {}, allowRebase = true) {
       ? 'The shared database changed during delivery.'
       : (result?.timedOut ? 'Timed out while saving the delivered game.' : 'The game was added locally but could not be saved yet.') };
   }
-  return { ok: true, persisted: result.persisted || (bridge.nativeIsAvailable() ? 'shared' : 'local') };
+  return { ok: true, persisted: result.persisted || 'shared' };
 }
 
 function summarizeHubSnapshot(snapshot) {
@@ -646,17 +700,19 @@ async function promoteLocalCacheToShared(options = {}) {
       });
       return false;
     }
-    const activePath = (result.databasePath || databasePath || state.databasePath || '').trim();
+    const activePath = (result.databasePath || (bridge.storageMode?.() === 'host' ? databasePath : '') || state.databasePath || '').trim();
+    const authorityKey = activePath || bridge.storageMode?.() || 'relay';
     if (activePath) state.databasePath = activePath;
-    if (result.fileInfo) setSharedDiskBaseline(result.fileInfo, activePath);
-    else resetSharedDiskBaseline(activePath);
+    if (result.fileInfo) setSharedDiskBaseline(result.fileInfo, authorityKey);
+    else resetSharedDiskBaseline(authorityKey);
     persistStateToLocalCache(snapshot, {
       source: 'shared',
       databasePath: activePath,
       sharedBaselineVersion: result.fileInfo?.version ?? null,
-      sharedBaselinePath: activePath
+      sharedBaselinePath: authorityKey
     });
     isDirty = false;
+    setPortalReadOnlyMode(false);
     startSharedDiskPolling();
     await refreshBridgeStatusUi();
     showNotice("Updated the shared database from this browser's newer local cache.");
@@ -670,46 +726,48 @@ async function promoteLocalCacheToShared(options = {}) {
 
 async function handleRecoveredSharedStorage(info) {
   const databasePath = (info?.databasePath || '').trim();
-  if (!databasePath || sharedDiskSyncIsBlocked()) return;
+  const authorityKey = databasePath || String(info?.storageMode || '').trim();
+  if (!authorityKey || sharedDiskSyncIsBlocked()) return;
 
   const existingLocalSnapshot = localStorage.getItem(STORAGE_KEY);
   const metaBeforeRecovery = getLocalCacheMeta();
   const localSnapshot = existingLocalSnapshot || (metaBeforeRecovery.source === 'shared' ? '' : serializeStateSnapshot());
   const localMeta = ensureLocalCacheMetadata(localSnapshot, {
     source: metaBeforeRecovery.source || 'local',
-    databasePath
+    databasePath: authorityKey
   });
   const loaded = await bridge.loadState();
   const sharedSnapshot = loaded?.json || '';
   const sharedFileInfo = loaded?.fileInfo || null;
 
-  state.databasePath = databasePath;
+  if (databasePath) state.databasePath = databasePath;
 
   if (snapshotsMatch(localSnapshot, sharedSnapshot)) {
-    if (typeof acceptSharedDiskSnapshot === 'function') acceptSharedDiskSnapshot(sharedFileInfo, databasePath);
-    else if (sharedFileInfo) setSharedDiskBaseline(sharedFileInfo, databasePath);
-    else resetSharedDiskBaseline(databasePath);
+    if (typeof acceptSharedDiskSnapshot === 'function') acceptSharedDiskSnapshot(sharedFileInfo, authorityKey);
+    else if (sharedFileInfo) setSharedDiskBaseline(sharedFileInfo, authorityKey);
+    else resetSharedDiskBaseline(authorityKey);
     persistStateToLocalCache(localSnapshot, {
       source: 'shared',
       databasePath,
       sharedBaselineVersion: sharedFileInfo?.version ?? null,
-      sharedBaselinePath: databasePath
+      sharedBaselinePath: authorityKey
     });
+    setPortalReadOnlyMode(false);
     startSharedDiskPolling();
     await refreshBridgeStatusUi();
     return;
   }
 
-  if (localCacheLooksNewerThanShared(localMeta, databasePath, localSnapshot, sharedSnapshot, sharedFileInfo)) {
+  if (localCacheLooksNewerThanShared(localMeta, authorityKey, localSnapshot, sharedSnapshot, sharedFileInfo)) {
     if (sharedRecoveryPromptOpen || sharedDiskReloadPromptOpen || confirmDialogIsOpen()) return;
     sharedRecoveryPromptOpen = true;
     showConfirmDialog(
-      `The shared database at ${databasePath} looks older than this browser's cached copy. Update the shared database from the newer local cache now?`,
+      `The shared database at ${authorityKey} looks older than this browser's cached copy. Update the shared database from the newer local cache now?`,
       () => {
         sharedRecoveryPromptOpen = false;
         void promoteLocalCacheToShared({
           snapshot: localSnapshot,
-          databasePath,
+          databasePath: authorityKey,
           expectedVersion: sharedFileInfo?.version ?? null,
           sharedSnapshot
         });
@@ -717,7 +775,7 @@ async function handleRecoveredSharedStorage(info) {
       'Update shared',
       () => {
         sharedRecoveryPromptOpen = false;
-        blockSharedDiskSync(databasePath);
+        blockSharedDiskSync(authorityKey);
         showNotice('Shared storage is available again, but this tab is keeping its newer local copy for now. Shared sync is paused until you reload.');
       }
     );
@@ -736,7 +794,7 @@ function startSharedRecoveryPolling() {
   sharedStoragePollTimer = setInterval(async () => {
     try {
       await checkForSharedRecovery();
-      if (bridge.isAvailable() && bridge.nativeIsAvailable() && state.databasePath) {
+      if (authoritativePortalStorageReady() && bridge.storageMode?.() === 'host' && state.databasePath) {
         await checkForExternalSharedDiskChanges();
       }
     } catch {}
@@ -751,8 +809,8 @@ async function checkForSharedRecovery() {
     await bridge.whenReady;
     const info = await bridge.getStorageInfo();
     const extensionReady = bridge.isAvailable();
-    const nativeReady = extensionReady && info?.nativeAvailable === true && !!info.databasePath;
-    const databasePath = (info?.databasePath || '').trim();
+    const nativeReady = extensionReady && info?.authoritativeStorageAvailable === true;
+    const databasePath = (info?.databasePath || info?.storageMode || '').trim();
 
     const recovered = nativeReady && (!lastBridgeNativeReady || lastBridgeRecoveryPath !== databasePath);
     const statusChanged = lastBridgeNativeReady !== nativeReady || lastBridgeRecoveryPath !== databasePath;
@@ -761,6 +819,7 @@ async function checkForSharedRecovery() {
     lastBridgeRecoveryPath = databasePath;
 
     if (statusChanged) await refreshBridgeStatusUi();
+    if (statusChanged && !nativeReady) setPortalReadOnlyMode(true);
     if (recovered) await handleRecoveredSharedStorage(info);
   } finally {
     sharedRecoveryCheckInProgress = false;
@@ -795,7 +854,7 @@ function startSharedDiskPolling() {
 
 async function checkForExternalSharedDiskChanges() {
   if (sharedDiskDataReloadInProgress) return;
-  if (typeof bridge === 'undefined' || !bridge.isAvailable() || !bridge.nativeIsAvailable()) return;
+  if (!authoritativePortalStorageReady() || bridge.storageMode?.() !== 'host') return;
   const live = await bridge.getDatabaseFileInfo();
   const livePath = (live?.databasePath || '').trim();
   if (!livePath) return;
@@ -1385,6 +1444,22 @@ function attachEventListeners() {
     promptSharedDiskConflict(e.detail || {});
   });
 
+  window.addEventListener('morpheus:authoritative-state-changed', e => {
+    const detail = e.detail || {};
+    if (detail.version && detail.version === getSharedDiskBaselineVersion()) return;
+    if (sharedDiskSaveIsPending() || hasPendingSharedDiskChanges()) {
+      notifySharedDiskConflict({
+        fileInfo: { version: detail.version || null, contentHash: detail.contentHash || '' },
+        databasePath: detail.authority === 'host' ? state.databasePath : 'Relay storage'
+      });
+      return;
+    }
+    void reloadHubData({
+      source: 'shared',
+      notice: 'Portal data changed in another tab and was reloaded.'
+    });
+  });
+
   window.addEventListener('morpheus:bridge-ready', () => {
     void refreshBridgeStatusUi();
     void checkForSharedRecovery();
@@ -1412,39 +1487,41 @@ async function initializeHubState() {
       await bridge.whenReady;
       if (bridge.isAvailable()) {
         const info = await bridge.getStorageInfo();
-        if (info?.nativeAvailable && info.databasePath) {
-          startupSharedPath = info.databasePath;
+        if (info?.authoritativeStorageAvailable) {
+          const authorityKey = info.databasePath || info.storageMode || 'relay';
+          startupSharedPath = authorityKey;
           const loaded = await bridge.loadState();
+          const startupLocalSnapshot = localStorage.getItem(STORAGE_KEY);
           if (loaded?.error) throw new Error(loaded.error);
-          if (loaded?.fromDisk !== true) throw new Error('Shared database was not read from disk');
+          if (info.storageMode === 'host' && loaded?.fromDisk !== true) throw new Error('Shared database was not read from disk');
           if (!loaded?.json && loaded?.fileInfo?.exists !== false) {
             throw new Error('The shared database returned no hub data');
           }
           if (loaded?.json) {
-            const existingLocalSnapshot = localStorage.getItem(STORAGE_KEY);
+            const existingLocalSnapshot = startupLocalSnapshot;
             const metaBeforeSharedLoad = getLocalCacheMeta();
             if (existingLocalSnapshot && localCacheLooksNewerThanShared(
               metaBeforeSharedLoad,
-              info.databasePath,
+              authorityKey,
               existingLocalSnapshot,
               loaded.json,
               loaded.fileInfo || null
             )) {
               restoreStateSnapshot(existingLocalSnapshot);
-              state.databasePath = info.databasePath;
-              if (loaded.fileInfo) setSharedDiskBaseline(loaded.fileInfo, info.databasePath);
-              else resetSharedDiskBaseline(info.databasePath);
-              blockSharedDiskSync(info.databasePath);
+              if (info.databasePath) state.databasePath = info.databasePath;
+              if (loaded.fileInfo) setSharedDiskBaseline(loaded.fileInfo, authorityKey);
+              else resetSharedDiskBaseline(authorityKey);
+              blockSharedDiskSync(authorityKey);
               persistStateToLocalCache(existingLocalSnapshot, {
                 source: 'local',
-                databasePath: info.databasePath,
+                databasePath: info.databasePath || '',
                 sharedBaselineVersion: loaded.fileInfo?.version ?? null,
-                sharedBaselinePath: info.databasePath,
+                sharedBaselinePath: authorityKey,
                 sharedSeenAt: metaBeforeSharedLoad.sharedSeenAt ?? null
               });
               pendingStartupSharedRecovery = {
                 snapshot: existingLocalSnapshot,
-                databasePath: info.databasePath,
+                databasePath: authorityKey,
                 expectedVersion: loaded.fileInfo?.version ?? null,
                 sharedSnapshot: loaded.json
               };
@@ -1452,26 +1529,41 @@ async function initializeHubState() {
               restoreStateSnapshot(loaded.json);
             }
           } else {
+            const legacySnapshot = startupLocalSnapshot;
             state = loadState();
-            ensureLocalCacheMetadata(localStorage.getItem(STORAGE_KEY), {
-              source: 'local',
-              databasePath: state.databasePath || info.databasePath || ''
+            if (legacySnapshot) {
+              const migrated = await bridge.saveState(legacySnapshot, {
+                expectedVersion: loaded?.fileInfo?.version ?? null,
+                expectedHash: loaded?.fileInfo?.contentHash || ''
+              });
+              if (!migrated?.ok || migrated.conflict) throw new Error('The browser snapshot could not be migrated to Relay authority');
+              const verified = await bridge.loadState();
+              if (!verified?.json || !snapshotsMatch(verified.json, legacySnapshot)) {
+                throw new Error('The migrated Portal snapshot could not be verified');
+              }
+              if (verified.fileInfo) setSharedDiskBaseline(verified.fileInfo, authorityKey);
+            }
+            ensureLocalCacheMetadata(legacySnapshot, {
+              source: legacySnapshot ? 'shared' : 'local',
+              databasePath: info.databasePath || '',
+              sharedBaselinePath: authorityKey
             });
           }
-          state.databasePath = info.databasePath;
+          if (info.databasePath) state.databasePath = info.databasePath;
           if (!pendingStartupSharedRecovery) {
-            if (loaded?.json && typeof acceptSharedDiskSnapshot === 'function') acceptSharedDiskSnapshot(loaded.fileInfo || null, info.databasePath);
-            else if (loaded?.fileInfo) setSharedDiskBaseline(loaded.fileInfo, info.databasePath);
-            else resetSharedDiskBaseline(info.databasePath);
+            if (loaded?.json && typeof acceptSharedDiskSnapshot === 'function') acceptSharedDiskSnapshot(loaded.fileInfo || null, authorityKey);
+            else if (loaded?.fileInfo) setSharedDiskBaseline(loaded.fileInfo, authorityKey);
+            else if (!startupLocalSnapshot) resetSharedDiskBaseline(authorityKey);
             persistStateToLocalCache(null, {
               source: loaded?.json ? 'shared' : 'local',
-              databasePath: info.databasePath,
+              databasePath: info.databasePath || '',
               sharedBaselineVersion: loaded?.fileInfo?.version ?? null,
-              sharedBaselinePath: info.databasePath
+              sharedBaselinePath: authorityKey
             });
           }
           startSharedDiskPolling();
           loadedFromShared = true;
+          setPortalReadOnlyMode(false);
         }
       }
     }
@@ -1482,6 +1574,7 @@ async function initializeHubState() {
         source: 'local',
         databasePath: state.databasePath || ''
       });
+      setPortalReadOnlyMode(true);
     }
   } catch (error) {
     console.warn('Failed to initialize hub state from preferred source, falling back to browser cache.', error);
@@ -1495,6 +1588,7 @@ async function initializeHubState() {
       source: 'local',
       databasePath: state.databasePath || ''
     });
+    setPortalReadOnlyMode(true, 'Read-only: authoritative Portal storage could not be reached. The cached view is available while Cyrune Relay reconnects.');
   }
 
   if (typeof initializeServiceSecrets === 'function') {
@@ -1512,7 +1606,7 @@ async function initializeHubState() {
   updateUndoRedoUI();
   isDirty = false;
   if (!startupSharedLoadFailed) document.documentElement.classList.remove('hub-booting');
-  lastBridgeNativeReady = !startupSharedLoadFailed && typeof bridge !== 'undefined' && bridge.isAvailable() && bridge.nativeIsAvailable() && !!state.databasePath;
+  lastBridgeNativeReady = !startupSharedLoadFailed && authoritativePortalStorageReady();
   lastBridgeRecoveryPath = (state.databasePath || '').trim();
   startSharedRecoveryPolling();
 

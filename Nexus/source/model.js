@@ -1,23 +1,24 @@
 (function nexusModelScope(root, factory) {
-  const model = factory();
+  const registry = root.CyruneComponentRegistry || (typeof module === 'object' && module.exports
+    ? require('./component-registry.js') : null);
+  const model = factory(registry);
   root.CyruneNexusModel = model;
   if (typeof module === 'object' && module.exports) module.exports = model;
-}(typeof globalThis !== 'undefined' ? globalThis : this, function createNexusModel() {
+}(typeof globalThis !== 'undefined' ? globalThis : this, function createNexusModel(registry) {
   'use strict';
 
-  const NEXUS_VERSION = '0.1.9';
+  const NEXUS_VERSION = '0.3.0';
   const SETTINGS_SCHEMA_VERSION = 2;
   const PREVIEW_STORAGE_KEY = 'cyrune.nexus.settings.preview.v2';
   const LEGACY_PREVIEW_STORAGE_KEYS = Object.freeze(['cyrune.nexus.settings.preview.v1']);
 
-  const COMPONENTS = Object.freeze([
-    { id: 'portal', name: 'Portal', version: '0.11.226', accent: 'violet', page: '../Portal/index.html', summary: 'Dashboard, boards, items, shared persistence client and widget host.', todo: '../Portal/Portal-TODO.md', changelog: '../Portal/Portal-CHANGELOG.md' },
-    { id: 'widgets', name: 'Widgets', version: 'Unversioned', accent: 'cyan', page: '../Widgets/core/sdk/fixture.html', summary: 'Widget catalogue, SDK, providers and browser-local runtime state.', todo: '../Widgets/Widgets-TODO.md', changelog: '../Widgets/Widgets-CHANGELOG.md' },
-    { id: 'arcade', name: 'Arcade', version: 'Unversioned', accent: 'orange', page: '../Arcade/web/index.html', summary: 'Game libraries, metadata, collections, profiles and launch decisions.', todo: '../Arcade/Arcade-TODO.md', changelog: '../Arcade/Arcade-CHANGELOG.md' },
-    { id: 'relay', name: 'Relay', version: '1.0.61', accent: 'blue', summary: 'Authenticated browser bridge, exact client roles and durable routing.', todo: '../Relay/Relay-TODO.md', changelog: '../Relay/Relay-CHANGELOG.md' },
-    { id: 'host', name: 'Host', version: 'Unversioned', accent: 'green', summary: 'Bounded native persistence, filesystem, binding and process authority.', todo: '../Host/Host-TODO.md', changelog: '../Host/Host-CHANGELOG.md' },
-    { id: 'nexus', name: 'Nexus', version: NEXUS_VERSION, accent: 'pink', page: 'index.html', summary: 'Project health, shared variables, validation state and future managers.', todo: 'Nexus-TODO.md', changelog: 'Nexus-CHANGELOG.md' }
-  ]);
+  if (!registry || registry.schemaVersion !== 1 || !Array.isArray(registry.components)) {
+    throw new Error('Cyrune component registry did not load');
+  }
+  const COMPONENTS = registry.components;
+  if (COMPONENTS.find(component => component.id === 'nexus')?.version !== NEXUS_VERSION) {
+    throw new Error('Nexus registry version does not match the application');
+  }
 
   const DEFAULT_SETTINGS = Object.freeze({
     schemaVersion: SETTINGS_SCHEMA_VERSION,

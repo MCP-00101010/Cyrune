@@ -1,4 +1,4 @@
-from emugui_core.secrets import ScraperSecretService
+from arcade_core.secrets import ScraperSecretService
 
 
 def configured_service(secrets, *, verify=True):

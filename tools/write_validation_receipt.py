@@ -18,7 +18,7 @@ ALLOWED_TESTS = {
     "Portal", "Widgets", "Arcade", "Relay", "Host", "Nexus",
     "Migration", "Packaging", "Tooling",
 }
-ALLOWED_CHECKS = {"syntax", "manifest", "versions", "packaging", "lint"}
+ALLOWED_CHECKS = {"syntax", "manifest", "versions", "packaging", "lint", "infrastructure"}
 ALLOWED_CHECK_STATES = {"passed", "failed", "skipped", "unavailable"}
 SEMVER = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+$")
 
@@ -47,19 +47,11 @@ def parse_pairs(values: list[str], allowed: set[str], kind: str) -> dict[str, st
 
 
 def component_versions(repo: Path) -> dict[str, str]:
-    portal_source = (repo / "Portal" / "source" / "app.js").read_text(encoding="utf-8")
-    portal_match = re.search(r"APP_VERSION\s*=\s*'([^']+)'", portal_source)
-    relay = json.loads((repo / "Relay" / "manifest.json").read_text(encoding="utf-8"))
-    nexus = json.loads((repo / "Nexus" / "component.json").read_text(encoding="utf-8"))
-    versions = {
-        "Portal": portal_match.group(1) if portal_match else "",
-        "Widgets": "Unversioned",
-        "Arcade": "Unversioned",
-        "Relay": str(relay.get("version", "") or ""),
-        "Host": "Unversioned",
-        "Nexus": str(nexus.get("version", "") or ""),
-    }
-    if any(value != "Unversioned" and not SEMVER.fullmatch(value) for value in versions.values()):
+    versions = {}
+    for component in ("Portal", "Widgets", "Arcade", "Relay", "Host", "Nexus"):
+        manifest = json.loads((repo / component / "component.json").read_text(encoding="utf-8"))
+        versions[component] = str(manifest.get("version", "") or "")
+    if any(not SEMVER.fullmatch(value) for value in versions.values()):
         raise ValueError("A component version is missing or invalid")
     return versions
 

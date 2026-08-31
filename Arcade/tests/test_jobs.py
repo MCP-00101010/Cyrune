@@ -1,4 +1,4 @@
-from emugui_core.jobs import BackgroundJobService
+from arcade_core.jobs import BackgroundJobService
 
 
 class ImmediateThread:

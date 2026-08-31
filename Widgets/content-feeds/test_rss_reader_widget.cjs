@@ -29,7 +29,7 @@ function loadRssWidgets(fetchImpl = async () => { throw new Error('Unexpected fe
     },
     saveState: () => { throw new Error('RSS runtime data must not save shared Hub state'); }
   });
-  for (const filename of ['../Widgets/core/widget-network.js', '../Widgets/core/widgets.js', '../Widgets/core/widget-sdk.js']) {
+  for (const filename of ['../Widgets/core/widget-network.js', '../Widgets/core/widgets.js', '../Widgets/core/widget-response.js', '../Widgets/core/widget-sdk.js']) {
     vm.runInContext(fs.readFileSync(path.join(root, filename), 'utf8'), context, { filename });
   }
   vm.runInContext(rssWidgetSource, context, { filename: 'rss-reader-widget.js' });
@@ -240,5 +240,5 @@ test('RSS UI exposes combined, starred and feed tabs with local read state', () 
   assert.match(background, /MAX_FEED_RESPONSE_BYTES = 2 \* 1024 \* 1024/);
   assert.equal(manifest.permissions.includes('https://*/*'), true);
   assert.equal(manifest.permissions.includes('http://*/*'), true);
-  assert.equal(manifest.version, '1.0.61');
+  assert.equal(manifest.version, '1.1.0');
 });

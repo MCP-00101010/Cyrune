@@ -7,17 +7,21 @@ globalThis.__morpheusWebHubRelayLoaded = true;
 // Keep the page/extension transport deliberately small. Firefox injects this
 // once at document_idle, after Cyrune Portal's compatibility meta tag is available.
 const IS_MORPHEUS = !!document.querySelector('meta[name="morpheus-webhub"]');
-const IS_EMUGUI = !!document.querySelector('meta[name="morpheus-emugui"]')
+const IS_ARCADE = (!!document.querySelector('meta[name="cyrune-arcade"]')
+  || !!document.querySelector('meta[name="morpheus-emugui"]'))
   && window.location.protocol === 'file:';
 const IS_NEXUS = !!document.querySelector('meta[name="cyrune-nexus"]')
   && window.location.protocol === 'file:';
+const PORTAL_CLIENT_PROTOCOLS = Object.freeze({ 'portal-relay': 1, 'component-settings': 2 });
+const ARCADE_CLIENT_PROTOCOLS = Object.freeze({ 'arcade-relay': 1, 'arcade-service': 1, 'component-settings': 2 });
+const NEXUS_CLIENT_PROTOCOLS = Object.freeze({ 'nexus-relay': 2, 'component-settings': 2 });
 const pendingPagePushes = new Map();
 let pushSequence = 0;
 let registeredWithBackground = false;
 let registrationPromise = null;
 let hubSessionToken = '';
-let emuguiRegistrationPromise = null;
-let emuguiSessionToken = '';
+let arcadeRegistrationPromise = null;
+let arcadeSessionToken = '';
 let nexusRegistrationPromise = null;
 let nexusSessionToken = '';
 
@@ -35,6 +39,7 @@ function nexusDocumentUrl(value = window.location.href) {
 function setRelayDiagnostic(state, error = '') {
   const root = document.documentElement;
   if (!root) return;
+  root.dataset.cyruneArcadeRelay = state;
   root.dataset.morpheusExtensionRelay = state;
   if (error) root.dataset.morpheusExtensionError = error;
   else delete root.dataset.morpheusExtensionError;
@@ -60,7 +65,8 @@ function registerHub({ force = false } = {}) {
   registrationPromise = browser.runtime.sendMessage({
     type: 'MW_REGISTER',
     pageUrl: window.location.href,
-    active: !document.hidden && document.hasFocus()
+    active: !document.hidden && document.hasFocus(),
+    protocols: PORTAL_CLIENT_PROTOCOLS
   }).then(response => {
     if (response?.ok !== true) throw new Error(response?.error || 'The extension background rejected Hub registration');
     if (!response.hubSessionToken) throw new Error('The extension background did not establish a Hub session');
@@ -80,28 +86,30 @@ function registerHub({ force = false } = {}) {
   return registrationPromise;
 }
 
-function registerEmuGui({ force = false } = {}) {
-  if (emuguiSessionToken && !force) return Promise.resolve({ ok: true, emuguiSessionToken });
-  if (emuguiRegistrationPromise) return emuguiRegistrationPromise;
-  emuguiRegistrationPromise = browser.runtime.sendMessage({
+function registerArcade({ force = false } = {}) {
+  if (arcadeSessionToken && !force) return Promise.resolve({ ok: true, arcadeSessionToken, emuguiSessionToken: arcadeSessionToken });
+  if (arcadeRegistrationPromise) return arcadeRegistrationPromise;
+  arcadeRegistrationPromise = browser.runtime.sendMessage({
     type: 'MW_EMUGUI_REGISTER',
-    pageUrl: window.location.href
+    pageUrl: window.location.href,
+    protocols: ARCADE_CLIENT_PROTOCOLS
   }).then(response => {
-    if (response?.ok !== true || !response.emuguiSessionToken) {
+    const token = response?.arcadeSessionToken || response?.emuguiSessionToken;
+    if (response?.ok !== true || !token) {
       throw new Error(response?.error || 'Cyrune Relay rejected Arcade registration');
     }
-    emuguiSessionToken = response.emuguiSessionToken;
+    arcadeSessionToken = token;
     setRelayDiagnostic('background-ready');
-    window.postMessage({ _emugui: true, _relayReady: true, transport: response.transport || '' }, '*');
-    return response;
+    window.postMessage({ _arcade: true, _emugui: true, _relayReady: true, transport: response.transport || '' }, '*');
+    return { ...response, arcadeSessionToken: token, emuguiSessionToken: token };
   }).catch(error => {
-    emuguiSessionToken = '';
+    arcadeSessionToken = '';
     setRelayDiagnostic('background-error', error?.message || String(error));
     return { ok: false, error: error?.message || String(error) };
   }).finally(() => {
-    emuguiRegistrationPromise = null;
+    arcadeRegistrationPromise = null;
   });
-  return emuguiRegistrationPromise;
+  return arcadeRegistrationPromise;
 }
 
 function registerNexus({ force = false } = {}) {
@@ -109,7 +117,8 @@ function registerNexus({ force = false } = {}) {
   if (nexusRegistrationPromise) return nexusRegistrationPromise;
   nexusRegistrationPromise = browser.runtime.sendMessage({
     type: 'MW_NEXUS_REGISTER',
-    pageUrl: nexusDocumentUrl()
+    pageUrl: nexusDocumentUrl(),
+    protocols: NEXUS_CLIENT_PROTOCOLS
   }).then(response => {
     if (response?.ok !== true || !response.nexusSessionToken) {
       throw new Error(response?.error || 'Cyrune Relay rejected Nexus registration');
@@ -136,6 +145,17 @@ if (IS_MORPHEUS) {
   browser.runtime.onMessage.addListener(msg => {
     if (msg.type === 'MW_CYRUNE_SETTINGS_CHANGED') {
       window.postMessage({ _mw: true, _cyruneSettingsChanged: true, revision: Number(msg.revision || 0) }, '*');
+      return;
+    }
+    if (msg.type === 'MW_PORTAL_STATE_CHANGED') {
+      window.postMessage({
+        _mw: true,
+        _portalStateChanged: true,
+        revision: Number(msg.revision || 0),
+        version: msg.version || null,
+        contentHash: msg.contentHash || '',
+        authority: msg.authority || ''
+      }, '*');
       return;
     }
     if (msg.type === 'MW_DISCOVER') {
@@ -197,12 +217,12 @@ if (IS_MORPHEUS) {
     }
   });
 }
-if (IS_EMUGUI) {
+if (IS_ARCADE) {
   setRelayDiagnostic('loaded');
-  void registerEmuGui();
+  void registerArcade();
   browser.runtime.onMessage.addListener(msg => {
     if (msg.type === 'MW_CYRUNE_SETTINGS_CHANGED') {
-      window.postMessage({ _emugui: true, _cyruneSettingsChanged: true, revision: Number(msg.revision || 0) }, '*');
+      window.postMessage({ _arcade: true, _emugui: true, _cyruneSettingsChanged: true, revision: Number(msg.revision || 0) }, '*');
     }
   });
 }
@@ -251,17 +271,17 @@ window.addEventListener('message', async event => {
     window.postMessage({ _nexusRes: true, requestId, ...(response || { ok: false, error: 'No extension response' }) }, '*');
     return;
   }
-  if (IS_EMUGUI && event.source === window && event.data?._emuguiReq === true) {
+  if (IS_ARCADE && event.source === window && (event.data?._arcadeReq === true || event.data?._emuguiReq === true)) {
     const requestId = String(event.data.requestId || '');
     const type = String(event.data.type || '');
     if (!requestId || !['MW_EMUGUI_SEND_GAME', 'MW_EMUGUI_RPC', 'MW_EMUGUI_ASSET', 'MW_EMUGUI_GET_CYRUNE_SETTINGS'].includes(type)) return;
     let response;
     try {
-      const registration = await registerEmuGui();
-      if (registration?.ok !== true || !emuguiSessionToken) throw new Error(registration?.error || 'Cyrune Arcade is not registered');
+      const registration = await registerArcade();
+      if (registration?.ok !== true || !arcadeSessionToken) throw new Error(registration?.error || 'Cyrune Arcade is not registered');
       const message = {
         type,
-        emuguiSessionToken,
+        emuguiSessionToken: arcadeSessionToken,
         pageUrl: window.location.href
       };
       if (type === 'MW_EMUGUI_SEND_GAME') Object.assign(message, {
@@ -282,7 +302,7 @@ window.addEventListener('message', async event => {
     } catch (error) {
       response = { ok: false, error: error?.message || String(error) };
     }
-    window.postMessage({ _emuguiRes: true, requestId, ...(response || { ok: false, error: 'No extension response' }) }, '*');
+    window.postMessage({ _arcadeRes: true, _emuguiRes: true, requestId, ...(response || { ok: false, error: 'No extension response' }) }, '*');
     return;
   }
   if (!IS_MORPHEUS) return;

@@ -9,7 +9,7 @@ const calendarSource = fs.readFileSync(path.join(__dirname, 'calendar-widget.js'
 const astronomyEngine = fs.readFileSync(path.join(root, 'vendor', 'astronomy-engine', 'astronomy.browser.min.js'), 'utf8');
 const astronomyCatalog = fs.readFileSync(path.join(__dirname, '..', 'space-astronomy', 'astronomy-events.js'), 'utf8');
 const networkSource = fs.readFileSync(path.join(__dirname, '..', 'core', 'widget-network.js'), 'utf8');
-const sdkSource = fs.readFileSync(path.join(__dirname, '..', 'core', 'widget-sdk.js'), 'utf8');
+const sdkSource = `${fs.readFileSync(path.join(__dirname, '..', 'core', 'widget-response.js'), 'utf8')}\n${fs.readFileSync(path.join(__dirname, '..', 'core', 'widget-sdk.js'), 'utf8')}`;
 const styles = fs.readFileSync(path.join(__dirname, 'calendar-widget.css'), 'utf8');
 const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
 

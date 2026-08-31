@@ -541,7 +541,6 @@ async function receiveExternalImportItems(items, options = {}, allowRebase = tru
     phaseTwoApplyAutomationRecords(deliveryRecords, { pushUndo: false, persist: false, render: false });
   }
   state.importManager.lastImportedAt = new Date().toISOString();
-  renderImportManagerPanel();
   const deliveryMutationSequence = typeof getLocalStateMutationSequence === 'function'
     ? getLocalStateMutationSequence() + 1
     : null;
@@ -569,7 +568,9 @@ async function receiveExternalImportItems(items, options = {}, allowRebase = tru
     }
   }
 
-  showImportManagerPanel();
+  // External Relay deliveries should update the badge and an already-open
+  // Import Manager without interrupting the user's current Portal view.
+  renderImportManagerPanel();
   const { bookmarks, folders } = getImportManagerCounts();
   const source = options.source === 'bookmarks-menu' ? ' from Firefox bookmarks' : '';
   showNotice(`Imported ${bookmarks} bookmarks in ${folders} folders${source} into Import Manager.`);

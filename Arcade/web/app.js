@@ -1,5 +1,7 @@
 const state = {
   games: [],
+  gamesById: new Map(),
+  gameDetails: new Map(),
   filtered: [],
   selected: null,
   selectedIds: new Set(),
@@ -18,11 +20,14 @@ const state = {
 let listClickTimer = 0;
 let draggedColumnKey = "";
 let virtualFrame = 0;
+let filterFrame = 0;
 let virtualRange = { start: -1, end: -1, columns: -1 };
-let webHubRequestSequence = 0;
-const pendingWebHubRequests = new Map();
 const extensionAssetCache = new Map();
-let extensionRelayPromise = null;
+const requestArcadeRpc = globalThis.ArcadeTransport.rpc;
+const requestArcadeAsset = globalThis.ArcadeTransport.asset;
+const sendArcadeGame = globalThis.ArcadeTransport.sendGame;
+const arcadeCyruneSettings = globalThis.ArcadeTransport.settings;
+const optionalNetworkAllowed = globalThis.ArcadeTransport.optionalNetworkAllowed;
 const webHubHandoff = (() => {
   const params = new URLSearchParams(window.location.search);
   const gameId = String(params.get("game") || "");
@@ -32,106 +37,6 @@ const webHubHandoff = (() => {
     rebindGameKey: /^game_[a-zA-Z0-9_-]{12,75}$/.test(rebindGameKey) ? rebindGameKey : "",
   };
 })();
-
-window.addEventListener("message", (event) => {
-  if (event.source !== window) return;
-  if (event.data?._emugui === true && event.data?._cyruneSettingsChanged === true) {
-    window.dispatchEvent(new CustomEvent("cyrune:settings-revision", {
-      detail: { revision: Number(event.data.revision || 0) },
-    }));
-    return;
-  }
-  if (event.data?._emuguiRes !== true) return;
-  const pending = pendingWebHubRequests.get(event.data.requestId);
-  if (!pending) return;
-  clearTimeout(pending.timer);
-  pendingWebHubRequests.delete(event.data.requestId);
-  if (event.data.ok === true) pending.resolve(event.data);
-  else pending.reject(new Error(event.data.error || "Cyrune Relay rejected the game shortcut."));
-});
-
-function waitForExtensionRelay() {
-  if (document.documentElement.dataset.morpheusExtensionRelay === "background-ready") {
-    return Promise.resolve();
-  }
-  if (extensionRelayPromise) return extensionRelayPromise;
-  extensionRelayPromise = new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      window.removeEventListener("message", onMessage);
-      reject(new Error("Cyrune Relay 1.0.53 or newer is required to open Arcade."));
-    }, 15000);
-    const onMessage = (event) => {
-      if (event.source !== window || event.data?._emugui !== true || event.data?._relayReady !== true) return;
-      clearTimeout(timer);
-      window.removeEventListener("message", onMessage);
-      resolve();
-    };
-    window.addEventListener("message", onMessage);
-  });
-  return extensionRelayPromise;
-}
-
-async function requestWebHub(type, payload = {}) {
-  await waitForExtensionRelay();
-  const requestId = `emugui-${Date.now()}-${++webHubRequestSequence}`;
-  const timeoutMs = type === "MW_EMUGUI_RPC" && payload.path === "/api/pick-path" ? 305000 : 125000;
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      pendingWebHubRequests.delete(requestId);
-      reject(new Error("Cyrune Relay 1.0.53 or newer is required."));
-    }, timeoutMs);
-    pendingWebHubRequests.set(requestId, { resolve, reject, timer });
-    window.postMessage({ _emuguiReq: true, requestId, type, ...payload }, "*");
-  });
-}
-
-const arcadeCyruneSettings = (() => {
-  const factory = globalThis.CyruneComponentSettingsClient;
-  let client = null;
-
-  function applyProfile(profile) {
-    const values = profile.values || {};
-    const accessibility = values.accessibility || {};
-    const language = values.language || {};
-    const units = values.units || {};
-    const privacy = values.privacy || {};
-    const root = document.documentElement;
-    if (language.interface) root.lang = language.interface;
-    if (accessibility.scale) root.style.fontSize = `${accessibility.scale}%`;
-    root.dataset.cyruneReducedMotion = String(accessibility.reducedMotion === true);
-    root.dataset.cyruneHighContrast = String(accessibility.highContrast === true);
-    root.dataset.cyruneUnits = units.system || "metric";
-    root.dataset.cyruneOptionalNetwork = String(privacy.allowOptionalNetwork !== false);
-    window.dispatchEvent(new CustomEvent("cyrune:settings-applied", {
-      detail: { component: profile.component, revision: profile.revision },
-    }));
-  }
-
-  if (factory) {
-    client = factory.create({
-      component: "arcade",
-      request: async () => {
-        const response = await requestWebHub("MW_EMUGUI_GET_CYRUNE_SETTINGS");
-        return response.profile;
-      },
-      apply: applyProfile,
-    });
-    const refresh = () => { client.refresh().catch(() => {}); };
-    window.addEventListener("cyrune:settings-revision", (event) => {
-      const current = client.get();
-      if (Number(event.detail?.revision || 0) > Number(current?.revision || -1)) refresh();
-    });
-    refresh();
-  }
-
-  return Object.freeze({
-    get: () => client?.get() || null,
-    refresh: () => client ? client.refresh() : Promise.resolve(null),
-    subscribe: (listener) => client ? client.subscribe(listener) : (() => {}),
-  });
-})();
-
-globalThis.CyruneSettings = arcadeCyruneSettings;
 
 const COUNTRY_NAMES = {
   BR: "Brazil",
@@ -481,7 +386,7 @@ function moveColumn(sourceKey, targetKey, side = "before") {
 }
 
 async function api(path, options = {}) {
-  const target = new URL(path, "https://emugui.invalid");
+  const target = new URL(path, "https://arcade.invalid");
   let body = {};
   if (options.body) {
     try {
@@ -490,7 +395,7 @@ async function api(path, options = {}) {
       throw new Error("The Cyrune Arcade request body is invalid.");
     }
   }
-  const response = await requestWebHub("MW_EMUGUI_RPC", {
+  const response = await requestArcadeRpc({
     method: String(options.method || "GET").toUpperCase(),
     path: target.pathname,
     query: Object.fromEntries(target.searchParams.entries()),
@@ -506,33 +411,37 @@ async function api(path, options = {}) {
 }
 
 async function init() {
-  const [collectionsPayload, gamesPayload, emulatorsPayload, profilesPayload, recentPayload] = await Promise.all([
+  renderLayout();
+  renderTableStructure();
+  bindEvents();
+
+  // Prioritize the library. Collection counts can involve filesystem walks and
+  // should not hold the first useful render behind secondary startup data.
+  const gamesPayload = await api("/api/games?view=all&shape=summary");
+  replaceGameSummaries(gamesPayload.games);
+  applyFilters();
+
+  const [collectionsPayload, emulatorsPayload, profilesPayload, recentPayload] = await Promise.all([
     api("/api/collections"),
-    api("/api/games?view=all"),
     api("/api/emulators"),
     api("/api/emulator-profiles"),
     api("/api/recent"),
   ]);
   state.collections = collectionsPayload.collections;
   state.activeCollection = collectionsPayload.active;
-  state.games = gamesPayload.games;
   state.emulators = emulatorsPayload.emulators;
   state.emulatorProfiles = profilesPayload.profiles || [];
   state.recentIds = new Set(recentPayload.recent.map((item) => item.game_id));
-  renderLayout();
-  renderTableStructure();
   renderCollections();
   renderEmulators();
-  renderMetadataFilters();
-  bindEvents();
-  applyFilters();
+  renderCounts();
   if (webHubHandoff.gameId && state.games.some((game) => game.id === webHubHandoff.gameId)) {
     await selectGame(webHubHandoff.gameId);
   }
 }
 
 function bindEvents() {
-  els.search.addEventListener("input", applyFilters);
+  els.search.addEventListener("input", scheduleFilterApply);
   document.addEventListener("click", hideContextMenu);
   window.addEventListener("blur", hideContextMenu);
   [els.filterPoks].forEach((input) => input.addEventListener("change", applyFilters));
@@ -669,15 +578,23 @@ async function waitForJob(jobId) {
 }
 
 async function reloadGames() {
-  const payload = await api("/api/games?view=all");
-  state.games = payload.games;
+  const selectedId = state.selected?.id || "";
+  const payload = await api("/api/games?view=all&shape=summary");
+  replaceGameSummaries(payload.games);
   const validIds = new Set(state.games.map((game) => game.id));
   state.selectedIds = new Set([...state.selectedIds].filter((id) => validIds.has(id)));
-  renderMetadataFilters();
-  applyFilters();
-  if (!state.selected) {
-    await renderDetails();
+  state.selected = selectedId ? state.gamesById.get(selectedId) || null : null;
+  if (state.selected) {
+    state.selected = await loadGameDetails(selectedId) || state.selected;
   }
+  applyFilters();
+  await renderDetails();
+}
+
+function replaceGameSummaries(games) {
+  state.games = Array.isArray(games) ? games : [];
+  state.gamesById = new Map(state.games.map((game) => [game.id, game]));
+  state.gameDetails.clear();
 }
 
 async function reloadCollections() {
@@ -696,13 +613,13 @@ async function refreshCollectionsForDropdown() {
   }
 }
 
-function renderMetadataFilters() {
-  renderFilterCombo(els.filterSystem, buildSimpleOptions("system", filteredForCounts("system")), "System", "All Systems");
-  renderFilterCombo(els.filterLanguage, buildLanguageOptions(filteredForCounts("language")), "Language", "All Languages");
-  renderFilterCombo(els.filterCountry, buildCountryOptions(filteredForCounts("country")), "Country", "All Countries");
-  renderFilterCombo(els.filterYear, buildYearOptions(filteredForCounts("year")), "Year", "All Years");
-  renderFilterCombo(els.filterPublisher, buildSimpleOptions("publisher", filteredForCounts("publisher")), "Publisher", "All Publishers");
-  renderFilterCombo(els.filterTag, buildTagOptions(filteredForCounts("tag")), "Tag", "All Tags");
+function renderMetadataFilters(filters = activeFiltersSnapshot()) {
+  renderFilterCombo(els.filterSystem, buildSimpleOptions("system", filteredForCounts("system", filters)), "System", "All Systems");
+  renderFilterCombo(els.filterLanguage, buildLanguageOptions(filteredForCounts("language", filters)), "Language", "All Languages");
+  renderFilterCombo(els.filterCountry, buildCountryOptions(filteredForCounts("country", filters)), "Country", "All Countries");
+  renderFilterCombo(els.filterYear, buildYearOptions(filteredForCounts("year", filters)), "Year", "All Years");
+  renderFilterCombo(els.filterPublisher, buildSimpleOptions("publisher", filteredForCounts("publisher", filters)), "Publisher", "All Publishers");
+  renderFilterCombo(els.filterTag, buildTagOptions(filteredForCounts("tag", filters)), "Tag", "All Tags");
 }
 
 function renderFilterCombo(combo, options = null, label = "", allLabel = "") {
@@ -1506,43 +1423,58 @@ function showAddEmulatorModal(onAdd) {
 }
 
 function applyFilters() {
-  renderMetadataFilters();
+  const filters = activeFiltersSnapshot();
+  renderMetadataFilters(filters);
   renderViewOptions();
-  state.filtered = state.games.filter((game) => matchesActiveFilters(game));
+  state.filtered = state.games.filter((game) => matchesActiveFilters(game, "", filters));
   sortFilteredGames();
   renderList();
   renderCounts();
   updateSortHeaders();
 }
 
-function matchesActiveFilters(game, excludeKey = "") {
-  const query = els.search.value.trim().toLowerCase();
-  const systemFilter = selectedFilterValues("system");
-  const languageFilter = selectedFilterValues("language");
-  const countryFilter = selectedFilterValues("country");
-  const yearFilter = selectedFilterValues("year");
-  const publisherFilter = selectedFilterValues("publisher");
-  const tagFilter = selectedFilterValues("tag");
-  const viewFilter = els.filterView.value || "all";
-  if (query && !matchesQuery(game, query)) return false;
-  if (excludeKey !== "system" && systemFilter.length && !systemFilter.includes(game.system)) return false;
-  if (excludeKey !== "language" && languageFilter.length && !intersects(gameLanguageCodes(game), languageFilter)) return false;
-  if (excludeKey !== "country" && countryFilter.length && !intersects(game.countries || [], countryFilter)) return false;
-  if (excludeKey !== "year" && yearFilter.length && !yearFilter.includes(gameYear(game))) return false;
-  if (excludeKey !== "publisher" && publisherFilter.length && !publisherFilter.includes(game.publisher)) return false;
-  if (excludeKey !== "tag" && tagFilter.length && !intersects(gameTags(game), tagFilter)) return false;
-  if (els.filterPoks.checked && !game.has_poks) return false;
+function scheduleFilterApply() {
+  if (filterFrame) cancelAnimationFrame(filterFrame);
+  filterFrame = requestAnimationFrame(() => {
+    filterFrame = 0;
+    applyFilters();
+  });
+}
+
+function activeFiltersSnapshot() {
+  return {
+    query: els.search.value.trim().toLowerCase(),
+    system: new Set(selectedFilterValues("system")),
+    language: new Set(selectedFilterValues("language")),
+    country: new Set(selectedFilterValues("country")),
+    year: new Set(selectedFilterValues("year")),
+    publisher: new Set(selectedFilterValues("publisher")),
+    tag: new Set(selectedFilterValues("tag")),
+    view: els.filterView.value || "all",
+    poks: els.filterPoks.checked,
+  };
+}
+
+function matchesActiveFilters(game, excludeKey = "", filters = activeFiltersSnapshot()) {
+  if (filters.query && !matchesQuery(game, filters.query)) return false;
+  if (excludeKey !== "system" && filters.system.size && !filters.system.has(game.system)) return false;
+  if (excludeKey !== "language" && filters.language.size && !intersects(gameLanguageCodes(game), filters.language)) return false;
+  if (excludeKey !== "country" && filters.country.size && !intersects(game.countries || [], filters.country)) return false;
+  if (excludeKey !== "year" && filters.year.size && !filters.year.has(gameYear(game))) return false;
+  if (excludeKey !== "publisher" && filters.publisher.size && !filters.publisher.has(game.publisher)) return false;
+  if (excludeKey !== "tag" && filters.tag.size && !intersects(gameTags(game), filters.tag)) return false;
+  if (filters.poks && !game.has_poks) return false;
   if (excludeKey === "view") return true;
-  if (viewFilter === "all" && ["incoming", "trash"].includes(game.view)) return false;
-  if (viewFilter === "favourites" && !game.favourite) return false;
-  if (viewFilter === "recent" && !state.recentIds.has(game.id)) return false;
-  if (viewFilter === "incoming" && game.view !== "incoming") return false;
-  if (viewFilter === "trash" && game.view !== "trash") return false;
+  if (filters.view === "all" && ["incoming", "trash"].includes(game.view)) return false;
+  if (filters.view === "favourites" && !game.favourite) return false;
+  if (filters.view === "recent" && !state.recentIds.has(game.id)) return false;
+  if (filters.view === "incoming" && game.view !== "incoming") return false;
+  if (filters.view === "trash" && game.view !== "trash") return false;
   return true;
 }
 
-function filteredForCounts(excludeKey) {
-  return state.games.filter((game) => matchesActiveFilters(game, excludeKey));
+function filteredForCounts(excludeKey, filters) {
+  return state.games.filter((game) => matchesActiveFilters(game, excludeKey, filters));
 }
 
 function selectedFilterValues(key) {
@@ -1550,7 +1482,7 @@ function selectedFilterValues(key) {
 }
 
 function intersects(values, filters) {
-  return values.some((value) => filters.includes(value));
+  return values.some((value) => filters.has(value));
 }
 
 function sortFilteredGames() {
@@ -1811,47 +1743,22 @@ function confirmBulkDeleteCollection(games) {
 
 async function bulkDeleteCollectionGames(games, confirmFirst = true) {
   if (confirmFirst && !confirmBulkDeleteCollection(games)) return "Delete cancelled.";
-  let deleted = 0;
-  const errors = [];
-  for (const [index, game] of games.entries()) {
-    els.busyMessage.textContent = `Moving ${index + 1} of ${games.length.toLocaleString()} games to bin...`;
-    setBusyProgress((index / games.length) * 100);
-    try {
-      await api("/api/delete", {
-        method: "POST",
-        body: JSON.stringify({ game_id: game.id }),
-      });
-      deleted += 1;
-    } catch (error) {
-      errors.push(`${game.file_name}: ${error.message}`);
-    }
-    setBusyProgress(((index + 1) / games.length) * 100);
-  }
-  if (errors.length) throw new Error(`Moved ${deleted}, failed ${errors.length}. ${errors.slice(0, 3).join(" ")}`);
+  const payload = await api("/api/delete-bulk", {
+    method: "POST",
+    body: JSON.stringify({ game_ids: games.map((game) => game.id) }),
+  });
+  const deleted = Number(payload.count || 0);
+  setBusyProgress(100);
   return `Moved ${deleted} game${deleted === 1 ? "" : "s"} to bin.`;
 }
 
 async function bulkSetFavourite(games, favourite) {
-  let updated = 0;
-  const errors = [];
-  for (const [index, game] of games.entries()) {
-    els.busyMessage.textContent = `${favourite ? "Adding" : "Removing"} ${index + 1} of ${games.length.toLocaleString()} favourites...`;
-    setBusyProgress((index / games.length) * 100);
-    try {
-      const payload = await api("/api/favourite", {
-        method: "POST",
-        body: JSON.stringify({ game_id: game.id, favourite }),
-      });
-      const changed = payload.game || { ...game, favourite };
-      const gameIndex = state.games.findIndex((item) => item.id === game.id);
-      if (gameIndex !== -1) state.games[gameIndex] = changed;
-      updated += 1;
-    } catch (error) {
-      errors.push(`${game.file_name}: ${error.message}`);
-    }
-    setBusyProgress(((index + 1) / games.length) * 100);
-  }
-  if (errors.length) throw new Error(`Updated ${updated}, failed ${errors.length}. ${errors.slice(0, 3).join(" ")}`);
+  const payload = await api("/api/favourites-bulk", {
+    method: "POST",
+    body: JSON.stringify({ game_ids: games.map((game) => game.id), favourite }),
+  });
+  const updated = Number(payload.count || 0);
+  setBusyProgress(100);
   return `${favourite ? "Added" : "Removed"} ${updated} favourite${updated === 1 ? "" : "s"}.`;
 }
 
@@ -1936,23 +1843,12 @@ function confirmBulkDeleteIncoming(games) {
 
 async function bulkDeleteGames(games, confirmFirst = true) {
   if (confirmFirst && !confirmBulkDeleteIncoming(games)) return "Delete cancelled.";
-  let deleted = 0;
-  const errors = [];
-  for (const [index, game] of games.entries()) {
-    els.busyMessage.textContent = `Moving ${index + 1} of ${games.length.toLocaleString()} incoming files to bin...`;
-    setBusyProgress((index / games.length) * 100);
-    try {
-      await api("/api/delete", {
-        method: "POST",
-        body: JSON.stringify({ game_id: game.id }),
-      });
-      deleted += 1;
-    } catch (error) {
-      errors.push(`${game.file_name}: ${error.message}`);
-    }
-    setBusyProgress(((index + 1) / games.length) * 100);
-  }
-  if (errors.length) throw new Error(`Deleted ${deleted}, failed ${errors.length}. ${errors.slice(0, 3).join(" ")}`);
+  const payload = await api("/api/delete-bulk", {
+    method: "POST",
+    body: JSON.stringify({ game_ids: games.map((game) => game.id) }),
+  });
+  const deleted = Number(payload.count || 0);
+  setBusyProgress(100);
   return `Moved ${deleted} incoming file${deleted === 1 ? "" : "s"} to _Deleted.`;
 }
 
@@ -2053,7 +1949,7 @@ function filterSummary(key, names = null) {
 }
 
 function selectedGameList() {
-  return [...state.selectedIds].map((id) => state.games.find((game) => game.id === id)).filter(Boolean);
+  return [...state.selectedIds].map((id) => state.gamesById.get(id)).filter(Boolean);
 }
 
 function renderList() {
@@ -2209,10 +2105,24 @@ function gameTags(game) {
 
 async function selectGame(id) {
   const previousId = state.selected?.id;
-  state.selected = state.games.find((game) => game.id === id);
+  const summary = state.gamesById.get(id);
+  if (!summary) return;
+  state.selected = summary;
+  const details = await loadGameDetails(id);
+  if (state.selected?.id !== id) return;
+  state.selected = details || summary;
   applyGameDefaultEmulator(state.selected);
   updateSelectedRow(previousId, id);
   await renderDetails();
+}
+
+async function loadGameDetails(id) {
+  let details = state.gameDetails.get(id);
+  if (details) return details;
+  const payload = await api(`/api/game?game_id=${encodeURIComponent(id)}`);
+  details = payload.game || null;
+  if (details) state.gameDetails.set(id, details);
+  return details;
 }
 
 function applyGameDefaultEmulator(game) {
@@ -2346,7 +2256,7 @@ function renderArtworkPanel(assets) {
 function assetDisplayUrl(value) {
   const text = String(value || "").trim();
   if (!text) return "";
-  return extensionAssetCache.get(text) || (/^https?:\/\//i.test(text) ? text : "");
+  return extensionAssetCache.get(text) || "";
 }
 
 async function prepareArtworkAssets(values) {
@@ -2354,10 +2264,10 @@ async function prepareArtworkAssets(values) {
     .filter((value) => value && !extensionAssetCache.has(value)))];
   await Promise.all(missing.map(async value => {
     try {
-      const response = await requestWebHub("MW_EMUGUI_ASSET", { path: value });
+      const response = await requestArcadeAsset(value);
       extensionAssetCache.set(value, String(response.asset?.dataUrl || ""));
     } catch (_error) {
-      extensionAssetCache.set(value, /^https?:\/\//i.test(value) ? value : "");
+      extensionAssetCache.set(value, "");
     }
   }));
 }
@@ -2406,12 +2316,12 @@ async function sendSelectedToWebHub() {
   const binding = resolveLaunchBinding(game);
   try {
     await renderDetails("Sending game shortcut to Cyrune Portal...");
-    const result = await requestWebHub("MW_EMUGUI_SEND_GAME", {
+    const result = await sendArcadeGame({
       gameId: game.id,
       emulatorId: binding.emulatorId,
       profileId: binding.profileId,
       rebindGameKey: webHubHandoff.rebindGameKey,
-      deliveryId: `emugui-game-${game.id}-${Date.now()}`
+      deliveryId: `arcade-game-${game.id}-${Date.now()}`
     });
     if (webHubHandoff.rebindGameKey) {
       webHubHandoff.rebindGameKey = "";
@@ -2883,16 +2793,18 @@ function showSortHeaderMenu(event, key) {
   });
 }
 
-function showContextMenu(event, gameId) {
+async function showContextMenu(event, gameId) {
   event.preventDefault();
   hideContextMenu();
-  const game = state.games.find((item) => item.id === gameId);
+  const game = state.gamesById.get(gameId);
   if (!game) return;
   const previousId = state.selected?.id;
   state.selected = game;
   applyGameDefaultEmulator(game);
   updateSelectedRow(previousId, gameId);
-  renderDetails();
+  const details = await loadGameDetails(gameId);
+  if (state.selected?.id === gameId && details) state.selected = details;
+  await renderDetails();
   const menu = document.createElement("div");
   menu.className = "context-menu";
   menu.style.left = `${event.clientX}px`;
@@ -3069,8 +2981,11 @@ async function showScrapePreviewModal() {
     const payload = await api("/api/scrapers");
     providerSelect.innerHTML = payload.providers
       .map((provider) => {
-        const label = provider.configured ? provider.name : `${provider.name} (not configured)`;
-        return `<option value="${escapeHtml(provider.id)}">${escapeHtml(label)}</option>`;
+        const networkBlocked = provider.type !== "manual" && !optionalNetworkAllowed();
+        const label = networkBlocked
+          ? `${provider.name} (network disabled)`
+          : provider.configured ? provider.name : `${provider.name} (not configured)`;
+        return `<option value="${escapeHtml(provider.id)}"${networkBlocked ? " disabled" : ""}>${escapeHtml(label)}</option>`;
       })
       .join("");
   };
@@ -3082,6 +2997,7 @@ async function showScrapePreviewModal() {
         method: "POST",
         body: JSON.stringify({ game_id: game.id, provider: providerSelect.value || "manual" }),
       });
+      await prepareArtworkAssets((payload.matches || []).flatMap((match) => Object.values(match.remote_assets || {})));
       currentPreview = payload;
       previewBox.innerHTML = renderScrapePreview(payload);
       const firstChoice = previewBox.querySelector("[data-scrape-match]");
@@ -3169,8 +3085,8 @@ function renderScrapePreview(payload) {
 
 function renderScrapeImages(remoteAssets, candidate) {
   const images = [
-    ["Boxart", remoteAssets.loading_screen],
-    ["Screenshot", remoteAssets.screenshot],
+    ["Boxart", assetDisplayUrl(remoteAssets.loading_screen)],
+    ["Screenshot", assetDisplayUrl(remoteAssets.screenshot)],
   ].filter(([, value]) => value);
   if (!images.length) return '<div class="scrape-image-stack"><div class="scrape-preview-image empty">No image</div></div>';
   return `
@@ -3207,8 +3123,11 @@ async function applySelectedScrapeMatch(overlay, game, preview) {
       await reloadGames();
       return payload;
     });
-    const updated = result.game || state.games.find((item) => item.id === game.id);
-    if (updated) state.selected = updated;
+    const updated = result.game || state.gamesById.get(game.id);
+    if (updated) {
+      state.gameDetails.set(game.id, updated);
+      state.selected = updated;
+    }
     overlay.remove();
     await renderDetails(`Applied metadata from ${match.candidate?.scraper_source || preview.provider?.name || "provider"}.`);
   } catch (error) {
@@ -3218,7 +3137,7 @@ async function applySelectedScrapeMatch(overlay, game, preview) {
 
 function showMetadataModal(gameIds, isBulk) {
   if (!state.activeCollection?.writable) return;
-  const games = gameIds.map((id) => state.games.find((game) => game.id === id)).filter(Boolean);
+  const games = gameIds.map((id) => state.selected?.id === id ? state.selected : state.gamesById.get(id)).filter(Boolean);
   if (!games.length) return;
   const game = games[0];
   const overlay = document.createElement("div");
@@ -3275,6 +3194,7 @@ function showMetadataModal(gameIds, isBulk) {
       </section>
       <div class="modal-actions">
         <button data-action="save">Save Metadata</button>
+        <button class="secondary" data-action="undo">Undo Last Edit</button>
         <button class="secondary" data-action="cancel">Cancel</button>
       </div>
       <div class="message error" id="metadata-error"></div>
@@ -3297,7 +3217,26 @@ function showMetadataModal(gameIds, isBulk) {
       overlay.remove();
       return;
     }
+    if (button.dataset.action === "undo") {
+      try {
+        button.disabled = true;
+        button.textContent = "Undoing...";
+        const result = await api("/api/metadata-undo", { method: "POST", body: "{}" });
+        await reloadGames();
+        overlay.remove();
+        state.selected = null;
+        await renderDetails(`Restored ${result.restored_count || 0} metadata edit${result.restored_count === 1 ? "" : "s"}.`);
+      } catch (error) {
+        button.disabled = false;
+        button.textContent = "Undo Last Edit";
+        errorBox.textContent = error.message;
+      }
+      return;
+    }
     try {
+      if (isBulk && gameIds.length > 20 && !window.confirm(
+        `Apply this metadata edit to ${gameIds.length.toLocaleString()} games? Review the preview and warnings before continuing.`,
+      )) return;
       button.disabled = true;
       button.textContent = "Saving...";
       errorBox.textContent = "";
@@ -3641,15 +3580,17 @@ function launchMessage(result) {
 async function toggleFavourite() {
   const game = state.selected;
   const favourite = !game.favourite;
-  const payload = await api("/api/favourite", {
+  await api("/api/favourite", {
     method: "POST",
     body: JSON.stringify({ game_id: game.id, favourite }),
   });
-  const updated = payload.game || { ...game, favourite };
+  const updated = { ...game, favourite };
   const index = state.games.findIndex((item) => item.id === game.id);
   if (index !== -1) {
-    state.games[index] = updated;
+    state.games[index] = { ...state.games[index], favourite };
+    state.gamesById.set(game.id, state.games[index]);
   }
+  state.gameDetails.set(game.id, updated);
   state.selected = updated;
   applyFilters();
   await renderDetails();

@@ -28,7 +28,7 @@ function loadWidgets(fetchImpl = async () => { throw new Error('Unexpected fetch
     saveState: () => { throw new Error('IP information must not save shared Hub state'); },
     cloneData: value => JSON.parse(JSON.stringify(value))
   });
-  for (const filename of ['../Widgets/core/widget-network.js', '../Widgets/core/widgets.js', '../Widgets/core/widget-sdk.js']) {
+  for (const filename of ['../Widgets/core/widget-network.js', '../Widgets/core/widgets.js', '../Widgets/core/widget-response.js', '../Widgets/core/widget-sdk.js']) {
     vm.runInContext(fs.readFileSync(path.join(root, filename), 'utf8'), context, { filename });
   }
   vm.runInContext(ipInfoSource, context, { filename: 'ip-info-widget.js' });
@@ -216,7 +216,7 @@ test('IP Info UI exposes flag, address, change state, privacy controls, and attr
   assert.match(source, /widget-ip-info-footer-status/);
   assert.match(source, /IP \+ speed/);
   assert.doesNotMatch(source, /widget-ip-info-speed-meta/);
-  assert.match(styles, /\.widget-ip-info-flag\s*\{[^}]*font-size:\s*2\.25rem/s);
+  assert.match(styles, /\.widget-ip-info-flag\s*\{[^}]*font-size:\s*calc\(2\.25rem \* var\(--widget-text-scale, 1\)\)/s);
   assert.match(styles, /\.widget-ip-info-address\s*\{[^}]*user-select:\s*text/s);
   assert.match(styles, /\.widget-ip-info-type\s*\{/);
   assert.match(styles, /\.widget-ip-info-speed-metrics\s*\{[^}]*grid-template-columns:\s*repeat\(3,/s);

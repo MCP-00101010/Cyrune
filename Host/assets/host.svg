@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title desc">
+  <title id="title">Cyrune Host</title>
+  <desc id="desc">The Cyrune lattice anchored to a green native server.</desc>
+  <defs><radialGradient id="glow" cx="72%" cy="22%" r="92%"><stop offset="0" stop-color="#15382b"/><stop offset=".58" stop-color="#101a1c"/><stop offset="1" stop-color="#080b12"/></radialGradient></defs>
+  <rect x="4" y="4" width="120" height="120" rx="28" fill="url(#glow)" stroke="#26483b" stroke-width="2"/>
+  <g fill="none" stroke-width="5" stroke-linejoin="round"><rect x="30" y="30" width="60" height="60" rx="14" stroke="#55db9c"/><rect x="30" y="30" width="60" height="60" rx="14" stroke="#64b49b" stroke-opacity=".68" transform="rotate(60 60 60)"/><rect x="30" y="30" width="60" height="60" rx="14" stroke="#6d929e" stroke-opacity=".52" transform="rotate(120 60 60)"/></g>
+  <path d="M67 82h12" stroke="#080b12" stroke-width="12" stroke-linecap="round"/><path d="M67 82h12" stroke="#55db9c" stroke-width="4.5" stroke-linecap="round"/>
+  <rect x="76" y="64" width="34" height="48" rx="7" fill="#10261d" stroke="#080b12" stroke-width="10" paint-order="stroke fill"/><rect x="76" y="64" width="34" height="48" rx="7" fill="#10261d" stroke="#55db9c" stroke-width="4"/>
+  <path d="M77 80h32M77 96h32" stroke="#55db9c" stroke-width="3"/><circle cx="84" cy="72" r="2.5" fill="#d9ffec"/><circle cx="84" cy="88" r="2.5" fill="#55db9c"/><circle cx="84" cy="104" r="2.5" fill="#55db9c"/><path d="M92 72h10M92 88h10M92 104h10" stroke="#9ce9c2" stroke-width="2.5" stroke-linecap="round" opacity=".75"/>
+</svg>

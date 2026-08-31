@@ -20,12 +20,13 @@ test('game shortcuts launch through opaque bindings and retain no native paths',
       supports: capability => capability === 'emuguiService',
       getGameStatus: async gameKey => ({ gameKey, state: 'ready', title: 'Jetpac', thumbnailCache: '' }),
       launchGame: async gameKey => { launched = gameKey; return true; },
-      openGameInEmuGui: async (gameKey, options) => { opened = { gameKey, options }; return true; },
+      openGameInArcade: async (gameKey, options) => { opened = { gameKey, options }; return true; },
       revealGame: async gameKey => { revealed = gameKey; return true; },
       forgetGame: async gameKey => { forgotten = gameKey; return true; }
     },
     saveState: async () => ({ ok: true }),
     renderBoard: () => {},
+    renderContentSurfaces: () => {},
     renderAll: () => {},
     showNotice: message => notices.push(message),
     setTimeout,
@@ -38,7 +39,7 @@ test('game shortcuts launch through opaque bindings and retain no native paths',
   assert.equal(status.state, 'ready');
   assert.equal(await context.launchGameShortcut(item), true);
   assert.equal(launched, item.gameKey);
-  assert.equal(await context.openGameShortcutInEmuGui(item, { rebind: true }), true);
+  assert.equal(await context.openGameShortcutInArcade(item, { rebind: true }), true);
   assert.deepEqual(JSON.parse(JSON.stringify(opened)), { gameKey: item.gameKey, options: { rebind: true } });
   assert.equal(await context.revealGameShortcut(item), true);
   assert.equal(revealed, item.gameKey);
@@ -96,7 +97,7 @@ test('game status refresh backfills portable system identity', async () => {
   assert.equal(saves, 1);
 });
 
-test('an EmuGUI rebind refreshes every matching Hub card without changing its opaque key', async () => {
+test('an Arcade rebind refreshes every matching Portal card without changing its opaque key', async () => {
   const first = { id: 'game-1', type: 'game', title: 'Jetpac', gameKey: 'game_abcdefghijklmnop' };
   const second = { id: 'game-2', type: 'game', title: 'Jetpac copy', gameKey: 'game_abcdefghijklmnop' };
   const state = { boards: [{ id: 'board-1', tabs: [{ id: 'tab-1', columns: [{ id: 'column-1', items: [first, second] }], inbox: { id: 'inbox-1', items: [] } }] }] };
@@ -109,6 +110,7 @@ test('an EmuGUI rebind refreshes every matching Hub card without changing its op
     getBoardInbox: (_board, tab) => tab.inbox,
     isDynamicFolder: () => false,
     saveState: async () => { saves += 1; return { ok: true, persisted: 'shared' }; },
+    renderContentSurfaces: () => {},
     renderAll: () => {},
     showNotice: message => notices.push(message)
   });

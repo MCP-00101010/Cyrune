@@ -6,7 +6,7 @@ const vm = require('node:vm');
 
 const root = path.join(__dirname, '..', '..', 'Portal');
 const source = fs.readFileSync(path.join(__dirname, 'saved-sessions-widget.js'), 'utf8');
-const sdkSource = fs.readFileSync(path.join(__dirname, '..', 'core', 'widget-sdk.js'), 'utf8');
+const sdkSource = `${fs.readFileSync(path.join(__dirname, '..', 'core', 'widget-response.js'), 'utf8')}\n${fs.readFileSync(path.join(__dirname, '..', 'core', 'widget-sdk.js'), 'utf8')}`;
 
 function createContext(extra = {}) {
   const saves = [];

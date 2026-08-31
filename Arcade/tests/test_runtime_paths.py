@@ -1,7 +1,6 @@
-from pathlib import Path
 from unittest.mock import patch
 
-import emugui_service as service
+import arcade_service as service
 
 
 def test_arcade_runtime_data_defaults_outside_the_checkout(tmp_path):

@@ -35,7 +35,7 @@ Mutable application data lives outside the repository beneath `%LOCALAPPDATA%\Cy
 - `%LOCALAPPDATA%\Cyrune\Portal` contains the shared Portal database, backups, and managed backgrounds.
 - `%LOCALAPPDATA%\Cyrune\Arcade` contains Arcade configuration, state, managed profiles, logs, and cache.
 - `%LOCALAPPDATA%\Cyrune\Host` contains native-host configuration and other Host-owned runtime state.
-- `%LOCALAPPDATA%\Cyrune\Nexus` contains authoritative shared settings, bounded content-free setting history and backups, and may contain sanitized snapshots and validation receipts. Nexus retains a clearly labelled browser-local cache only for disconnected use.
+- `%LOCALAPPDATA%\Cyrune\Nexus` contains authoritative shared settings, bounded content-free setting history, operational events and backups, and may contain sanitized snapshots and validation receipts. Nexus retains a clearly labelled browser-local cache only for disconnected use.
 
 Documented environment overrides support portable development and controlled testing. The repository itself should contain source and fixtures, not live databases, credentials, logs, caches, generated packages, or user-specific bindings.
 
@@ -61,7 +61,7 @@ Run the coordinated validation suite from the repository root:
 .\tools\validate.ps1
 ```
 
-It runs Portal, Widgets, Relay, Host, migration, packaging, and Arcade tests; syntax-checks JavaScript; parses the Relay manifest; verifies independent component versions; and runs `web-ext lint`. Use `-SkipWebExtLint` only for an explicitly documented offline or tool-unavailable check.
+It runs Portal, Widgets, Relay, Host, Nexus, migration, packaging, tooling, and Arcade tests; syntax-checks JavaScript; parses the Relay manifest; validates component manifests, protocol/compatibility contracts and the generated Nexus registry; verifies independent component versions; and runs `web-ext lint`. Use `-ChangedOnly` for a conservative development check selected from changed paths; only a full run writes the release receipt. Use `-SkipWebExtLint` only for an explicitly documented offline or tool-unavailable check.
 
 Component work should remain within its owning directory where practical. Cross-component changes must preserve the public message, data, binding, and storage contracts or include an explicit compatibility migration with regression coverage.
 
@@ -97,6 +97,8 @@ Repository-wide migration, tooling, and coordinated-release changes belong in th
 - `docs/architecture/portal-ui-guidelines.md` defines Portal and Portal-hosted Widget modal/settings presentation rules.
 - `docs/architecture/portal-arcade-contract.md` defines the current Portal/Arcade/Relay/Host integration and security contract.
 - `docs/architecture/nexus-contract.md` defines Nexus settings, snapshots, documents, authority, redaction, and future theme/tag ownership.
+- `docs/architecture/infrastructure-contract.md` defines component manifests, the generated registry, protocol negotiation, migration receipts, operational events, and validation selection.
+- `docs/architecture/compatibility-register.json` records preserved aliases and the explicit conditions required before any removal.
 - `docs/history/` preserves superseded plans and completed legacy work without treating them as active backlog.
 - Root and component `AGENTS.md` files define routed implementation, compatibility, validation, and release rules.
 

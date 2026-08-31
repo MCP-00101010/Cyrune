@@ -1,4 +1,4 @@
-from emugui_core.collections import CollectionService, file_count_in_tree, looks_like_collection
+from arcade_core.collections import CollectionService, file_count_in_tree, looks_like_collection
 
 
 def test_collection_service_discovers_and_persists_sources(tmp_path):

@@ -6,6 +6,8 @@ This log records repository-wide migration, tooling, and coordinated release cha
 
 ### Added
 
+- Added component-owned manifests and semantic versions for all six products, a generated Nexus registry, a versioned protocol catalogue, compatibility-removal register, fixed Nexus adapters, capability negotiation, bounded operational events, a reusable migration runner, and conservative affected-suite validation. Portal 0.11.228, Widgets 0.1.0, Arcade 0.1.0, Relay 1.0.64, Host 0.1.0, and Nexus 0.2.0 form the coordinated infrastructure release.
+
 - Added Nexus 0.1.9 icon launch actions for the stable Portal, Widgets fixture, Arcade, and Nexus browser entry points while preserving Relay and Host as status-only components.
 - Added a repository-wide Cyrune lattice icon family and integrated it across Nexus component navigation/cards, Portal, Arcade, Relay, Nexus, and the standalone Widgets SDK fixture. Portal 0.11.226, Relay 1.0.61, and Nexus 0.1.8 carry the independently versioned browser-facing changes.
 - Added Nexus 0.1.7 settings schema 2, Portal 0.11.225, and Widget SDK 3: fixed sparse component overrides, effective-value source indicators, permission-gated coordinates, rolling profile compatibility, and opt-in Weather, Weather Map, Astronomy, and Calendar consumers now implement default → global → component → local Widget precedence.

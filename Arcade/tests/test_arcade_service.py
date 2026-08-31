@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 import unittest
 
-from emugui_core.service import MAX_PAGE_SIZE, ReadOnlyEmuGuiService, ServiceContractError
+from arcade_core.service import MAX_PAGE_SIZE, ReadOnlyArcadeService, ServiceContractError
 
 
 @dataclass
@@ -31,7 +31,7 @@ class FakeLibrary:
 
 def service():
     library = FakeLibrary()
-    return ReadOnlyEmuGuiService(
+    return ReadOnlyArcadeService(
         lambda: library,
         lambda: {"active": {"id": "spectrum"}, "collections": [{"id": "spectrum"}]},
         lambda: [{"id": "eightyone", "available": True}],
@@ -39,7 +39,7 @@ def service():
     )
 
 
-class EmuGuiServiceTests(unittest.TestCase):
+class ArcadeServiceTests(unittest.TestCase):
     def test_status_uses_public_runtime_providers(self):
         result = service().dispatch("STATUS")
         self.assertEqual(result["serviceVersion"], 1)

@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from emugui_core import persistence
+from arcade_core import persistence
 
 
 def test_json_object_reader_rejects_malformed_and_non_object_payloads(tmp_path):

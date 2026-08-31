@@ -2,13 +2,14 @@ import importlib.util
 import json
 import sys
 import threading
+import time
 from pathlib import Path
 
-SERVICE_PATH = Path(__file__).resolve().parents[1] / "emugui_service.py"
+SERVICE_PATH = Path(__file__).resolve().parents[1] / "arcade_service.py"
 
 
 def load_server():
-    module_name = "emugui_service_under_test"
+    module_name = "arcade_service_under_test"
     spec = importlib.util.spec_from_file_location(module_name, SERVICE_PATH)
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
@@ -72,8 +73,8 @@ def test_transport_neutral_api_routes_existing_read_operations():
     server.get_library = lambda: FakeLibrary()
     server.collections_payload = lambda: {"active": {"id": "spectrum"}, "collections": []}
 
-    games = server.dispatch_emugui_api("GET", "/api/games", {"view": "all"}, {})
-    collections = server.dispatch_emugui_api("GET", "/api/collections", {}, {})
+    games = server.dispatch_arcade_api("GET", "/api/games", {"view": "all"}, {})
+    collections = server.dispatch_arcade_api("GET", "/api/collections", {}, {})
 
     assert games == {"games": [{"id": "jetpac", "view": "all"}]}
     assert collections["active"]["id"] == "spectrum"
@@ -82,7 +83,7 @@ def test_transport_neutral_api_routes_existing_read_operations():
 def test_transport_neutral_api_rejects_unknown_operations():
     server = load_server()
     try:
-        server.dispatch_emugui_api("POST", "/api/arbitrary-command", {}, {})
+        server.dispatch_arcade_api("POST", "/api/arbitrary-command", {}, {})
     except server.ServiceContractError as error:
         assert "Unsupported" in str(error)
     else:
@@ -98,15 +99,35 @@ def test_native_asset_reader_is_bounded_to_supported_collection_images(tmp_path)
     outside = tmp_path.parent / "outside.png"
     outside.write_bytes(b"\x89PNG\r\n\x1a\nprivate")
 
-    result = server.read_emugui_asset("_assets/cover.png", 1024)
+    result = server.read_arcade_asset("_assets/cover.png", 1024)
 
     assert result["dataUrl"].startswith("data:image/png;base64,")
     try:
-        server.read_emugui_asset("../outside.png", 1024)
+        server.read_arcade_asset("../outside.png", 1024)
     except server.ServiceContractError as error:
         assert "escapes" in str(error)
     else:
         raise AssertionError("Out-of-collection asset was accepted")
+
+
+def test_collection_metadata_paths_cannot_escape_the_collection(tmp_path):
+    server = load_server()
+    collection = tmp_path / "collection"
+    collection.mkdir()
+    outside_game = tmp_path / "outside.tap"
+    outside_pok = tmp_path / "outside.pok"
+    outside_game.write_bytes(b"game")
+    outside_pok.write_bytes(b"NInfinite lives\n")
+    server.COLLECTION = collection
+    server.METADATA_FILE = collection / "collection-metadata.json"
+    server.load_metadata = lambda: {
+        "games": [{"id": "outside", "file": "../outside.tap", "title": "Outside"}],
+        "poks": [{"id": "outside-pok", "file": "../outside.pok", "title_key": "outside", "memory": "48K"}],
+    }
+
+    assert server.load_metadata_games({}, set()) == []
+    assert server.load_metadata_poks() == {}
+    assert server.observed_import_directory("O", server.load_metadata()) is None
 
 
 def test_file_transport_preserves_launch_choices_and_profile_routes():
@@ -120,14 +141,14 @@ def test_file_transport_preserves_launch_choices_and_profile_routes():
     server.delete_emulator_profile = lambda profile_id: calls.append(("delete", profile_id)) or {"ok": True}
     server.update_emulator_profile_from_source = lambda profile_id: calls.append(("source", profile_id)) or {"ok": True}
 
-    launch = server.dispatch_emugui_api("POST", "/api/launch", {}, {
+    launch = server.dispatch_arcade_api("POST", "/api/launch", {}, {
         "game_id": "jetpac", "emulator": "eightyone", "launch_action": "new", "force_new": True,
         "profile_id": "spectrum-48k",
     })
-    imported = server.dispatch_emugui_api("POST", "/api/emulator-profiles/import", {}, {"name": "48K"})
-    server.dispatch_emugui_api("POST", "/api/emulator-profiles/update", {}, {"profile_id": "48k"})
-    server.dispatch_emugui_api("POST", "/api/emulator-profiles/delete", {}, {"profile_id": "48k"})
-    server.dispatch_emugui_api("POST", "/api/emulator-profiles/update-source", {}, {"profile_id": "48k"})
+    imported = server.dispatch_arcade_api("POST", "/api/emulator-profiles/import", {}, {"name": "48K"})
+    server.dispatch_arcade_api("POST", "/api/emulator-profiles/update", {}, {"profile_id": "48k"})
+    server.dispatch_arcade_api("POST", "/api/emulator-profiles/delete", {}, {"profile_id": "48k"})
+    server.dispatch_arcade_api("POST", "/api/emulator-profiles/update-source", {}, {"profile_id": "48k"})
 
     assert launch["needs_choice"] is True
     assert imported["profile"]["id"] == "48k"
@@ -273,3 +294,35 @@ def test_failed_collection_switch_restores_previous_collection():
     assert activations == ["new", "old"]
     assert state["active_collection_id"] == "old"
     assert library.attempts == 2
+
+
+def test_collection_jobs_are_serialized():
+    server = load_server()
+    server.JOB_SERVICE = server.BackgroundJobService()
+    active = 0
+    maximum = 0
+    guard = threading.Lock()
+
+    class Library:
+        def rebuild(self, _progress=None):
+            nonlocal active, maximum
+            with guard:
+                active += 1
+                maximum = max(maximum, active)
+            time.sleep(0.03)
+            with guard:
+                active -= 1
+
+    server.get_library = lambda: Library()
+    first = server.start_rebuild_job()
+    second = server.start_rebuild_job()
+    deadline = time.monotonic() + 2
+    while time.monotonic() < deadline:
+        states = {server.get_job(first)["status"], server.get_job(second)["status"]}
+        if states == {"done"}:
+            break
+        time.sleep(0.01)
+
+    assert server.get_job(first)["status"] == "done"
+    assert server.get_job(second)["status"] == "done"
+    assert maximum == 1

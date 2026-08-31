@@ -46,7 +46,7 @@ async function refreshApplicationStatus(item, options = {}) {
       item.applicationKind = normalized.kind;
       stateChanged = true;
     }
-    if (options.render !== false && stateChanged && typeof renderBoard === 'function') renderBoard();
+    if (options.render !== false && stateChanged && typeof renderContentSurfaces === 'function') renderContentSurfaces();
     return normalized;
   }).catch(error => {
     const status = { appKey: item.appKey, state: 'unavailable', label: item.title || 'Application', kind: item.applicationKind || '', iconDataUrl: item.iconCache || '', error: error?.message || '' };
@@ -161,7 +161,7 @@ async function rebindApplicationShortcut(item) {
     applicationStatusCache.set(item.appKey, application);
     if (application.iconDataUrl) item.iconCache = application.iconDataUrl;
     if (application.kind) item.applicationKind = application.kind;
-    renderAll();
+    renderContentSurfaces();
     void saveState();
     showNotice(`${item.title || application.label} is ready on this device.`);
     return true;
@@ -179,7 +179,7 @@ async function launchApplicationShortcut(item) {
     return true;
   } catch (error) {
     const status = await refreshApplicationStatus(item, { render: false });
-    renderBoard();
+    renderContentSurfaces();
     showNotice(status.state === 'unbound'
       ? `${item.title} needs to be set up on this device.`
       : (error?.message || `${item.title} could not be launched.`));
@@ -209,7 +209,7 @@ async function forgetApplicationShortcut(item) {
       state: 'unbound',
       iconDataUrl: item.iconCache || ''
     });
-    renderAll();
+    renderContentSurfaces();
     showNotice(`${item.title || 'Application'} is no longer bound on this device.`);
     return true;
   } catch (error) {

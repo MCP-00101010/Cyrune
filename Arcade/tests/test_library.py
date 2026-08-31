@@ -1,4 +1,4 @@
-from emugui_core.library import Game, GameLibrary
+from arcade_core.library import Game, GameLibrary
 
 
 def make_game(game_id="jetpac", view="collection"):
@@ -40,6 +40,9 @@ def test_game_library_rebuilds_and_indexes_games_and_poks():
     assert library.get_pok("pok-1") == pok
     assert library.get_poks(game) == [pok]
     assert library.list_games()[0]["title"] == "Jetpac"
+    summary = library.list_game_summaries()[0]
+    assert summary["title"] == "Jetpac"
+    assert "path" not in summary
     assert calls[0] == "state"
 
 
@@ -64,3 +67,44 @@ def test_game_library_mutations_rebuild_indexes_without_transport_state():
     assert matched == [["manic-miner"]]
     library.remove_game("manic-miner")
     assert library.list_games("all") == []
+
+
+def test_game_library_updates_favourites_in_one_locked_batch():
+    first = make_game()
+    second = make_game("manic-miner")
+    library = GameLibrary(
+        init_state=lambda: None,
+        load_favourites=set,
+        load_poks=dict,
+        load_games=lambda *_args: [first, second],
+        normalize_relative_path=str,
+        mark_import_matches=lambda _games: None,
+        load_metadata=lambda: {"games": []},
+    )
+
+    assert library.set_favourites(["jetpac", "manic-miner", "missing"], True) == ["jetpac", "manic-miner"]
+    assert first.favourite is True
+    assert second.favourite is True
+
+
+def test_game_summaries_do_not_materialize_full_detail_fields():
+    game = make_game()
+
+    class DetailValue:
+        def __deepcopy__(self, _memo):
+            raise AssertionError("summary generation copied a detail-only field")
+
+    game.description = DetailValue()
+    library = GameLibrary(
+        init_state=lambda: None,
+        load_favourites=set,
+        load_poks=dict,
+        load_games=lambda *_args: [game],
+        normalize_relative_path=str,
+        mark_import_matches=lambda _games: None,
+        load_metadata=lambda: {"games": []},
+    )
+
+    summary = library.list_game_summaries()[0]
+    assert summary["id"] == "jetpac"
+    assert "description" not in summary

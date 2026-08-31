@@ -16,7 +16,7 @@ Relay owns exact-page registration, per-tab authentication, client roles, browse
 
 ## Host
 
-Host owns native files, processes, approved directories, application/game bindings, secure credentials, disk-backed Portal persistence, native configuration, and OS integration. It validates native requests but does not own Portal or Arcade presentation.
+Host owns native files, processes, approved directories, application/game bindings, secure credentials, optional disk-backed Portal persistence, native configuration, and OS integration. Relay remains able to provide authoritative Portal storage without enabling Host. Host validates native requests but does not own Portal or Arcade presentation.
 
 ## Widgets
 
@@ -30,7 +30,8 @@ Nexus owns project-status aggregation and presentation, typed shared-settings sc
 
 - Keep compatibility-sensitive extension/Host IDs, credential names, schema IDs, storage keys, and opaque bindings stable during path migration.
 - Keep mutable runtime data outside the checkout, with portable/development overrides where needed.
-- Keep page storage for explicitly local widget/UI state rather than the authoritative Portal database after the required-Relay cutover.
+- Keep page storage for explicitly local widget/UI state and a non-authoritative Portal recovery cache rather than the authoritative Portal database. Relay owns the versioned fallback snapshot when Host disk storage is disabled.
+- Route Portal database, backup, theme, and managed-background access through fixed-purpose Host operations. Relay may carry portable content and opaque revision metadata, but it must not choose or forward a native target path for those operations.
 - Gate native-only operations on declared Host capabilities and show actionable recovery when unavailable.
 - Use Inbox as the common external-delivery destination.
 - Keep direct-file Portal and Arcade clients bound to exact Relay registrations and role-specific capabilities; a matching meta identifier alone grants no authority.
@@ -39,4 +40,4 @@ Nexus owns project-status aggregation and presentation, typed shared-settings sc
 - Keep shared settings typed, versioned, namespaced, revision-aware, and available while the Nexus page is closed. Do not expose an arbitrary key/value, path, command, or query interface.
 - Keep Portal's current theme and tag ownership until separately documented compatibility migrations move those managers to Nexus.
 
-The detailed Portal/Arcade/Relay/Host contract is defined in `portal-arcade-contract.md`. The Nexus settings and status contract is defined in `nexus-contract.md`. Portal modal and settings presentation rules are defined in `portal-ui-guidelines.md`.
+The detailed Portal/Arcade/Relay/Host contract is defined in `portal-arcade-contract.md`. The Nexus settings and status contract is defined in `nexus-contract.md`. Component manifests, protocol negotiation, migrations, operational events and affected-suite validation are defined in `infrastructure-contract.md`; preserved aliases and their removal conditions live in `compatibility-register.json`. Portal modal and settings presentation rules are defined in `portal-ui-guidelines.md`.

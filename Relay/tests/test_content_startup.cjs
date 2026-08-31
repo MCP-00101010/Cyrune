@@ -239,7 +239,8 @@ test('EmuGUI file page registers before requesting bounded game delivery', async
   } });
 
   assert.deepEqual(JSON.parse(JSON.stringify(runtimeMessages[0])), {
-    type: 'MW_EMUGUI_REGISTER', pageUrl: 'file:///F:/Projects/Coding/Cyrune/Arcade/web/index.html'
+    type: 'MW_EMUGUI_REGISTER', pageUrl: 'file:///F:/Projects/Coding/Cyrune/Arcade/web/index.html',
+    protocols: { 'arcade-relay': 1, 'arcade-service': 1, 'component-settings': 2 }
   });
   assert.deepEqual(JSON.parse(JSON.stringify(runtimeMessages[1])), {
     type: 'MW_EMUGUI_SEND_GAME', gameId: 'jetpac', emulatorId: 'eightyone', profileId: 'profile-48k',
@@ -345,7 +346,7 @@ test('Nexus file page registers an exact role and relays only namespaced operati
   } });
 
   assert.deepEqual(JSON.parse(JSON.stringify(runtimeMessages)), [
-    { type: 'MW_NEXUS_REGISTER', pageUrl: documentUrl },
+    { type: 'MW_NEXUS_REGISTER', pageUrl: documentUrl, protocols: { 'nexus-relay': 2, 'component-settings': 2 } },
     { type: 'MW_NEXUS_GET_SETTINGS', nexusSessionToken: 'nexus-session-1', pageUrl: documentUrl },
     { type: 'MW_NEXUS_OPEN_TODO', component: 'portal', nexusSessionToken: 'nexus-session-1', pageUrl: documentUrl },
     { type: 'MW_NEXUS_CHECK_REMOTE', nexusSessionToken: 'nexus-session-1', pageUrl: documentUrl }

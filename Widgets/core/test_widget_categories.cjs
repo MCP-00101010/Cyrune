@@ -32,6 +32,7 @@ test('widget library is grouped into ordered categories for board and sidebar me
     fs.readFileSync(path.join(root, '..', 'Widgets', 'content-feeds', 'rss-reader-widget.js'), 'utf8'),
     fs.readFileSync(path.join(root, '..', 'Widgets', 'system-network', 'ip-info-widget.js'), 'utf8'),
     fs.readFileSync(path.join(root, '..', 'Widgets', 'personal-productivity', 'calendar-widget.js'), 'utf8'),
+    fs.readFileSync(path.join(root, '..', 'Widgets', 'personal-productivity', 'daily-briefing-widget.js'), 'utf8'),
     fs.readFileSync(path.join(root, '..', 'Widgets', 'utilities', 'calculator-widget.js'), 'utf8'),
     fs.readFileSync(path.join(root, '..', 'Widgets', 'utilities', 'translator-widget.js'), 'utf8'),
     fs.readFileSync(path.join(root, '..', 'Widgets', 'personal-productivity', 'focus-session-widget.js'), 'utf8'),
@@ -52,7 +53,7 @@ test('widget library is grouped into ordered categories for board and sidebar me
     widgets.slice(widgets.indexOf('const WIDGET_CATEGORY_ORDER'), widgets.indexOf('];', widgets.indexOf('const WIDGET_CATEGORY_ORDER')) + 2)
       .replace('const WIDGET_CATEGORY_ORDER =', '')
   );
-  assert.equal(Object.keys(definitions).length, 26);
+  assert.equal(Object.keys(definitions).length, 27);
   Object.values(definitions).forEach(definition => assert.ok(categoryOrder.includes(definition.category)));
 
   const helperStart = contextSource.indexOf('function _buildWidgetSubmenu');
@@ -67,9 +68,9 @@ test('widget library is grouped into ordered categories for board and sidebar me
   );
   assert.deepEqual(
     JSON.parse(JSON.stringify(boardMenu[0].submenu.map(item => item.label))),
-    ['Calendar', 'Clock', 'Countdown', 'Focus Session', 'Notes', 'Saved Sessions', 'To-do List', 'Universal Search Launcher']
+    ['Calendar', 'Clock', 'Countdown', 'Daily Briefing', 'Focus Session', 'Notes', 'Saved Sessions', 'To-do List', 'Universal Search Launcher']
   );
-  assert.equal(boardMenu.flatMap(group => group.submenu).length, 26);
+  assert.equal(boardMenu.flatMap(group => group.submenu).length, 27);
   assert.deepEqual(
     JSON.parse(JSON.stringify(boardMenu.find(group => group.label === 'Gaming').submenu.map(item => item.label))),
     ['Nexus Mods Tracker']
@@ -82,7 +83,7 @@ test('widget library is grouped into ordered categories for board and sidebar me
   );
   assert.deepEqual(
     JSON.parse(JSON.stringify(sidebarMenu.flatMap(group => group.submenu).map(item => item.action))),
-    ['addNavWidget:clock', 'addNavWidget:countdown', 'addNavWidget:focusSession', 'addNavWidget:savedSessions', 'addNavWidget:universalSearch', 'addNavWidget:calculatorConverter', 'addNavWidget:translator', 'addNavWidget:ipInfo', 'addNavWidget:recentFiles', 'addNavWidget:serviceMonitor', 'addNavWidget:systemMonitor', 'addNavWidget:footballTracker', 'addNavWidget:mediaWatchlist', 'addNavWidget:gitWorkspace']
+    ['addNavWidget:clock', 'addNavWidget:countdown', 'addNavWidget:dailyBriefing', 'addNavWidget:focusSession', 'addNavWidget:savedSessions', 'addNavWidget:universalSearch', 'addNavWidget:calculatorConverter', 'addNavWidget:translator', 'addNavWidget:ipInfo', 'addNavWidget:recentFiles', 'addNavWidget:serviceMonitor', 'addNavWidget:systemMonitor', 'addNavWidget:footballTracker', 'addNavWidget:mediaWatchlist', 'addNavWidget:gitWorkspace']
   );
 });
 

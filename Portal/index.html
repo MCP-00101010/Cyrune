@@ -8,6 +8,7 @@
   <link rel="icon" type="image/svg+xml" href="assets/brand/portal.svg" />
   <link rel="stylesheet" href="vendor/maplibre-gl/maplibre-gl.css" />
   <link rel="stylesheet" href="source/styles.css" />
+  <link rel="stylesheet" href="source/background-assets.css" />
   <link rel="stylesheet" href="../Widgets/core/widget-sdk.css" />
   <link rel="stylesheet" href="source/notification-center.css" />
   <link rel="stylesheet" href="../Widgets/space-astronomy/nasa-apod-widget.css" />
@@ -18,6 +19,7 @@
   <link rel="stylesheet" href="../Widgets/content-feeds/rss-reader-widget.css" />
   <link rel="stylesheet" href="../Widgets/system-network/ip-info-widget.css" />
   <link rel="stylesheet" href="../Widgets/personal-productivity/calendar-widget.css" />
+  <link rel="stylesheet" href="../Widgets/personal-productivity/daily-briefing-widget.css" />
   <link rel="stylesheet" href="../Widgets/utilities/calculator-widget.css" />
   <link rel="stylesheet" href="../Widgets/utilities/translator-widget.css" />
   <link rel="stylesheet" href="../Widgets/personal-productivity/focus-session-widget.css" />
@@ -334,7 +336,7 @@
 
           <div class="sidebar-meta-row">
             <span id="sidebarExtensionStatus" class="sidebar-extension-status">Checking extension…</span>
-            <button type="button" id="aboutBtn" class="sidebar-version-btn" title="Settings">v0.11.226</button>
+            <button type="button" id="aboutBtn" class="sidebar-version-btn" title="Settings">v0.12.0</button>
           </div>
         </section>
 
@@ -638,6 +640,16 @@
             <div class="color-picker-group">
               <input type="color" id="stgGlobalFontColor" class="color-input" />
             </div>
+          </div>
+          <div class="settings-row">
+            <span>Widget text size</span>
+            <select id="stgWidgetFontScale" aria-label="Widget text size">
+              <option value="90">Compact (90%)</option>
+              <option value="100">Default (100%)</option>
+              <option value="115">Large (115%)</option>
+              <option value="130">Extra large (130%)</option>
+              <option value="150">Maximum (150%)</option>
+            </select>
           </div>
           <div class="settings-row">
             <span>Use theme accent color</span>
@@ -1212,7 +1224,7 @@
         </div>
 
         <div class="settings-section span-full" data-tab="about">
-          <div class="about-version" id="aboutVersionLine">Version 0.11.226</div>
+          <div class="about-version" id="aboutVersionLine">Version 0.12.0</div>
           <p>A local-first bookmark manager. Runs entirely in your browser — no dependencies, no server, no telemetry.</p>
           <div class="settings-row">
             <span>Browser extension</span>
@@ -1597,6 +1609,7 @@
   <script src="source/themes.js" defer></script>
   <script src="../Widgets/core/widget-network.js" defer></script>
   <script src="../Widgets/core/widgets.js" defer></script>
+  <script src="../Widgets/core/widget-response.js" defer></script>
   <script src="../Widgets/core/widget-sdk.js" defer></script>
   <script src="../Widgets/space-astronomy/nasa-apod-widget.js" defer></script>
   <script src="../Widgets/weather-hazards/weather-widget.js" defer></script>
@@ -1606,6 +1619,7 @@
   <script src="../Widgets/content-feeds/rss-reader-widget.js" defer></script>
   <script src="../Widgets/system-network/ip-info-widget.js" defer></script>
   <script src="../Widgets/personal-productivity/calendar-widget.js" defer></script>
+  <script src="../Widgets/personal-productivity/daily-briefing-widget.js" defer></script>
   <script src="../Widgets/utilities/calculator-widget.js" defer></script>
   <script src="../Widgets/utilities/translator-widget.js" defer></script>
   <script src="../Widgets/personal-productivity/focus-session-widget.js" defer></script>
@@ -1631,6 +1645,7 @@
   <script src="source/chip-input.js" defer></script>
   <script src="source/modal.js" defer></script>
   <script src="source/context.js" defer></script>
+  <script src="source/background-assets.js" defer></script>
   <script src="source/settings.js" defer></script>
   <script src="source/import.js" defer></script>
   <script src="source/bookmark-tools.js" defer></script>

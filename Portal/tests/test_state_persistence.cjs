@@ -12,10 +12,13 @@ function deferred() {
 
 function loadStateScript() {
   const storage = new Map();
+  const storageWrites = [];
   const saves = [];
   const bridge = {
     isAvailable: () => true,
     nativeIsAvailable: () => true,
+    storageIsAvailable: () => true,
+    storageMode: () => 'host',
     saveState: (snapshot, options) => {
       const pending = deferred();
       saves.push({ snapshot, options, pending });
@@ -29,7 +32,7 @@ function loadStateScript() {
     getResolvedThemeId: value => value || 'default-dark',
     localStorage: {
       getItem: key => storage.get(key) ?? null,
-      setItem: (key, value) => storage.set(key, String(value)),
+      setItem: (key, value) => { storageWrites.push({ key, value: String(value) }); storage.set(key, String(value)); },
       removeItem: key => storage.delete(key)
     },
     window: {
@@ -46,8 +49,29 @@ function loadStateScript() {
   vm.runInContext(fs.readFileSync(schemaFilename, 'utf8'), context, { filename: schemaFilename });
   const filename = path.join(__dirname, '..', 'source', 'state.js');
   vm.runInContext(fs.readFileSync(filename, 'utf8'), context, { filename });
-  return { context, saves, storage };
+  return { context, saves, storage, storageWrites };
 }
+
+test('Portal persisted schema migrations are ordered and reject newer data', () => {
+  const context = vm.createContext({});
+  const filename = path.join(__dirname, '..', 'source', 'state-schema.js');
+  vm.runInContext(fs.readFileSync(filename, 'utf8'), context, { filename });
+  assert.equal(vm.runInContext('migrateStateSchema({ schemaVersion: 2 }).schemaVersion', context), 6);
+  assert.equal(vm.runInContext('Object.keys(STATE_SCHEMA_MIGRATIONS).join(",")', context), '1,2,3,4,5,6');
+  assert.throws(() => vm.runInContext('migrateStateSchema({ schemaVersion: 7 })', context), /newer than supported/);
+});
+
+test('same-turn saves serialize synchronously but coalesce browser-cache writes', async () => {
+  const harness = loadStateScript();
+  vm.runInContext("state.hubName = 'First'; saveState({ skipDiskSync: true })", harness.context);
+  const latest = vm.runInContext("state.hubName = 'Second'; saveState({ skipDiskSync: true })", harness.context);
+  await latest;
+  const stateWrites = harness.storageWrites.filter(entry => {
+    try { return JSON.parse(entry.value).hubName !== undefined; } catch { return false; }
+  });
+  assert.equal(stateWrites.length, 1);
+  assert.equal(JSON.parse(stateWrites[0].value).hubName, 'Second');
+});
 
 test('page debounce resolves every covered save only after latest snapshot persists', async () => {
   const harness = loadStateScript();
@@ -248,4 +272,16 @@ test('persisted snapshots omit active-tab board compatibility aliases', () => {
   assert.equal('columns' in snapshot.boards[0], false);
   assert.equal('inbox' in snapshot.boards[0], false);
   assert.equal('backgroundImage' in snapshot.boards[0], false);
+});
+
+test('authority loss keeps the cached Portal readable and rejects mutations until Relay recovers', () => {
+  const app = fs.readFileSync(path.join(__dirname, '..', 'source', 'app.js'), 'utf8');
+  const stateSource = fs.readFileSync(path.join(__dirname, '..', 'source', 'state.js'), 'utf8');
+  const styles = fs.readFileSync(path.join(__dirname, '..', 'source', 'styles.css'), 'utf8');
+  assert.match(app, /function setPortalReadOnlyMode\(enabled/);
+  assert.match(app, /setPortalReadOnlyMode\(true/);
+  assert.match(app, /setPortalReadOnlyMode\(false/);
+  assert.match(stateSource, /portalReadOnlySnapshot[\s\S]*restoreStateSnapshot/);
+  assert.match(stateSource, /readOnly: true, persisted: 'none'/);
+  assert.match(styles, /\.portal-readonly-banner/);
 });

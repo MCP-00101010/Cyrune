@@ -32,7 +32,7 @@ function loadIssWidgets(fetchImpl = async () => { throw new Error('Unexpected fe
     },
     saveState: () => { throw new Error('ISS tracking must not save shared Hub state'); }
   });
-  for (const filename of ['vendor/satellite-js/satellite.min.js', '../Widgets/core/widget-network.js', '../Widgets/core/widgets.js', '../Widgets/core/widget-sdk.js', '../Widgets/space-astronomy/iss-tracker-widget.js']) {
+  for (const filename of ['vendor/satellite-js/satellite.min.js', '../Widgets/core/widget-network.js', '../Widgets/core/widgets.js', '../Widgets/core/widget-response.js', '../Widgets/core/widget-sdk.js', '../Widgets/space-astronomy/iss-tracker-widget.js']) {
     vm.runInContext(fs.readFileSync(path.join(root, filename), 'utf8'), context, { filename });
   }
   vm.runInContext('WidgetSDK.registry.adoptBuiltins()', context);
@@ -80,7 +80,7 @@ test('orbital ground track splits safely at the antimeridian', () => {
   }
 });
 
-test('solar calculation produces a closed night polygon and split terminator', () => {
+test('solar calculation produces a local night mesh and a continuous terminator', () => {
   const { context } = loadIssWidgets();
   const result = vm.runInContext(`(() => {
     const date = new Date('2026-08-03T12:00:00Z');
@@ -92,13 +92,57 @@ test('solar calculation produces a closed night polygon and split terminator', (
   })()`, context);
   assert.ok(result.sun.longitude > -5 && result.sun.longitude < 5);
   assert.ok(result.sun.latitude > 15 && result.sun.latitude < 25);
-  assert.equal(result.daylight.night.geometry.type, 'Polygon');
-  const ring = result.daylight.night.geometry.coordinates[0];
-  assert.deepEqual(ring[0], ring[ring.length - 1]);
+  assert.equal(result.daylight.night.type, 'FeatureCollection');
+  assert.ok(result.daylight.night.features.length > 500);
+  assert.ok(result.daylight.night.features.length < 4000);
+  for (const feature of result.daylight.night.features) {
+    assert.equal(feature.geometry.type, 'Polygon');
+    const ring = feature.geometry.coordinates[0];
+    assert.deepEqual(ring[0], ring[ring.length - 1]);
+    assert.ok(ring.length >= 4 && ring.length <= 7);
+    assert.ok(Math.max(...ring.map(point => point[0])) - Math.min(...ring.map(point => point[0])) <= 5);
+    assert.ok(Math.max(...ring.map(point => point[1])) - Math.min(...ring.map(point => point[1])) <= 5.000001);
+  }
   assert.equal(result.daylight.border.geometry.type, 'MultiLineString');
   for (const line of result.daylight.border.geometry.coordinates) {
     for (let index = 1; index < line.length; index += 1) {
       assert.ok(Math.abs(line[index][0] - line[index - 1][0]) <= 1);
+    }
+  }
+});
+
+test('equinox night mesh is split at the antimeridian into local cells', () => {
+  const { context } = loadIssWidgets();
+  const daylight = vm.runInContext("_subsolarPoint = () => ({ longitude: 170, latitude: 0 }); _issDayNightGeoJson(new Date(0))", context);
+  assert.equal(daylight.night.type, 'FeatureCollection');
+  assert.ok(daylight.night.features.length > 500);
+  assert.ok(daylight.night.features.length < 4000);
+  for (const feature of daylight.night.features) {
+    const ring = feature.geometry.coordinates[0];
+    assert.deepEqual(ring[0], ring[ring.length - 1]);
+    assert.ok(Math.max(...ring.map(point => point[0])) - Math.min(...ring.map(point => point[0])) <= 5);
+    assert.ok(Math.max(...ring.map(point => point[1])) - Math.min(...ring.map(point => point[1])) <= 5.000001);
+  }
+});
+
+test('night mesh remains locally bounded across seasons and antimeridian sun positions', () => {
+  const { context } = loadIssWidgets();
+  const samples = [
+    { longitude: 179.8, latitude: 23.44 },
+    { longitude: -179.8, latitude: -23.44 },
+    { longitude: 95, latitude: 0.5 },
+    { longitude: -95, latitude: -0.5 }
+  ];
+  for (const sample of samples) {
+    context.sampleSun = sample;
+    const daylight = vm.runInContext('_subsolarPoint = () => sampleSun; _issDayNightGeoJson(new Date(0))', context);
+    assert.ok(daylight.night.features.length > 1000);
+    assert.ok(daylight.night.features.length < 1600);
+    for (const feature of daylight.night.features) {
+      const ring = feature.geometry.coordinates[0];
+      assert.ok(ring.flat().every(Number.isFinite));
+      assert.ok(Math.max(...ring.map(point => point[0])) - Math.min(...ring.map(point => point[0])) <= 5.000001);
+      assert.ok(Math.max(...ring.map(point => point[1])) - Math.min(...ring.map(point => point[1])) <= 5.000001);
     }
   }
 });
@@ -148,9 +192,11 @@ test('ISS assets, globe interaction, cleanup, and responsive styling are wired l
   assert.match(html, /vendor\/satellite-js\/satellite\.min\.js/);
   assert.ok(fs.existsSync(path.join(root, 'vendor/satellite-js/LICENSE.md')));
   assert.match(widgets, /map\.setProjection\?\.\(\{ type: 'globe' \}\)/);
+  assert.match(widgets, /scrollZoom:\s*\{\s*around:\s*'center'\s*\}/);
   assert.match(widgets, /sourceIds\.night/);
   assert.match(widgets, /sourceIds\.terminator/);
   assert.match(widgets, /type: 'fill',[\s\S]*?source: sourceIds\.night/);
+  assert.match(widgets, /'fill-antialias': false/);
   assert.match(widgets, /type: 'line',[\s\S]*?source: sourceIds\.terminator/);
   assert.doesNotMatch(widgets, /widget-iss-night-overlay/);
   assert.match(widgets, /widget-iss-map-shell widget-interactive-surface/);
@@ -168,6 +214,7 @@ test('globe projection waits until the MapLibre style has loaded', () => {
   assert.match(loadedSetup, /map\.addSource\(sourceIds\.night/);
   assert.match(loadedSetup, /map\.addSource\(sourceIds\.terminator/);
   assert.match(loadedSetup, /map\.addSource\(sourceIds\.track/);
+  assert.match(loadedSetup, /globeGeoJsonOptions\s*=\s*\{[^}]*buffer:\s*0,[^}]*tolerance:\s*0,[^}]*maxzoom:\s*24/s);
   assert.match(loadedSetup, /catch \(error\)[\s\S]*?Unable to finish initialising the ISS globe/);
 });
 

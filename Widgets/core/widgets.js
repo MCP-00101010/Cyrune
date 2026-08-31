@@ -293,35 +293,107 @@ function openWidgetSettings(widget, onRefresh, options = {}) {
   panel.classList.toggle('widget-settings-panel--wide', def.settingsPanelWidth === 'wide');
   if (subtitle) subtitle.textContent = (options.isNew ? 'New ' : 'Edit ') + def.name;
   titleInput.value = widget.title || '';
-  body.innerHTML   = '';
-  def.renderSettings(draftWidget, body);
-  if (options.widgetContext === 'navpane' && options.sidebarBottomAvailable !== false) {
-    const placementRow = document.createElement('div');
-    placementRow.className = 'settings-row widget-sidebar-placement-row';
-    const placementLabel = document.createElement('span');
-    placementLabel.textContent = 'Align at sidebar bottom';
-    const placementToggle = document.createElement('label');
-    placementToggle.className = 'settings-toggle';
-    const placementInput = document.createElement('input');
-    placementInput.type = 'checkbox';
-    placementInput.dataset.cfg = 'sidebarBottom';
-    placementInput.checked = draftWidget.config?.sidebarBottom === true;
-    const placementTrack = document.createElement('span');
-    placementTrack.className = 'toggle-track';
-    placementToggle.append(placementInput, placementTrack);
-    placementRow.append(placementLabel, placementToggle);
-    body.appendChild(placementRow);
-  }
-  if (!body.querySelector('.settings-section')) {
-    const section = document.createElement('div');
-    section.className = 'settings-section widget-settings-section';
-    const label = document.createElement('div');
-    label.className = 'settings-section-label';
-    label.textContent = 'Settings';
-    section.appendChild(label);
-    while (body.firstChild) section.appendChild(body.firstChild);
-    body.appendChild(section);
-  }
+
+  const renderSettingsBody = () => {
+    body.innerHTML = '';
+    def.renderSettings(draftWidget, body);
+    if (options.widgetContext === 'navpane' && options.sidebarBottomAvailable !== false) {
+      const placementRow = document.createElement('div');
+      placementRow.className = 'settings-row widget-sidebar-placement-row';
+      const placementLabel = document.createElement('span');
+      placementLabel.textContent = 'Align at sidebar bottom';
+      const placementToggle = document.createElement('label');
+      placementToggle.className = 'settings-toggle';
+      const placementInput = document.createElement('input');
+      placementInput.type = 'checkbox';
+      placementInput.dataset.cfg = 'sidebarBottom';
+      placementInput.checked = draftWidget.config?.sidebarBottom === true;
+      const placementTrack = document.createElement('span');
+      placementTrack.className = 'toggle-track';
+      placementToggle.append(placementInput, placementTrack);
+      placementRow.append(placementLabel, placementToggle);
+      body.appendChild(placementRow);
+    }
+    if (!body.querySelector('.settings-section')) {
+      const section = document.createElement('div');
+      section.className = 'settings-section widget-settings-section';
+      const label = document.createElement('div');
+      label.className = 'settings-section-label';
+      label.textContent = 'Settings';
+      section.appendChild(label);
+      while (body.firstChild) section.appendChild(body.firstChild);
+      body.appendChild(section);
+    }
+    if (typeof WidgetSDK === 'undefined') return;
+    const presetSection = document.createElement('div');
+    presetSection.className = 'settings-section widget-preset-settings';
+    presetSection.innerHTML = `
+      <div class="settings-section-label">Reusable preset</div>
+      <div class="settings-row"><select class="settings-select widget-preset-select" aria-label="Saved widget preset"><option value="">Choose a preset…</option></select></div>
+      <label class="settings-row"><span>Include portable content when saving</span><input type="checkbox" class="widget-preset-data" /></label>
+      <div class="widget-preset-actions">
+        <button type="button" class="secondary-btn widget-preset-save">Save new</button>
+        <button type="button" class="secondary-btn widget-preset-apply">Apply</button>
+        <button type="button" class="secondary-btn widget-preset-delete">Delete</button>
+        <button type="button" class="secondary-btn widget-preset-export">Export</button>
+        <label class="secondary-btn widget-preset-import">Import<input type="file" accept="application/json,.json" hidden /></label>
+      </div>`;
+    const select = presetSection.querySelector('.widget-preset-select');
+    WidgetSDK.presets.list(widget.widgetType).forEach(preset => {
+      const option = document.createElement('option');
+      option.value = preset.id;
+      option.textContent = preset.name;
+      select.appendChild(option);
+    });
+    presetSection.querySelector('.widget-preset-save').addEventListener('click', () => {
+      syncConfig(false);
+      const name = prompt('Preset name', draftWidget.title || def.name);
+      if (!name?.trim()) return;
+      const saved = WidgetSDK.presets.save(draftWidget, name, { includeData: presetSection.querySelector('.widget-preset-data').checked });
+      renderSettingsBody();
+      const nextSelect = body.querySelector('.widget-preset-select');
+      if (nextSelect) nextSelect.value = saved.id;
+      showNotice(`Saved “${saved.name}”.`);
+    }, { signal: sig });
+    presetSection.querySelector('.widget-preset-apply').addEventListener('click', () => {
+      if (!select.value) return showNotice('Choose a preset first.');
+      WidgetSDK.presets.apply(draftWidget, select.value);
+      titleInput.value = draftWidget.title || '';
+      renderSettingsBody();
+      if (def.liveSettingsPreview !== false && onRefresh) { applyDraftToWidget(); onRefresh(); }
+      showNotice('Preset applied to this draft. Cancel restores the previous settings.');
+    }, { signal: sig });
+    presetSection.querySelector('.widget-preset-delete').addEventListener('click', () => {
+      if (!select.value) return showNotice('Choose a preset first.');
+      const selectedName = select.selectedOptions[0]?.textContent || 'this preset';
+      if (!confirm(`Delete “${selectedName}”?`)) return;
+      WidgetSDK.presets.remove(select.value);
+      renderSettingsBody();
+      showNotice('Preset deleted.');
+    }, { signal: sig });
+    presetSection.querySelector('.widget-preset-export').addEventListener('click', () => {
+      const blob = new Blob([WidgetSDK.presets.export(widget.widgetType)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `${widget.widgetType}-presets.json`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+    }, { signal: sig });
+    presetSection.querySelector('.widget-preset-import input').addEventListener('change', async event => {
+      const file = event.target.files?.[0];
+      if (!file) return;
+      try {
+        const imported = WidgetSDK.presets.import(await file.text(), { conflict: 'rename' });
+        renderSettingsBody();
+        showNotice(`Imported ${imported.length} preset${imported.length === 1 ? '' : 's'}.`);
+      } catch (error) {
+        showNotice(error?.message || 'Could not import widget presets.');
+      }
+    }, { signal: sig });
+    body.appendChild(presetSection);
+  };
+  renderSettingsBody();
 
   document.getElementById('modalCard').classList.add('hidden');
   panel.classList.remove('hidden');

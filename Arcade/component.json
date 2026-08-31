@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "id": "arcade",
+  "name": "Arcade",
+  "version": "0.2.0",
+  "kind": "page",
+  "entrypoint": "web/index.html",
+  "icon": "web/assets/arcade.svg",
+  "summary": "Game libraries, metadata, collections, profiles and launch decisions.",
+  "documents": { "todo": "Arcade-TODO.md", "changelog": "Arcade-CHANGELOG.md" },
+  "capabilities": ["collections", "game-library", "launch-policy", "metadata", "profiles", "recoverable-transfers", "scrapers"],
+  "protocols": { "arcade-relay": 1, "arcade-service": 1, "component-settings": 2 },
+  "schemas": { "arcadeState": 1, "collection": 1 },
+  "nexus": { "accent": "orange", "adapter": "arcade" }
+}

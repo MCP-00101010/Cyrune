@@ -663,14 +663,14 @@ function handleContextMenuAction(action) {
     case 'launchGame':
       void launchGameShortcut(contextTarget.item);
       break;
-    case 'openGameInEmuGui':
-      void openGameShortcutInEmuGui(contextTarget.item);
+    case 'openGameInArcade':
+      void openGameShortcutInArcade(contextTarget.item);
       break;
     case 'revealGame':
       void revealGameShortcut(contextTarget.item);
       break;
     case 'rebindGame':
-      void openGameShortcutInEmuGui(contextTarget.item, { rebind: true });
+      void openGameShortcutInArcade(contextTarget.item, { rebind: true });
       break;
     case 'forgetGame':
       void forgetGameShortcut(contextTarget.item);
@@ -1000,7 +1000,7 @@ function handleBoardContextMenu(event, item, columnId, parentFolder, depth, effe
     options.push({ label: 'Delete application', action: 'deleteItem' });
   } else if (item.type === 'game') {
     options.push({ label: 'Launch game', action: 'launchGame' });
-    options.push({ label: 'Open in Cyrune Arcade', action: 'openGameInEmuGui' });
+    options.push({ label: 'Open in Cyrune Arcade', action: 'openGameInArcade' });
     options.push({ label: 'Reveal game file', action: 'revealGame' });
     options.push({ label: 'Rebind in Cyrune Arcade…', action: 'rebindGame' });
     options.push({ label: 'Edit game shortcut', action: 'editGame' });
@@ -1175,7 +1175,7 @@ function handleSearchResultContextMenu(event, item, meta) {
     options.push({ label: 'Delete application', action: 'deleteItem' });
   } else if (item.type === 'game') {
     options.push({ label: 'Launch game', action: 'launchGame' });
-    options.push({ label: 'Open in Cyrune Arcade', action: 'openGameInEmuGui' });
+    options.push({ label: 'Open in Cyrune Arcade', action: 'openGameInArcade' });
     options.push({ label: 'Reveal game file', action: 'revealGame' });
     options.push({ label: 'Rebind in Cyrune Arcade…', action: 'rebindGame' });
     options.push({ label: 'Edit game shortcut', action: 'editGame' });

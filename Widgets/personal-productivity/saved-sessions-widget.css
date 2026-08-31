@@ -10,7 +10,7 @@
 .saved-sessions-status,
 .saved-sessions-empty {
   color: var(--text-muted);
-  font-size: 11px;
+  font-size:calc(11px * var(--widget-text-scale, 1));
   line-height: 1.4;
 }
 
@@ -111,12 +111,12 @@
 }
 
 .saved-sessions-card-copy strong {
-  font-size: 12px;
+  font-size:calc(12px * var(--widget-text-scale, 1));
 }
 
 .saved-sessions-card-copy small {
   color: var(--text-muted);
-  font-size: 10px;
+  font-size:calc(10px * var(--widget-text-scale, 1));
 }
 
 .saved-sessions-favicons {
@@ -151,7 +151,7 @@
 .saved-sessions-favicon-fallback {
   position: absolute;
   color: var(--text-muted);
-  font-size: 10px;
+  font-size:calc(10px * var(--widget-text-scale, 1));
   font-weight: 700;
 }
 
@@ -161,7 +161,7 @@
   padding-inline: 4px;
   border-color: var(--border);
   color: var(--text-muted);
-  font-size: 9px;
+  font-size:calc(9px * var(--widget-text-scale, 1));
 }
 
 .saved-sessions-detail {
@@ -189,7 +189,7 @@
 .saved-sessions-detail-heading span {
   flex: 0 0 auto;
   color: var(--text-muted);
-  font-size: 10px;
+  font-size:calc(10px * var(--widget-text-scale, 1));
 }
 
 .saved-sessions-groups {
@@ -204,7 +204,7 @@
   padding: 3px 6px;
   color: var(--text-muted);
   background: color-mix(in srgb, var(--text) 5%, transparent);
-  font-size: 10px;
+  font-size:calc(10px * var(--widget-text-scale, 1));
 }
 
 .saved-sessions-actions {
@@ -216,7 +216,7 @@
 .saved-sessions-actions button {
   min-width: 0;
   padding-inline: 4px;
-  font-size: 11px;
+  font-size:calc(11px * var(--widget-text-scale, 1));
 }
 
 .saved-sessions-actions button:hover:not(:disabled),

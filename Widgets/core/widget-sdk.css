@@ -15,7 +15,7 @@
 .widget-sdk-state-detail {
   max-width: 42ch;
   color: var(--muted);
-  font-size: 0.84rem;
+  font-size: calc(0.84rem * var(--widget-text-scale, 1));
   line-height: 1.4;
 }
 

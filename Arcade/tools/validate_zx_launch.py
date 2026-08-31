@@ -17,8 +17,8 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-import emugui_service as server  # noqa: E402
-from emugui_core.launching import emulator_adapter  # noqa: E402
+import arcade_service as server  # noqa: E402
+from arcade_core.launching import emulator_adapter  # noqa: E402
 
 
 class ValidationFailure(RuntimeError):
