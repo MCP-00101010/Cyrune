@@ -10,6 +10,7 @@ Before acting on Widgets code, read `Widgets/README.md`, `Widgets/core/sdk/READM
 
 - Keep each widget's JavaScript, CSS, tests, fixtures, and practical static assets together under its catalogue category.
 - `Widgets/core` owns shared registry, SDK, cache, scheduling, network, settings, capability, and action-layout services. Do not place component-specific provider or business logic in core.
+- Treat Portal's top-right Widget action rail as reserved overlay space. Every Widget title, status, timestamp, input, or other top-row content must remain clear of it in both board and sidebar layouts: reserve at least `26px` for settings-only Widgets and `52px` when reload plus settings actions are present, preferably through `Widgets/core/widget-action-layout.css`, with a focused regression assertion.
 - Preserve persisted widget type IDs, catalogue categories, descriptor contracts, load order, and browser-local storage namespaces unless an explicit compatibility migration is documented and tested.
 - Widgets run as ordered classic scripts in Portal. Keep top-level declarations unique and retain global-symbol coverage when adding or moving scripts.
 

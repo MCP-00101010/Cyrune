@@ -185,6 +185,7 @@ function _mutateAndRefresh(mutator, options = {}) {
 }
 
 function _showAddBookmarkModal(context = contextTarget, overrides = {}) {
+  const inheritedTags = overrides.inheritedTags ?? getContextInheritedTags(context, { includeIgnored: true });
   showModal('addBookmark', {
     title: 'New Bookmark',
     placeholder1: 'New Bookmark',
@@ -192,12 +193,15 @@ function _showAddBookmarkModal(context = contextTarget, overrides = {}) {
     placeholder2: 'Bookmark URL',
     showTags: true,
     contextTarget: context,
-    inheritedTags: overrides.inheritedTags ?? getContextInheritedTags(context),
+    inheritedTags,
+    showIgnoreInheritance: inheritedTags.length > 0,
     ...overrides
   });
 }
 
 function _showEditBookmarkModal(context = contextTarget, overrides = {}) {
+  const inheritedTags = overrides.inheritedTags
+    ?? (context?.area === 'set-item' ? [] : getContextInheritedTags(context, { includeIgnored: true }));
   showModal('editBookmark', {
     title: 'Edit Bookmark',
     placeholder1: 'Bookmark title',
@@ -207,12 +211,15 @@ function _showEditBookmarkModal(context = contextTarget, overrides = {}) {
     value2: context?.item?.url || '',
     showTags: true,
     value3: (context?.item?.tags || []).join(' '),
-    inheritedTags: overrides.inheritedTags ?? (context?.area === 'set-item' ? [] : getContextInheritedTags(context)),
+    inheritedTags,
+    showIgnoreInheritance: inheritedTags.length > 0,
+    ignoreInheritedTags: context?.item?.ignoreInheritedTags === true,
     ...overrides
   });
 }
 
 function _showEditApplicationModal(context = contextTarget, overrides = {}) {
+  const inheritedTags = overrides.inheritedTags ?? getContextInheritedTags(context, { includeIgnored: true });
   showModal('editApplication', {
     title: 'Edit Application',
     placeholder1: 'Application title',
@@ -220,12 +227,15 @@ function _showEditApplicationModal(context = contextTarget, overrides = {}) {
     showUrl: false,
     showTags: true,
     value3: (context?.item?.tags || []).join(' '),
-    inheritedTags: overrides.inheritedTags ?? getContextInheritedTags(context),
+    inheritedTags,
+    showIgnoreInheritance: inheritedTags.length > 0,
+    ignoreInheritedTags: context?.item?.ignoreInheritedTags === true,
     ...overrides
   });
 }
 
 function _showEditGameModal(context = contextTarget, overrides = {}) {
+  const inheritedTags = overrides.inheritedTags ?? getContextInheritedTags(context, { includeIgnored: true });
   showModal('editGame', {
     title: 'Edit Game Shortcut',
     placeholder1: 'Game title',
@@ -233,7 +243,9 @@ function _showEditGameModal(context = contextTarget, overrides = {}) {
     showUrl: false,
     showTags: true,
     value3: (context?.item?.tags || []).join(' '),
-    inheritedTags: overrides.inheritedTags ?? getContextInheritedTags(context),
+    inheritedTags,
+    showIgnoreInheritance: inheritedTags.length > 0,
+    ignoreInheritedTags: context?.item?.ignoreInheritedTags === true,
     ...overrides
   });
 }

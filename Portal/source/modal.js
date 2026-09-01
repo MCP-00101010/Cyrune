@@ -16,21 +16,29 @@ function getContextBoardAndTab(contextTarget) {
   return { board, tab };
 }
 
-function getContextInheritedTags(contextTarget) {
+function getContextInheritedTags(contextTarget, options = {}) {
   const area = contextTarget?.area;
   if (area === 'nav-subfolder' || area === 'nav-item') {
     const collectNavFolderTags = folder => {
-      const tags = [];
+      const chain = [];
       let current = folder;
       while (current?.type === 'folder') {
-        if (current.sharedTags?.length) tags.unshift(...current.sharedTags);
+        chain.unshift(current);
         current = findNavItemPath(current.id)?.parent || null;
+      }
+      let tags = [];
+      for (const ancestor of chain) {
+        if (ancestor.ignoreInheritedTags === true) tags = [];
+        if (ancestor.sharedTags?.length) tags.push(...ancestor.sharedTags);
       }
       return [...new Set(tags)];
     };
     if (area === 'nav-subfolder') return collectNavFolderTags(contextTarget?.item || null);
     const path = contextTarget?.itemId ? findNavItemPath(contextTarget.itemId) : null;
-    return filterInheritedTagIdsForItem(path?.item || contextTarget?.item || null, collectNavFolderTags(path?.parent || null));
+    const inheritedTags = collectNavFolderTags(path?.parent || null);
+    return options.includeIgnored
+      ? inheritedTags
+      : filterInheritedTagIdsForItem(path?.item || contextTarget?.item || null, inheritedTags);
   }
   const { board, tab } = getContextBoardAndTab(contextTarget);
   if (!board) return [];
@@ -50,7 +58,7 @@ function getContextInheritedTags(contextTarget) {
       : (area === 'board-empty' || area === 'board-subfolder' || area === 'board-folder-item'
       ? null
       : contextTarget?.item || null);
-    return filterInheritedTagIdsForItem(currentItem, inheritedTags);
+    return options.includeIgnored ? inheritedTags : filterInheritedTagIdsForItem(currentItem, inheritedTags);
   }
   return [];
 }
@@ -281,6 +289,14 @@ function showModal(type, options = {}) {
     renderTagsInto(inheritedSpan, inherited);
     inheritedRow.classList.toggle('hidden', inherited.length === 0);
   }
+  const ignoreInheritedRow = document.getElementById('modalIgnoreInheritedTagsRow');
+  const ignoreInheritedToggle = document.getElementById('modalIgnoreInheritedTags');
+  if (ignoreInheritedRow && ignoreInheritedToggle) {
+    const supportsIgnoreInheritance = ['addBookmark', 'editBookmark', 'editApplication', 'editGame'].includes(type);
+    ignoreInheritedRow.classList.toggle('hidden', !supportsIgnoreInheritance || inherited.length === 0);
+    ignoreInheritedToggle.checked = options.ignoreInheritedTags === true
+      || (type !== 'addBookmark' && (options.contextTarget || contextTarget)?.item?.ignoreInheritedTags === true);
+  }
   if (showName) elements.modalInput1.focus();
   else if (options.showTags) elements.modalInput3.focus();
   else if (showBoardTabSelect || options.showSelect) elements.modalSelect.focus();
@@ -428,10 +444,11 @@ function hideModal() {
   document.getElementById('modalSharedTagsRow')?.classList.add('hidden');
   document.getElementById('modalSpeedDialSection')?.classList.add('hidden');
   document.getElementById('modalInheritedTagsRow')?.classList.add('hidden');
+  document.getElementById('modalIgnoreInheritedTagsRow')?.classList.add('hidden');
   elements.modalSelect.onchange = null;
 }
 
-function _submitBookmarkModal(mode, { value1, value2, tags, ensureUndo }) {
+function _submitBookmarkModal(mode, { value1, value2, tags, ignoreInheritedTags, ensureUndo }) {
   const area = contextTarget?.area;
   const fc = contextTarget?.faviconCache || '';
 
@@ -486,13 +503,15 @@ function _submitBookmarkModal(mode, { value1, value2, tags, ensureUndo }) {
       }
       if (!isValidUrl(value2)) { alert('Please enter a valid URL.'); return 'abort'; }
       ensureUndo();
-      contextTarget.item.children.push({ id: `bm-${Date.now()}`, type: 'bookmark', title: value1, url: normalizeUrl(value2), tags, faviconCache: fc });
+      const bookmark = { id: `bm-${Date.now()}`, type: 'bookmark', title: value1, url: normalizeUrl(value2), tags, faviconCache: fc };
+      if (ignoreInheritedTags) bookmark.ignoreInheritedTags = true;
+      contextTarget.item.children.push(bookmark);
       contextTarget.item.collapsed = false;
       return 'continue';
     }
     if (!isValidUrl(value2)) { alert('Please enter a valid URL.'); return 'abort'; }
     ensureUndo();
-    return addBookmark(value1, value2, contextTarget?.columnId, tags, fc) ? 'continue' : 'abort';
+    return addBookmark(value1, value2, contextTarget?.columnId, tags, fc, { ignoreInheritedTags }) ? 'continue' : 'abort';
   }
 
   if (area === 'speed-dial-item') {
@@ -538,7 +557,7 @@ function _submitBookmarkModal(mode, { value1, value2, tags, ensureUndo }) {
   const found = board ? findBoardItemInColumns(board, contextTarget.itemId) : null;
   if (!found?.item || found.item.type !== 'bookmark') return 'abort';
   ensureUndo();
-  return editBookmarkContext(value1, value2, tags, contextTarget) ? 'continue' : 'abort';
+  return editBookmarkContext(value1, value2, tags, contextTarget, { ignoreInheritedTags }) ? 'continue' : 'abort';
 }
 
 function _submitCollectionModal(mode, { value1, tags, sharedTagsFromModal, ensureUndo }) {
@@ -708,6 +727,8 @@ async function handleModalSubmit(event) {
   const value4 = elements.modalInput4.value.trim();
   const tags = value3 ? value3.split(/\s+/).filter(Boolean) : [];
   const sharedTagsFromModal = value4 ? value4.split(/\s+/).filter(Boolean) : [];
+  const ignoreInheritedTags = document.getElementById('modalIgnoreInheritedTags')?.checked === true
+    && !document.getElementById('modalIgnoreInheritedTagsRow')?.classList.contains('hidden');
 
   const noNameRequired = ['moveToBoard', 'bulkMoveToBoard', 'bulkAddTags'];
   if (!value1 && !noNameRequired.includes(activeModal)) return;
@@ -724,7 +745,7 @@ async function handleModalSubmit(event) {
   switch (activeModal) {
     case 'addBookmark':
     case 'editBookmark': {
-      const result = _submitBookmarkModal(activeModal === 'addBookmark' ? 'add' : 'edit', { value1, value2, tags, ensureUndo });
+      const result = _submitBookmarkModal(activeModal === 'addBookmark' ? 'add' : 'edit', { value1, value2, tags, ignoreInheritedTags, ensureUndo });
       if (result === 'abort') return;
       if (result === 'complete') return;
       break;
@@ -736,6 +757,8 @@ async function handleModalSubmit(event) {
       ensureUndo();
       found.item.title = value1.slice(0, 160);
       found.item.tags = tags;
+      if (ignoreInheritedTags) found.item.ignoreInheritedTags = true;
+      else delete found.item.ignoreInheritedTags;
       break;
     }
     case 'editGame': {
@@ -745,6 +768,8 @@ async function handleModalSubmit(event) {
       ensureUndo();
       found.item.title = value1.slice(0, 160);
       found.item.tags = tags.slice(0, 12);
+      if (ignoreInheritedTags) found.item.ignoreInheritedTags = true;
+      else delete found.item.ignoreInheritedTags;
       break;
     }
     case 'addFolder': {
@@ -1082,13 +1107,19 @@ function showFolderModal(mode, ct, options = {}) {
   }
   centerPanel(panel);
   makeDraggable(panel, document.getElementById('folderModalHeader'));
-  const inherited = getContextInheritedTags(contextTarget);
+  const inherited = getContextInheritedTags(contextTarget, { includeIgnored: true });
   const fmInheritedRow = document.getElementById('fmInheritedTagsRow');
   const fmInheritedSpan = document.getElementById('fmInheritedTags');
   if (fmInheritedRow && fmInheritedSpan) {
     fmInheritedSpan.innerHTML = '';
     renderTagsInto(fmInheritedSpan, inherited);
     fmInheritedRow.classList.toggle('hidden', inherited.length === 0);
+  }
+  const fmIgnoreInheritedRow = document.getElementById('fmIgnoreInheritedTagsRow');
+  const fmIgnoreInheritedToggle = document.getElementById('fmIgnoreInheritedTags');
+  if (fmIgnoreInheritedRow && fmIgnoreInheritedToggle) {
+    fmIgnoreInheritedRow.classList.toggle('hidden', inherited.length === 0);
+    fmIgnoreInheritedToggle.checked = folderItem?.ignoreInheritedTags === true;
   }
   document.getElementById('fmName').focus();
 }
@@ -1112,18 +1143,20 @@ function handleFolderModalSubmit() {
   if (!name) { document.getElementById('fmName').focus(); return; }
   const tags = document.getElementById('fmTags').value.trim().split(/\s+/).filter(Boolean);
   const sharedTags = document.getElementById('fmSharedTags').value.trim().split(/\s+/).filter(Boolean);
+  const ignoreInheritedTags = document.getElementById('fmIgnoreInheritedTags')?.checked === true
+    && !document.getElementById('fmIgnoreInheritedTagsRow')?.classList.contains('hidden');
   pushUndoSnapshot();
   if (folderModalMode === 'edit') {
-    editFolder(contextTarget.itemId, name, tags, sharedTags, contextTarget);
+    editFolder(contextTarget.itemId, name, tags, sharedTags, contextTarget, { ignoreInheritedTags });
   } else {
     const area = contextTarget?.area;
     const parent = contextTarget?.item;
     if (area === 'nav-empty') {
-      addNavSection({ type: 'folder', title: name, tags, sharedTags });
+      addNavSection({ type: 'folder', title: name, tags, sharedTags, ignoreInheritedTags });
     } else if (area === 'nav-subfolder') {
       if (parent) {
         parent.children = parent.children || [];
-        parent.children.push(createFolderRecord(name, { tags, sharedTags }));
+        parent.children.push(createFolderRecord(name, { tags, sharedTags, ignoreInheritedTags }));
         parent.collapsed = false;
       }
     } else if (area === 'board-subfolder') {
@@ -1133,11 +1166,11 @@ function handleFolderModalSubmit() {
           return;
         }
         parent.children = parent.children || [];
-        parent.children.push(createFolderRecord(name, { tags, sharedTags, folderMode: folderModalTargetMode }));
+        parent.children.push(createFolderRecord(name, { tags, sharedTags, ignoreInheritedTags, folderMode: folderModalTargetMode }));
         parent.collapsed = false;
       }
     } else {
-      addBookmarkItem('folder', name, contextTarget?.columnId, { tags, sharedTags, folderMode: folderModalTargetMode });
+      addBookmarkItem('folder', name, contextTarget?.columnId, { tags, sharedTags, ignoreInheritedTags, folderMode: folderModalTargetMode });
     }
   }
   hideFolderModal();

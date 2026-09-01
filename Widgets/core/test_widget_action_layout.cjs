@@ -33,5 +33,6 @@ test('new widget top rows reserve space for the shared action rail', () => {
   assert.match(css, /padding-right:\s*52px/);
   assert.match(css, /\.media-watchlist-card:first-child\s*>\s*\.media-watchlist-main[\s\S]*padding-right:\s*26px/);
   assert.match(css, /\.universal-search-input-row[\s\S]*margin-right:\s*26px/);
+  assert.match(css, /\.daily-briefing-header[\s\S]*padding-right:\s*26px/);
   assert.ok(html.indexOf('widget-action-layout.css') > html.indexOf('universal-search-widget.css'));
 });

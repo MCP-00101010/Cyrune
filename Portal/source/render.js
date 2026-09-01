@@ -1413,6 +1413,7 @@ function createNavItem(item, depth = 0, parent = null) {
       }
       e.stopPropagation();
       dragPayload = { area: 'nav', itemId: item.id, itemType: 'widget', widgetType: item.widgetType, parentId: parent ? parent.id : null };
+      captureNavDragGeometry();
       e.dataTransfer.setData('text/plain', item.id);
       e.dataTransfer.effectAllowed = 'move';
       applyDragImage(e, el);
@@ -1546,6 +1547,7 @@ function createNavItem(item, depth = 0, parent = null) {
   el.addEventListener('dragstart', event => {
     event.stopPropagation();
     dragPayload = { area: 'nav', itemId: item.id, parentId: parent ? parent.id : null };
+    captureNavDragGeometry();
     event.dataTransfer.setData('text/plain', item.id);
     event.dataTransfer.effectAllowed = 'move';
     event.dataTransfer.dropEffect = 'move';
@@ -1586,6 +1588,8 @@ function createNavItem(item, depth = 0, parent = null) {
   return el;
 }
 
+let lastAppliedBoardBackgroundSignature = '';
+
 function applyBoardBackground(board) {
   const shell = elements.appShell;
   const mp = elements.mainPanel;
@@ -1598,6 +1602,9 @@ function applyBoardBackground(board) {
   const containerAlpha = (board.containerOpacity ?? 100) / 100;
   const sidebarAlpha = resolveSidebarContainerAlpha(board);
   const uiPanelAlpha = resolveUiPanelAlpha();
+  const signature = JSON.stringify([backgroundImage, backgroundFit, containerAlpha, sidebarAlpha, uiPanelAlpha]);
+  if (signature === lastAppliedBoardBackgroundSignature) return;
+  lastAppliedBoardBackgroundSignature = signature;
   document.documentElement.style.setProperty('--container-alpha', containerAlpha);
   document.documentElement.style.setProperty('--sidebar-container-alpha', sidebarAlpha);
   document.documentElement.style.setProperty('--ui-panel-alpha', uiPanelAlpha);
@@ -1821,6 +1828,7 @@ function renderBoardTabBar(board, activeTab) {
   if (!tabBar) return;
   tabBar.innerHTML = '';
   if (!board) {
+    lastAppliedBoardBackgroundSignature = '';
     tabBar.classList.add('hidden');
     return;
   }

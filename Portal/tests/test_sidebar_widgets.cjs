@@ -88,7 +88,9 @@ test('bottom-aligned sidebar widgets form a stable reorderable group', () => {
   assert.match(render, /state\.navItems\.splice\(0, state\.navItems\.length, \.\.\.orderedItems\)/);
   assert.match(styles, /\.nav-bottom-widget-group\s*\{[^}]*margin-top:\s*auto/s);
   assert.match(dnd, /_navPlacementGroupsMatch\(item\)/);
-  assert.match(dnd, /function _navInsertionSplitRatio[\s\S]*?draggedIndex > targetIndex \? 0\.68 : 0\.5/);
+  assert.match(dnd, /function captureNavDragGeometry[\s\S]*?navDragGeometry\.set/);
+  assert.match(dnd, /function _navInsertionSplitRatio[\s\S]*?return 0\.5/);
+  assert.match(dnd, /navDragGeometry\.get\(item\.id\)/);
   assert.match(dnd, /rect\.height \* splitRatio \? 'before' : 'after'/);
   assert.match(dnd, /animate: !parentEl\.classList\.contains\('nav-bottom-widget-group'\)/);
   assert.match(dnd, /function _insertDragPreview\(clone, parent, beforeEl, options = \{\}\)[\s\S]*?options\.animate === false[\s\S]*?clone\.style\.opacity = '0\.5'/);

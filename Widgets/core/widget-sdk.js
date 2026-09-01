@@ -519,10 +519,15 @@ function _widgetSdkValidateSettingsDraft(descriptor, widget) {
   Object.entries(schema?.properties || {}).forEach(([key, rule]) => {
     const value = config[key];
     if (value === undefined || rule.type === 'any') return;
-    if (rule.type === 'array' && !Array.isArray(value)) errors.push(`${key} must be a list.`);
-    else if (rule.type === 'number' && !(typeof value === 'number' || (typeof value === 'string' && value.trim() !== '' && Number.isFinite(Number(value))))) errors.push(`${key} must be a number.`);
-    else if (!['array', 'number'].includes(rule.type) && typeof value !== rule.type) errors.push(`${key} must be ${rule.type}.`);
-    if (Array.isArray(rule.enum) && !rule.enum.includes(value)) errors.push(`${key} has an unsupported value.`);
+    let comparableValue = value; let validType = true;
+    if (rule.type === 'array' && !Array.isArray(value)) { errors.push(`${key} must be a list.`); validType = false; }
+    else if (rule.type === 'number') {
+      const numeric = typeof value === 'number' ? value : (typeof value === 'string' && value.trim() !== '' ? Number(value) : NaN);
+      if (!Number.isFinite(numeric)) { errors.push(`${key} must be a number.`); validType = false; }
+      else comparableValue = numeric;
+    }
+    else if (!['array', 'number'].includes(rule.type) && typeof value !== rule.type) { errors.push(`${key} must be ${rule.type}.`); validType = false; }
+    if (validType && Array.isArray(rule.enum) && !rule.enum.includes(comparableValue)) errors.push(`${key} has an unsupported value.`);
   });
   return { valid: errors.length === 0, errors };
 }

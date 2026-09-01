@@ -55,13 +55,13 @@ The in-app browser was unavailable during the automated cutover, but the user su
 - A newly saved Portal background appears beneath `%LOCALAPPDATA%\Cyrune\Portal\backgrounds`, proving Relay 1.0.54 is using the external asset root.
 - Every bookmark in use that referred to the legacy WebHub or EmuGUI pages now points at the Cyrune project location; temporary recovery pages are not needed.
 
-The old checkouts and runtime sources remain untouched during monitoring.
+The old checkouts and runtime sources remained untouched throughout monitoring. After explicit user approval on 2026-08-31, both complete checkouts were moved intact beneath `F:\Projects\Coding\Cyrune Migration Recovery\2026-08-31\archived-sources`. The ignored Cyrune `Arcade/data` migration baseline matched the Phase 6 recovery tree fingerprint `DF11CFDD291655650BD39DA4BFBC15E11D322173FD6AFCADC952825468B4A555` and was moved intact to `F:\Projects\Coding\Cyrune Migration Recovery\2026-08-31\archived-runtime-sources\Cyrune\Arcade\data`; the active external runtime and verified recovery copies remain unchanged.
 
 ## Rollback
 
 1. Close Firefox/Zen so neither Relay nor Host retains the active paths.
 2. Verify and restore `phase-6-runtime\Host\config.json` to `%LOCALAPPDATA%\Cyrune\Host\config.json`; this restores the pre-Phase-6 Portal database pointer and all then-current opaque bindings together.
-3. Revert the Phase 6 Arcade default-path change or set `CYRUNE_ARCADE_DATA` to the still-present Cyrune source `Arcade\data` directory before restarting Host.
+3. Revert the Phase 6 Arcade default-path change only after rehydrating the archived `Arcade/data` baseline into a deliberate working location, or set `CYRUNE_ARCADE_DATA` to another verified recovery copy before restarting Host. Do not run against or modify the read-only archive in place.
 4. Reload the prior Relay source if managed backgrounds must again be written beneath the Portal checkout.
 5. Restart Firefox/Zen and verify Portal and Arcade status before resuming writes.
 

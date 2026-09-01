@@ -4,6 +4,18 @@ Historical entries below are preserved from Portal releases whose release notes 
 
 ---
 
+## [1.1.1] — 2026-08-31
+
+### Changed
+
+- Relay now enforces minimum role protocols during authenticated Portal, Arcade, and Nexus registration and returns actionable compatibility diagnostics for missing or older clients.
+- Native startup now requires Host's current `host-native` protocol advertisement; incompatible Host builds are treated as unavailable while Relay-owned Portal storage remains usable.
+- Relay now advertises its implemented component-settings transport alongside its existing browser/native protocol contracts.
+
+### Validation
+
+- All 15 Relay tests and the 41-test Relay background/Portal persistence integration harness pass, including explicit minimum-protocol coverage. Infrastructure validation and JavaScript syntax checks also pass.
+
 ## [1.1.0] — 2026-08-31
 
 ### Added

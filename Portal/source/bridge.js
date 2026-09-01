@@ -1,6 +1,5 @@
-// Bridge between Cyrune Portal and Cyrune Relay.
-// When the extension is absent every method no-ops and the app continues
-// using localStorage as normal.
+// Bridge between Cyrune Portal and Cyrune Relay. Relay is the required
+// persistence authority; the page cache is only a read-only recovery view.
 
 const bridge = (() => {
   let _available = false;
@@ -14,6 +13,8 @@ const bridge = (() => {
   let _lastError = '';
   let _extensionVersion = '';
   let _capabilities = new Set();
+  let _protocols = {};
+  const CLIENT_PROTOCOLS = Object.freeze({ 'portal-relay': 1, 'component-settings': 2 });
 
   let _seq = 0;
   const _pending = new Map();
@@ -43,6 +44,19 @@ const bridge = (() => {
 
   function _sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  function _validateRelayProtocols(protocols) {
+    const advertised = protocols && typeof protocols === 'object' ? protocols : {};
+    const missing = Object.entries(CLIENT_PROTOCOLS)
+      .filter(([name, minimumVersion]) => Number(advertised[name] || 0) < minimumVersion)
+      .map(([name, minimumVersion]) => `${name} v${minimumVersion}+`);
+    if (missing.length) {
+      const error = new Error(`Cyrune Relay is incompatible or outdated. Required: ${missing.join(', ')}. Reload Relay from this Cyrune checkout.`);
+      error.code = 'INCOMPATIBLE_PROTOCOL';
+      throw error;
+    }
+    _protocols = { ...advertised };
   }
 
   async function _getArcadeStatus() {
@@ -144,8 +158,10 @@ const bridge = (() => {
           const res = await _send('MW_PING', {
             morpheusPage: true,
             pageUrl: window.location.href,
-            active: !document.hidden && document.hasFocus()
+            active: !document.hidden && document.hasFocus(),
+            protocols: CLIENT_PROTOCOLS
           }, { timeoutMs: pingTimeoutMs });
+          _validateRelayProtocols(res.protocols);
           const recoveredAfterStartup = _readyResolved && !_available;
           _available = true;
           _nativeAvailable = res.nativeAvailable === true;
@@ -293,7 +309,13 @@ const bridge = (() => {
     clearTimeout(handler.timer);
     _pending.delete(e.data.id);
     if (e.data.ok) handler.resolve(e.data);
-    else handler.reject(new Error(e.data.error || 'bridge error'));
+    else {
+      const error = new Error(e.data.error || 'bridge error');
+      error.code = e.data.errorCode || '';
+      error.requiredProtocols = e.data.requiredProtocols || null;
+      error.protocols = e.data.protocols || null;
+      handler.reject(error);
+    }
   });
 
   // Ping the extension; resolves whenReady.
@@ -318,6 +340,7 @@ const bridge = (() => {
         relayError: document.documentElement.dataset.morpheusExtensionError || '',
         bridgeError: _lastError,
         extensionVersion: _extensionVersion,
+        protocols: { ..._protocols },
         capabilities: [..._capabilities]
       };
     },
@@ -327,6 +350,7 @@ const bridge = (() => {
       if (!_available) return { nativeAvailable: false, authoritativeStorageAvailable: false, storageMode: '', databasePath: null };
       try {
         const res = await _send('MW_GET_STORAGE_INFO');
+        _validateRelayProtocols(res.protocols);
         _available = true;
         _nativeAvailable = res.nativeAvailable === true;
         _storageMode = res.storageMode || (res.nativeAvailable === true && res.databasePath ? 'host' : 'relay');
@@ -339,14 +363,15 @@ const bridge = (() => {
           storageMode: _storageMode,
           databasePath: res.databasePath || null,
           extensionVersion: res.version || _extensionVersion,
+          protocols: { ..._protocols },
           capabilities: Array.isArray(res.capabilities) ? res.capabilities : [..._capabilities]
         };
-      } catch {
+      } catch (error) {
         _available = false;
         _nativeAvailable = false;
         _storageMode = '';
         _authoritativeStorageAvailable = false;
-        _lastError = 'Storage information request failed';
+        _lastError = error?.message || 'Storage information request failed';
         return { nativeAvailable: false, authoritativeStorageAvailable: false, storageMode: '', databasePath: null };
       }
     },

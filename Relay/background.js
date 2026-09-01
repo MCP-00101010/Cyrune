@@ -4,7 +4,13 @@ const RELAY_PROTOCOLS = Object.freeze({
   'portal-relay': 1,
   'arcade-relay': 1,
   'nexus-relay': 2,
-  'host-native': 2
+  'host-native': 2,
+  'component-settings': 2
+});
+const REQUIRED_CLIENT_PROTOCOLS = Object.freeze({
+  portal: Object.freeze({ 'portal-relay': 1, 'component-settings': 2 }),
+  arcade: Object.freeze({ 'arcade-relay': 1, 'arcade-service': 1, 'component-settings': 2 }),
+  nexus: Object.freeze({ 'nexus-relay': 2, 'component-settings': 2 })
 });
 const RELAY_COMPONENT_CAPABILITIES = Object.freeze([
   'browser-sessions', 'durable-intake', 'exact-page-auth', 'native-transport', 'notifications'
@@ -248,6 +254,7 @@ function refreshNativeStorage() {
       const ping = await sendPersistentNativeMessage({ type: 'PING' });
       nativeAvailable = ping?.ok === true;
       if (!nativeAvailable) throw new Error('Native host did not return ok');
+      validateHostProtocols(ping.protocols);
       const config = await sendPersistentNativeMessage({ type: 'PORTAL_GET_STORAGE_CONFIG' });
       saveFilePath = normalizeDatabasePath(config?.config?.databasePath || '');
       nativeError = '';
@@ -380,6 +387,29 @@ function sanitizeClientProtocols(value) {
   return output;
 }
 
+function validateClientProtocols(role, value) {
+  const protocols = sanitizeClientProtocols(value);
+  const requiredProtocols = REQUIRED_CLIENT_PROTOCOLS[role] || {};
+  const incompatible = Object.entries(requiredProtocols)
+    .filter(([name, minimumVersion]) => (protocols[name] || 0) < minimumVersion)
+    .map(([name, minimumVersion]) => `${name} v${minimumVersion}+`);
+  if (!incompatible.length) return { ok: true, protocols };
+  const label = role === 'portal' ? 'Portal' : role === 'arcade' ? 'Arcade' : 'Nexus';
+  return {
+    ok: false,
+    errorCode: 'INCOMPATIBLE_PROTOCOL',
+    error: `Cyrune ${label} is incompatible with this Relay build. Required: ${incompatible.join(', ')}. Reload both components from the same Cyrune checkout.`,
+    requiredProtocols,
+    protocols: RELAY_PROTOCOLS
+  };
+}
+
+function validateHostProtocols(value) {
+  const version = Number(value?.['host-native'] || 0);
+  if (version >= RELAY_PROTOCOLS['host-native']) return true;
+  throw new Error(`Cyrune Host is incompatible with this Relay build (host-native v${RELAY_PROTOCOLS['host-native']}+ is required)`);
+}
+
 function selectRegisteredHub() {
   const candidates = [...hubRegistrations.entries()]
     .sort((left, right) => {
@@ -442,6 +472,8 @@ async function registerEmuGuiPage(sender, pageUrl, protocols = {}) {
   if (tabId === undefined || !url || (sender.tab.url && sender.tab.url !== url)) {
     return { ok: false, error: 'Cyrune Arcade registration came from an unsupported page' };
   }
+  const protocolCheck = validateClientProtocols('arcade', protocols);
+  if (!protocolCheck.ok) return protocolCheck;
   let parsed;
   try { parsed = new URL(url); } catch { return { ok: false, error: 'Cyrune Arcade page address is invalid' }; }
   if (parsed.protocol !== 'file:') return { ok: false, error: 'Cyrune Arcade must be opened from its configured local file page' };
@@ -452,7 +484,7 @@ async function registerEmuGuiPage(sender, pageUrl, protocols = {}) {
   if (!authorized) return { ok: false, error: 'This is not the configured Cyrune Arcade page' };
   const transport = 'extension';
   const registration = { url, sessionToken: createHubSessionToken(), registeredAt: Date.now(), transport,
-    protocols: sanitizeClientProtocols(protocols) };
+    protocols: protocolCheck.protocols };
   emuguiRegistrations.set(tabId, registration);
   return {
     ok: true,
@@ -481,6 +513,8 @@ async function registerNexusPage(sender, pageUrl, protocols = {}) {
   if (tabId === undefined || !url || !senderUrl || senderUrl !== url) {
     return { ok: false, error: 'Cyrune Nexus registration came from an unsupported page' };
   }
+  const protocolCheck = validateClientProtocols('nexus', protocols);
+  if (!protocolCheck.ok) return protocolCheck;
   await ensureNativeStorageReady();
   if (!nativeAvailable) return { ok: false, error: 'Cyrune Host is required to authorize the Nexus file page' };
   const result = await sendPersistentNativeMessage({ type: 'NEXUS_AUTHORIZE_PAGE', pageUrl: url });
@@ -488,7 +522,7 @@ async function registerNexusPage(sender, pageUrl, protocols = {}) {
     return { ok: false, error: 'This is not the configured Cyrune Nexus page' };
   }
   const registration = { url, sessionToken: createHubSessionToken(), registeredAt: Date.now(),
-    protocols: sanitizeClientProtocols(protocols) };
+    protocols: protocolCheck.protocols };
   nexusRegistrations.set(tabId, registration);
   return {
     ok: true,
@@ -2289,9 +2323,15 @@ browser.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
     case 'MW_REGISTER':
       {
+      const protocolCheck = validateClientProtocols('portal', msg.protocols);
+      if (!protocolCheck.ok) {
+        hubRelayError = protocolCheck.error;
+        sendResponse(protocolCheck);
+        break;
+      }
       const registration = rememberMorpheusTab(sender.tab, msg.pageUrl || sender.tab?.url || '', {
         active: msg.active === true,
-        protocols: msg.protocols
+        protocols: protocolCheck.protocols
       });
       if (!registration) {
         sendResponse({ ok: false, error: 'Hub registration came from an unsupported page' });

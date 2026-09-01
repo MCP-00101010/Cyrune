@@ -4,6 +4,37 @@ const path = require('node:path');
 const test = require('node:test');
 const vm = require('node:vm');
 
+test('Portal remains unavailable when Relay does not advertise required protocols', async () => {
+  const listeners = new Map();
+  const window = {
+    location: { href: 'file:///hub/index.html' },
+    addEventListener(type, listener) {
+      const entries = listeners.get(type) || [];
+      entries.push(listener);
+      listeners.set(type, entries);
+    },
+    dispatchEvent: () => {},
+    postMessage(message) {
+      if (!message?._req || message.type !== 'MW_PING') return;
+      setImmediate(() => (listeners.get('message') || []).forEach(listener => listener({
+        source: window,
+        data: { _mw: true, _res: true, id: message.id, ok: true, protocols: { 'portal-relay': 1 } }
+      })));
+    }
+  };
+  const context = vm.createContext({
+    window,
+    document: { hidden: false, hasFocus: () => true, documentElement: { dataset: {} } },
+    console, atob: value => Buffer.from(value, 'base64').toString('binary'), TextDecoder, Uint8Array,
+    setTimeout: (callback, delay) => setTimeout(callback, Math.min(delay, 5)), clearTimeout
+  });
+  const filename = path.join(__dirname, '..', 'source', 'bridge.js');
+  vm.runInContext(fs.readFileSync(filename, 'utf8'), context, { filename });
+  await vm.runInContext('bridge.whenReady', context);
+  assert.equal(vm.runInContext('bridge.isAvailable()', context), false);
+  assert.match(vm.runInContext('bridge.getDiagnostics().bridgeError', context), /incompatible or outdated/i);
+});
+
 test('shared database is transferred to the page in bounded chunks', async () => {
   const source = JSON.stringify({
     hubName: 'Chunked hub',
@@ -36,7 +67,7 @@ test('shared database is transferred to the page in bounded chunks', async () =>
           });
           return;
         }
-        response = { ok: true, nativeAvailable: true, databasePath: 'C:\\hub.json' };
+        response = { ok: true, nativeAvailable: true, databasePath: 'C:\\hub.json', protocols: { 'portal-relay': 1, 'component-settings': 2 } };
       } else if (message.type === 'MW_LOAD_SHARED_CHUNK') {
         const end = Math.min(sourceBytes.length, message.offset + message.length);
         response = {
@@ -111,7 +142,8 @@ test('relay-ready reconnects after the initial bridge attempts have expired', as
               id: message.id,
               ok: true,
               nativeAvailable: true,
-              databasePath: 'C:\\hub.json'
+              databasePath: 'C:\\hub.json',
+              protocols: { 'portal-relay': 1, 'component-settings': 2 }
             }
           });
         }
@@ -163,7 +195,7 @@ test('directory approval keeps the page request alive for the interactive picker
     postMessage(message) {
       if (!message?._req) return;
       let response;
-      if (message.type === 'MW_PING') response = { ok: true, nativeAvailable: true, capabilities: ['approvedDirectories', 'applicationLauncher', 'emuguiService'] };
+      if (message.type === 'MW_PING') response = { ok: true, nativeAvailable: true, protocols: { 'portal-relay': 1, 'component-settings': 2 }, capabilities: ['approvedDirectories', 'applicationLauncher', 'emuguiService'] };
       else if (message.type === 'MW_APPROVE_DIRECTORY') response = { ok: true, directory: { handle: 'dir_abcdefghijklmnop', label: 'Repository' } };
       else if (message.type === 'MW_APPROVE_APPLICATION') response = { ok: true, application: { appKey: 'app_abcdefghijklmnop', label: 'Editor', kind: 'executable', state: 'ready' } };
       else if (message.type === 'MW_GET_APPLICATION_STATUS') response = { ok: true, application: { appKey: message.appKey, label: 'Editor', kind: 'executable', state: 'ready' } };

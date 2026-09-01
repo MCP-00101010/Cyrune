@@ -1,10 +1,12 @@
-# Cyrune Monorepo Migration TODO
+# Completed Cyrune Monorepo Migration
+
+> Historical record: this checklist was retired from the repository root after the migration completed on 2026-08-31. Active work now belongs exclusively in the owning component TODO files.
 
 ## Status
 
-- **State:** Active; phases 1–7 and all non-interactive Phase 8 audits are complete. Runtime data is external and verified, Relay packaging is deterministic and bounded, and browser-lifecycle plus time-based monitoring gates remain.
+- **State:** Complete as of 2026-08-31. Cyrune on `master` is the active project; runtime data is external and verified, packaging and practical runtime workflows pass, and both legacy checkouts are preserved intact in the dated migration-recovery archive. Signed Relay installation remains a future release gate, and multi-Portal-tab routing is outside the current usage model.
 - **Created:** 2026-08-24
-- **Revised:** 2026-08-25
+- **Revised:** 2026-08-31
 - **Objective:** Combine the existing products as Cyrune Portal, Arcade, Relay, Host, and Widgets in one repository while preserving history, runtime data, credentials, bindings, direct-file operation, release workflows, and rollback paths.
 
 This document contains migration and repository-structure work only. Product features, behavioural fixes, component refactors, and speculative shared-code extraction belong in the applicable component TODO and must not be implemented as part of the path migration.
@@ -93,7 +95,7 @@ Cyrune/
   AGENTS.md
   CHANGELOG.md                   # repository/infrastructure releases only
   README.md
-  CYRUNE-MONOREPO-TODO.md
+  docs/history/cyrune-monorepo-migration.md
 ```
 
 The widget group names mirror the existing catalogue categories. A widget’s JavaScript, CSS, tests, fixtures, and static assets should live together under its group. Shared registry/runtime/network/settings code belongs in `Widgets/core`; no widget business logic belongs there.
@@ -374,9 +376,9 @@ This phase is a path-only reorganisation of already shipped widgets.
 - [x] Compare application data counts, hashes, profile IDs, bindings, and representative UI/launch workflows against the pre-migration record.
 - [x] Confirm no hard-coded old checkout dependency remains. One unused saved legacy Arcade bookmark remains user data, not a runtime pointer.
 - [x] Document rollback for code, native registration, runtime pointers, and local-page links.
-- [ ] Use the monorepo for normal development during an agreed monitoring period.
-- [ ] Keep old checkouts and runtime sources untouched during monitoring.
-- [ ] Archive old checkouts/runtime sources only after explicit confirmation; do not immediately delete them.
+- [x] Use the monorepo for normal development during an agreed monitoring period. Confirmed through normal Portal, Widgets, Arcade, Relay and Host use on 2026-08-31.
+- [x] Keep old checkouts and runtime sources untouched during monitoring. They remained intact until explicit archival approval on 2026-08-31.
+- [x] Archive old checkouts/runtime sources only after explicit confirmation; do not immediately delete them. The complete WebHub and EmuGUI checkouts were moved to `F:\Projects\Coding\Cyrune Migration Recovery\2026-08-31\archived-sources`. The ignored Cyrune `Arcade/data` baseline matched its Phase 6 recovery fingerprint and was moved to the adjacent `archived-runtime-sources\Cyrune\Arcade\data`; verified bundles and runtime recovery copies remain in the recovery area.
 - [x] Confirm the configured `origin` already uses the final Cyrune repository identity; no remote rename is required.
 
 ## Validation Matrix
@@ -393,7 +395,7 @@ This phase is a path-only reorganisation of already shipped widgets.
 ### Data preservation
 
 - [x] Existing 12,933-game Arcade library and all configured collections load unchanged.
-- [x] Hub boards, tabs, columns, items, and managed backgrounds match.
+- [x] Portal boards, tabs, columns, items, and managed backgrounds match.
 - [x] Application/game keys and local bindings remain paired correctly.
 - [x] Managed profile IDs and hashes match.
 - [x] Favourites and recent history match.
@@ -402,12 +404,12 @@ This phase is a path-only reorganisation of already shipped widgets.
 
 ### Runtime lifecycle
 
-- [ ] Firefox and Zen installed extension.
-- [ ] Temporary extension development install.
+- [ ] Firefox and Zen installed extension. Deferred to Relay's eventual signed-release gate; repeated signing is deliberately out of scope while Relay remains under active development.
+- [x] Temporary extension development install, including expected removal on browser close, local-file permissions, reload/reconnection, and continued Portal/Arcade operation.
 - [x] Relay reload with both pages open.
-- [ ] Native-host and browser restart.
-- [ ] Multiple Hub tabs and existing active-target routing.
-- [ ] Existing Portal/Arcade delivery, launch, reveal, rebind, metadata, scraper, POK, incoming, trash, emulator, and profile workflows.
+- [x] Native-host and browser restart. With all browsers closed, the Cyrune Host process was confirmed absent; reloading temporary Relay restores normal operation.
+- [ ] Multiple Portal tabs and existing active-target routing. Deliberately deferred because concurrent Portal tabs are not part of the current usage model.
+- [x] Existing Portal/Arcade delivery, launch, reveal, rebind, metadata, scraper, POK, incoming, trash, emulator, profile, board, collection, bookmark, Widget, drag/drop and managed-background workflows. Relay delivery to Inbox, Import Manager and targeted tabs was verified with Portal both open and closed.
 
 ### Automated checks
 
@@ -427,7 +429,7 @@ This phase is a path-only reorganisation of already shipped widgets.
 - Define rollback instructions before every phase that changes a runtime pointer or installed path.
 - Roll code and configuration pointers back together.
 - Never point old code at a partially migrated schema.
-- Do not delete the old Arcade source repository, old runtime data, signed packages, or working Host registration during the migration.
+- Retain the archived legacy repositories, runtime recovery data, signed packages, and working Host registration as recovery material; do not treat archives as active development checkouts.
 - Prefer archive/quarantine over deletion after the monitoring period.
 
 ## Explicit Non-Goals
@@ -445,3 +447,5 @@ This phase is a path-only reorganisation of already shipped widgets.
 ## Completion Criteria
 
 The migration is complete when one recoverable repository contains both preserved histories; every component has an authoritative TODO and CHANGELOG; source is organised under the agreed component/widget layout; mutable runtime data is external and verified; all existing behaviour and data survive unchanged; packaging and validation work from a clean checkout; and the old checkouts remain available through the monitoring period.
+
+Achieved on 2026-08-31. Cyrune is the active project, and the retired checkouts remain recoverable from the dated migration archive.

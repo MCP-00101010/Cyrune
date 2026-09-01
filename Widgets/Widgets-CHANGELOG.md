@@ -4,6 +4,244 @@ Historical entries below are preserved from Portal releases whose release notes 
 
 ---
 
+## [0.2.16] — 2026-09-01
+
+### Fixed
+
+- Football Tracker now preserves provider ownership on every normalized team. Clicking a fixture supplied by TheSportsDB therefore resolves that provider's team identity instead of sending its numeric ID to API-Football, Sportmonks, or football-data.org; favourites and Daily Briefing also compare provider-scoped IDs before falling back to canonical names.
+- Expanded provider status normalization for TheSportsDB long-form values, Sportmonks live/penalty/interruption states, and API-Football interruptions. Past scored fixtures with stale or missing status now safely become results, while live, delayed, suspended, and postponed fixtures remain visible in team history.
+- Added canonical club aliases for common cross-provider names, Netherlands/`The Netherlands` country equivalence, senior-versus-reserve team safeguards, and non-destructive handling for ambiguous competition labels such as an area-less `League Cup`.
+- Sportmonks season-long team history now follows every pagination page at the documented 50-record page size and refuses to present silently truncated results.
+- Provider metadata and TheSportsDB competition-association caches are season-scoped, and manual reload bypasses metadata and team-link caches as well as match caches.
+- Primary-provider failures can no longer be hidden by an empty limited fallback. TheSportsDB fallback adds its bounded season sample, exposes partial-coverage warnings when it is the only source, and remains usable for match views when the primary credential is absent.
+
+### Changed
+
+- Shared in-flight public requests are deduplicated across rendered widget instances without retaining a stale response after completion.
+- Revised provider metadata, API-Football team-link, TheSportsDB team-link, competition-feed, and season cache identities so incompatible cached identities are not reused.
+
+### Validation
+
+- All 303 Widget tests pass, including 66 focused Football Tracker regressions for provider provenance, long-form statuses, score-based completion, club aliases, reserve rejection, ambiguous competitions and country-context resolution, Dutch country aliases, Sportmonks pagination, season-scoped caches, live/postponed history, partial-fallback failure, and the existing league/cup cases. All 31 cross-component tests and 128 Portal/Nexus tests also pass alongside syntax, infrastructure, version, and generated-registry validation.
+
+## [0.2.15] — 2026-09-01
+
+### Fixed
+
+- Football Tracker now recognises provider-qualified and shortened opponent names as the same club when merging the same dated fixture with the same home/away orientation. Bayern München's duplicated 5–1 result against `VfB Stuttgart` / `Stuttgart` therefore renders once, retaining football-data.org's fuller label.
+- Applied the same bounded equivalence rule to competition-level supplemental feeds as well as team-history groups, without weakening provider team IDs, country boundaries, or competition-membership checks.
+
+### Changed
+
+- Revised competition and team-history cache identities so previously cached cross-provider duplicate fixtures are discarded immediately.
+
+### Validation
+
+- All 291 Widget tests pass, including an exact Bayern–VfB Stuttgart/TheSportsDB Stuttgart regression, preferred-provider preservation, competition-feed deduplication, and a negative Bayern München/1860 München identity check. All 31 cross-component tests and 128 Portal/Nexus tests also pass alongside infrastructure, version, generated-registry, syntax, and diff validation.
+
+## [0.2.14] — 2026-09-01
+
+### Changed
+
+- Replaced Football Tracker's day-based upcoming range with a per-competition fixture limit: `Next 5 fixtures`, `Next 10 fixtures`, or `All upcoming fixtures`. The nearest five fixtures are the default, while completed results remain unaffected.
+- Competition tabs now remain visible whenever they contain a future fixture, regardless of how far away it is; only genuinely empty competitions are omitted.
+- Existing 14-, 30-, 60-, and 90-day settings migrate to the new five-fixture default. The former `Whole season` setting migrates to `All upcoming fixtures`.
+
+### Validation
+
+- All 290 Widget tests pass, including nearest-first ordering, 5/10/all limits, per-competition visibility, and legacy day-setting migration coverage. All 31 cross-component tests and 128 Portal/Nexus tests also pass alongside infrastructure, version, generated-registry, syntax, and diff validation.
+
+## [0.2.13] — 2026-09-01
+
+### Fixed
+
+- Football Tracker team histories now omit competition tabs that have no results or upcoming fixtures inside the configured upcoming range. A provider fixture later in the season can therefore no longer leave a misleading zero-count tab, such as Heart of Midlothian's Conference League tab under the default 30-day range.
+- Selecting `Whole season` still reveals competitions with later scheduled fixtures, preserving the purpose of the existing range setting.
+
+### Validation
+
+- All 290 Widget tests pass, including 30-day, whole-season, completed-match, in-range fixture, and completely empty competition coverage. All 31 cross-component tests and 128 Portal/Nexus tests also pass alongside infrastructure, version, generated-registry, syntax, and diff validation.
+
+## [0.2.12] — 2026-09-01
+
+### Fixed
+
+- Football Tracker cross-provider team linking now treats a known domestic country as a hard identity boundary and requires genuine team-name compatibility. A Scottish club can therefore no longer inherit fixtures from a similarly named club in Ghana or any other country.
+- TheSportsDB links additionally reject candidates whose advertised competition associations contradict the selected competition, while retaining candidates whose association metadata is unavailable.
+- Sportmonks' `Hearts` label is normalised to the complete `Heart of Midlothian` identity for display, favourites, restored history views, and all provider lookups.
+
+### Changed
+
+- Revised competition, API-Football link, TheSportsDB link, and team-history cache identities so any previously linked Ghanaian Hearts data is discarded immediately.
+
+### Validation
+
+- All 289 Widget tests pass, including exact Hearts/Heart of Midlothian display coverage and cross-country rejection regressions for both API-Football and TheSportsDB. All 31 cross-component tests and 128 Portal/Nexus tests also pass alongside infrastructure, version, generated-registry, syntax, and diff validation.
+
+## [0.2.11] — 2026-09-01
+
+### Changed
+
+- Football Tracker now displays the complete team name supplied by the active provider in fixtures, tables, team histories, favourites, and Daily Briefing data across every configured country and competition. Provider short names remain auxiliary metadata only, so clubs are shown as names such as `FC Bayern München`, `FC Schalke 04`, and `Borussia Dortmund` instead of ambiguous city or nickname labels.
+- Restored team-history views now use the stored full lookup identity as their visible team name, and competition/team-history cache identities were revised so previously cached abbreviations are refreshed.
+
+### Validation
+
+- All 287 Widget tests pass, including a cross-adapter complete-name regression covering football-data.org, API-Football, TheSportsDB, and Sportmonks. All 31 cross-component tests and 128 Portal/Nexus tests also pass alongside infrastructure, version, generated-registry, syntax, and diff validation.
+
+## [0.2.10] — 2026-09-01
+
+### Fixed
+
+- Football Tracker now retains each provider's full club name separately from its short display label and uses only the full identity for cross-provider team searches. `Bayern` and `Dortmund` therefore resolve to FC Bayern München and Borussia Dortmund instead of Bayern Hof and ASC 09 Dortmund.
+- TheSportsDB candidate ranking now strongly prefers teams associated with the selected competition and normalises the München/Munich spelling boundary while still matching by provider team ID for fixtures.
+- Legacy open team-history state that lacks a full lookup identity is discarded once rather than risking a query for an ambiguous short label.
+
+### Changed
+
+- Revised all competition, cross-provider team-link, and team-history cache identities so cached teams and fixtures created from short-name resolution are not reused.
+
+### Validation
+
+- All 286 Widget tests pass, including Football Tracker's live-shaped Bayern Hof and ASC 09 Dortmund ambiguity regressions, full-name persistence, competition-membership ranking, and legacy view-state rejection. All 31 cross-component tests and 128 Portal/Nexus tests also pass alongside infrastructure, version, and generated-registry validation.
+
+## [0.2.9] — 2026-09-01
+
+### Fixed
+
+- Cup competition views now merge API-Football's response with the bounded TheSportsDB round window even when the primary request succeeds. Partial success therefore no longer hides adjacent match days, including Osnabrück–Bayern Munich on the day after HEBC Hamburg–Borussia Dortmund in DFB-Pokal.
+- TheSportsDB team-history filtering now prefers the resolved provider team ID before comparing names. Cross-provider spelling differences such as `Bayern München` and `Bayern Munich` no longer suppress domestic cup fixtures from a team's history.
+- Merged competition feeds deduplicate equivalent fixtures while preserving primary-provider data first, and their attribution now lists every provider that contributed displayed records.
+
+### Changed
+
+- Revised cup-view and team-history cache identities so fixture lists opened under the earlier fallback-only behaviour refresh immediately.
+
+### Validation
+
+- All 284 Widget tests pass, including Football Tracker's exact DFB-Pokal adjacent-day merging, provider-independent fixture deduplication, and resolved-ID team matching for Bayern's cup fixture. All 31 cross-component tests and 128 Portal/Nexus tests also pass alongside infrastructure, version, and generated-registry validation.
+
+## [0.2.8] — 2026-09-01
+
+### Fixed
+
+- Football Tracker's API-Football competition discovery now sends the supported `search` filter by itself, then ranks returned competitions locally by exact name, country, and active season. This removes the shared invalid-filter error that prevented FA Cup, DFB-Pokal, and the other API-Football-backed cup views from loading.
+- Added explicit TheSportsDB identities and provider aliases for all 25 configured domestic and international competitions. English, German, Spanish, Italian, French, Dutch, Portuguese, Danish, Scottish, UEFA, and FIFA fixture records now canonicalise into their single Cyrune competition rather than creating partial duplicate tabs.
+- API-Football-backed domestic cup views now fall back to their audited TheSportsDB competition feed when the configured API tier rejects or omits the competition, showing bounded available fixtures instead of exposing the provider failure.
+
+### Changed
+
+- Revised API-Football metadata and team-history cache identities so an older failed, incomplete, or incorrectly split result cannot mask the corrected provider mapping.
+
+### Validation
+
+- All 282 Widget tests pass, including Football Tracker's audited 25-competition identity matrix, every API-Football competition's search-only country-ranked metadata resolution, and domestic/UEFA fallback coverage. All 31 cross-component tests and 128 Portal/Nexus tests also pass alongside infrastructure, version, and generated-registry validation.
+
+## [0.2.7] — 2026-09-01
+
+### Fixed
+
+- Football Tracker now supplements TheSportsDB's one-result team search with a bounded domestic-cup window derived from each team's declared competition associations. Away fixtures such as Rangers–Celtic in the Scottish League Cup therefore appear consistently in both teams' histories.
+- English Premier League, the provider's occasional “English Premiere League” spelling, and Premier League provider records now canonicalise into one `Premier League` history tab instead of splitting partial fixture sets across duplicate competitions.
+
+### Changed
+
+- Added explicit TheSportsDB identities for the English Premier League, Scottish Premiership, Scottish FA Cup, and Scottish League Cup. The current UEFA competition-level fallback remains explicitly scoped to its three supported European competitions.
+- Revised team-history and TheSportsDB result cache identities so previously split or asymmetric cached histories are refreshed.
+
+### Validation
+
+- All 280 Widget tests pass, including Football Tracker's provider-label canonicalisation and recovery of a domestic-cup away fixture from the bounded adjacent-date feed. All 31 cross-component tests and 128 Portal/Nexus tests also pass alongside infrastructure, version, and generated-registry validation.
+
+## [0.2.6] — 2026-09-01
+
+### Added
+
+- Football Tracker now retains TheSportsDB's league associations for resolved teams and performs one bounded current-season team search when a club participates in a supported UEFA competition. This recovers fixtures such as Celtic's Europa League match when the primary league provider omits them.
+
+### Changed
+
+- Generalised the existing TheSportsDB Champions League fallback across the UEFA Champions League, Europa League, and Conference League using league IDs 4480, 4481, and 5071 respectively.
+- Revised TheSportsDB team-link and team-history cache identities so existing partial cached results cannot hide the expanded UEFA coverage.
+
+### Validation
+
+- All 278 Widget tests pass, including Football Tracker's Europa and Conference competition fallback, targeted UEFA team-season discovery, association retention, and existing provider-merging coverage. All 31 cross-component tests and 128 Portal/Nexus tests also pass alongside infrastructure, version, and generated-registry validation.
+
+## [0.2.5] — 2026-09-01
+
+### Fixed
+
+- Shared Widget settings validation now normalizes valid numeric form strings before comparing numeric schema enums. Football Tracker's upcoming-range selector and other numeric enum controls therefore save without a false “unsupported value” error, while invalid types still produce one focused validation message.
+
+### Validation
+
+- All 276 executable Widget tests pass, including shared numeric-enum form validation and the complete Football Tracker suite. All 31 cross-component tests plus infrastructure and version validation also pass.
+
+## [0.2.4] — 2026-09-01
+
+### Added
+
+- Football Tracker team-history settings now offer 14-, 30-, 60-, and 90-day upcoming ranges plus the whole season, defaulting existing widgets to 30 days.
+
+### Changed
+
+- Team history now displays results before upcoming fixtures, keeps future fixtures nearest-first, and counts only fixtures inside the selected range in competition tabs.
+- Sportmonks team history now requests the selected team's explicit current-season date range, including participants, scores, state, competition, stage, round, and group data.
+- TheSportsDB fallback performs a bounded current-season reverse-fixture lookup for completed European home ties, recovering corresponding away legs that its free previous-team endpoint does not return.
+
+### Fixed
+
+- Completed team history now merges unique matches across available providers while retaining provider priority for duplicates, so a partial primary feed no longer hides matches found by a secondary feed, including away legs omitted by TheSportsDB's free team schedule.
+- Football crests are non-draggable so they cannot replace the intended widget drag interaction with a native image drag.
+
+### Validation
+
+- All 277 Widget tests pass, including provider-gap merging, upcoming-window normalization, chronological section order, and non-draggable crests. All 105 Portal and 31 cross-component tests plus infrastructure and version validation also pass.
+
+## [0.2.3] — 2026-09-01
+
+### Added
+
+- Daily Briefing football rows now show the available home and away team crests while retaining the complete textual fixture label and gracefully removing failed images.
+
+### Fixed
+
+- Reserved the settings action slot beside Daily Briefing's update timestamp so long times and scaled text no longer overlap the settings icon.
+- Documented the Portal-hosted Widget action rail as a durable `26px`-per-action layout contract in the Portal UI guidance and both owning component instruction files, with regression coverage for new top-row patterns.
+
+### Validation
+
+- All 274 Widget tests pass, including crest data and action-rail spacing coverage. Portal's five classic-script checks and all 14 packaging tests also pass, alongside infrastructure, version, and generated-registry validation.
+
+## [0.2.2] — 2026-09-01
+
+### Fixed
+
+- Daily Briefing now discovers Calendar widgets in the sidebar as well as boards and uses Calendar's overlap semantics, so all-day holidays and events already in progress appear in Today.
+- Completed asynchronous Calendar loads now refresh Daily Briefing immediately instead of leaving Calendar rows absent until the next minute tick. All-day rows are labelled clearly with their source.
+
+### Validation
+
+- All 274 Widget tests pass, including sidebar discovery, the Summer bank holiday, events spanning into today, window exclusion, and load-completion refresh. Portal's five classic-script checks and all 14 packaging tests also pass, alongside infrastructure, version, and generated-registry validation.
+
+## [0.2.1] — 2026-08-31
+
+### Added
+
+- Added multi-team favourites to Football Tracker tables. Starred teams now keep their upcoming fixtures warm in the local cache and feed matching games into Daily Briefing.
+- Added optional due dates to To-do List items so deadline-bearing tasks can appear in the selected Daily Briefing window.
+
+### Changed
+
+- Daily Briefing now hides empty sections by default, offers an opt-in empty-section display, limits service warnings to Today, and presents current conditions or compact 7/14-day forecast rows instead of repeating the configured location.
+- Briefing watchlist rows now include only dated upcoming releases or episodes within the selected window; ordinary unfinished or historical watchlist titles no longer appear.
+- Briefing RSS and hazard rows now open their article or official report in a new tab, with RSS clicks also marking the source item read.
+
+### Validation
+
+- All 272 Widget tests pass, including focused favourite-team, deadline, timeframe, weather, upcoming-media, link-action, and empty-section coverage. Portal's five classic-script symbol checks also pass. Direct visual verification remains outstanding because the in-app browser was unavailable in this workspace session.
+
 ## [0.2.0] — 2026-08-31
 
 ### Added

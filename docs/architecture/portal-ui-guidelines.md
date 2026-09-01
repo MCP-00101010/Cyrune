@@ -25,3 +25,9 @@ These are durable rules for Portal-owned modals and Portal-hosted Widget setting
 - Build settings and create/edit previews from a complete draft. Cancel restores the original object and local view; only the explicit Done or Save action may commit and persist.
 - Keep focus order, Escape/Cancel behaviour, keyboard activation, labels, and control hit areas accessible when restyling an established surface.
 - Reuse existing modal primitives and shared controls before adding component-specific variants.
+
+## Portal-hosted Widget Layout
+
+- The top-right settings/reload controls are an absolutely positioned action rail, not part of Widget content flow. Treat that rail as reserved space in board and sidebar layouts.
+- A settings-only Widget must keep its title, status, timestamp, input, and other top-row content at least `26px` clear of the right edge. A Widget with reload plus settings controls must reserve at least `52px`.
+- Prefer shared rules in `Widgets/core/widget-action-layout.css`; add a focused layout assertion whenever a new top-row pattern is introduced. Check long labels, timestamps, text scaling, and compact/sidebar widths rather than relying on short fixture content.

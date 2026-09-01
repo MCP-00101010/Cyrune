@@ -11,7 +11,7 @@ globalThis.CyruneComponentRegistry = (() => {
   {
     "id": "portal",
     "name": "Portal",
-    "version": "0.12.0",
+    "version": "0.12.2",
     "kind": "page",
     "accent": "violet",
     "adapter": "portal",
@@ -39,7 +39,7 @@ globalThis.CyruneComponentRegistry = (() => {
   {
     "id": "widgets",
     "name": "Widgets",
-    "version": "0.2.0",
+    "version": "0.2.16",
     "kind": "catalogue",
     "accent": "cyan",
     "adapter": "widgets",
@@ -100,7 +100,7 @@ globalThis.CyruneComponentRegistry = (() => {
   {
     "id": "relay",
     "name": "Relay",
-    "version": "1.1.0",
+    "version": "1.1.1",
     "kind": "extension",
     "accent": "blue",
     "adapter": "relay",
@@ -121,7 +121,8 @@ globalThis.CyruneComponentRegistry = (() => {
       "portal-relay": 1,
       "arcade-relay": 1,
       "nexus-relay": 2,
-      "host-native": 2
+      "host-native": 2,
+      "component-settings": 2
     },
     "schemas": {
       "manifest": 2

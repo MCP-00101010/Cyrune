@@ -6,6 +6,8 @@ For shared variables, Relay maps Portal and Arcade roles to fixed Host-owned pro
 
 Portal persistence uses Host's fixed-purpose disk operations when configured and a versioned Relay-owned snapshot otherwise. Both modes expose revision/content hashes, compare-and-swap saves, serialized writes, verified legacy migration, and cross-tab change broadcasts. Relay's bounded intake queues sanitized Inbox, Import Manager, and Arcade deliveries while Portal is closed, deduplicates by delivery ID, reports pending state, and replays through a single ordered drain. Relay transports portable content and opaque metadata but does not choose native targets. Arcade artwork requests accept only HTTPS URLs on the declared scraper/CDN host allowlist, recheck redirects, and lose their authenticated registration immediately when the page navigates.
 
+Authenticated Portal, Arcade, and Nexus registrations must advertise the current minimum role protocols. Relay rejects missing or older clients with an actionable compatibility error, and treats a Host missing the current `host-native` protocol as unavailable without disabling Relay-owned Portal authority.
+
 The unpackaged extension root is this directory. Native Python, installers, configuration, and launchers live exclusively in `../Host/` and must not be included in Relay packages.
 
 ## Architecture and Guidance

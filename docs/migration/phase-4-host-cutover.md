@@ -37,10 +37,14 @@ Directory: `F:\Projects\Coding\Cyrune Migration Recovery\2026-08-25`
 
 Firefox/Zen must be restarted or the extension reloaded before browser processes use the new registration.
 
+## Legacy Source Retirement
+
+After the monitoring period and explicit user approval, the intact legacy WebHub checkout was moved on 2026-08-31 to `F:\Projects\Coding\Cyrune Migration Recovery\2026-08-31\archived-sources\Morpheus WebHub`. Active Host configuration and native registration were checked afterward and contain no reference to the retired top-level WebHub or EmuGUI paths. The archive is recovery material, not an active Host location.
+
 ## Rollback
 
 1. Close Firefox/Zen so no Host process retains the new launcher.
-2. Restore `native-manifest.pre-cyrune.json` to `%APPDATA%\Mozilla\NativeMessagingHosts\morpheus_webhub.json`; the registry key already points to this manifest location.
-3. Confirm the restored manifest references the still-present legacy launcher under `Morpheus WebHub\extension\native`.
-4. The legacy checkout’s original `config.json` remains unchanged. If required, restore `native-config.pre-cyrune.json` beside that legacy Host only after verifying its SHA-256.
+2. Verify `native-manifest.pre-cyrune.json` against the recorded SHA-256, but do not restore it unchanged: it names the retired top-level path.
+3. Rehydrate the archived WebHub checkout into a deliberate working location, update a verified copy of the legacy manifest to that exact launcher, and write the adjusted manifest to `%APPDATA%\Mozilla\NativeMessagingHosts\morpheus_webhub.json`; the registry key already points to this manifest location.
+4. The archived checkout's original `config.json` remains preserved. If required, restore `native-config.pre-cyrune.json` beside the rehydrated legacy Host only after verifying its SHA-256. Do not run or modify the read-only archive in place.
 5. Restart Firefox/Zen and run a Host status check before resuming writes or launches.

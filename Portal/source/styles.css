@@ -1037,6 +1037,14 @@ input::placeholder {
   background: var(--border);
 }
 
+.sets-panel-header .sets-manager-toolbar {
+  padding: 0;
+}
+
+.sets-panel-header .sets-manager-toolbar::after {
+  content: none;
+}
+
 .sets-manager-toolbar-btn {
   width: 30px;
   min-width: 30px;
@@ -2242,6 +2250,23 @@ input::placeholder {
   grid-column: 1 / -1;
   min-height: 34px;
   padding: 5px 7px;
+}
+
+#modalCard .tag-toggle-row {
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+#modalCard .tag-toggle-item {
+  flex: 0 1 auto;
+  justify-content: flex-end;
+  gap: 4px;
+}
+
+.modal-form-footer {
+  margin-top: 4px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
 }
 
 #modalCard #modalSpeedDialSection .tag-section-fields {

@@ -25,3 +25,8 @@
 .universal-search-input-row {
   margin-right: 26px;
 }
+
+.daily-briefing-header {
+  min-height: 20px;
+  padding-right: 26px;
+}

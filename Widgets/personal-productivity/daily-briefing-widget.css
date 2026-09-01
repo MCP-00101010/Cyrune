@@ -47,18 +47,60 @@
 }
 
 .daily-briefing-section li {
+  display: block;
+  min-width: 0;
+}
+
+.daily-briefing-row-content {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 8px;
   align-items: baseline;
+  min-width: 0;
+  color: inherit;
+  text-decoration: none;
+  border-radius: 5px;
 }
 
-.daily-briefing-section li > span {
+.daily-briefing-primary {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+
+.daily-briefing-primary > span:last-child {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+.daily-briefing-football-crests {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex: 0 0 auto;
+}
+
+.daily-briefing-football-crests img {
+  width: 18px;
+  height: 18px;
+  object-fit: contain;
+}
+
+a.daily-briefing-row-content:hover,
+a.daily-briefing-row-content:focus-visible {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  outline: none;
+}
+
 .daily-briefing-section small {
   text-align: right;
+}
+
+.daily-briefing-empty-overall {
+  margin: 0;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
 }

@@ -23,3 +23,45 @@
 .widget-sdk-state.is-unavailable .widget-sdk-state-detail {
   color: var(--danger, #d86666);
 }
+
+/* To-do deadline controls extend the legacy built-in without changing its item identity. */
+.widget-todo-deadline,
+.widget-todo-add-deadline {
+  width: 116px;
+  min-width: 0;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: calc(0.72rem * var(--widget-text-scale, 1));
+  padding: 2px 3px;
+}
+
+.widget-todo-deadline:hover,
+.widget-todo-deadline:focus,
+.widget-todo-add-deadline:hover,
+.widget-todo-add-deadline:focus {
+  border-color: var(--border);
+  color: var(--text);
+  outline: none;
+}
+
+.widget-todo-row.done .widget-todo-deadline {
+  opacity: 0.55;
+}
+
+@container (max-width: 340px) {
+  .widget-todo-row {
+    flex-wrap: wrap;
+  }
+  .widget-todo-deadline {
+    margin-left: 24px;
+  }
+  .widget-todo-add {
+    flex-wrap: wrap;
+  }
+  .widget-todo-add-deadline {
+    margin-left: auto;
+  }
+}

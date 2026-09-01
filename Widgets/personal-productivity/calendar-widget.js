@@ -777,6 +777,7 @@ function _calendarEnsureData(widget, options = {}) {
         runtime.loading = false;
         runtime.request = null;
         _refreshWidget(widget.id, 'column');
+        if (typeof _dailyBriefingRefreshAll === 'function') _dailyBriefingRefreshAll();
       }
     });
   runtime.request = request;

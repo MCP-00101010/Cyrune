@@ -17,6 +17,7 @@ Before acting on Portal code, read `Portal/README.md`, `docs/architecture/compon
 ## Interface and Rendering
 
 - Follow `docs/architecture/portal-ui-guidelines.md` for content and utility modals.
+- Keep the absolutely positioned top-right Widget action rail a documented hosting contract. Settings consumes one `26px` slot and an optional reload action consumes a second; host changes must preserve those slots in board and sidebar cards, and Widget top rows must not be allowed to render beneath them.
 - Use draft state for settings and create/edit previews. Cancel must restore the original state; only the explicit Done/Save action may commit and persist.
 - Preserve established drag/drop semantics, selection ordering, Undo/Redo behaviour, and the existing folder-depth limit unless a separately tested migration changes them.
 - Prefer targeted rendering for small changes. Preserve expensive widget, map, globe, media, and scroll instances when their owning state has not changed.

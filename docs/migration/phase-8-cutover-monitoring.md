@@ -51,13 +51,13 @@ Git whitespace/diff checks are part of the final coordinated validation. Generat
 | Path or class | Classification | Disposition |
 | --- | --- | --- |
 | `.build/`, `.test-tmp/`, `dist/`, Python/pytest caches | Generated | Excluded from import; reproducible output only |
-| Legacy `assets/backgrounds/` | Runtime | Migrated and verified beneath the external Portal root; legacy source retained |
-| Single legacy root `backgrounds/` image | Unreferenced runtime orphan | No tracked, legacy-database, or active-database reference; no managed hash match; copied and SHA-256 verified under Phase 0 recovery while the source remains untouched |
+| Legacy `assets/backgrounds/` | Runtime | Migrated and verified beneath the external Portal root; legacy source archived intact with its checkout |
+| Single legacy root `backgrounds/` image | Unreferenced runtime orphan | No tracked, legacy-database, or active-database reference; no managed hash match; copied and SHA-256 verified under Phase 0 recovery, with the original archived intact with its checkout |
 | Live native `config.json` | Runtime/security-sensitive | Copied externally and replaced in source by a sanitized example |
 | `PROJECT.md` | Obsolete documentation | Durable guidance moved to current README/architecture/migration records before removal |
-| Arcade `data/` and launcher logs/cache | Runtime/generated | Authoritative state migrated externally; source and recovery copies retained |
+| Arcade `data/` and launcher logs/cache | Runtime/generated | Authoritative state migrated externally; the ignored Cyrune source baseline matched its Phase 6 recovery fingerprint before moving to `F:\Projects\Coding\Cyrune Migration Recovery\2026-08-31\archived-runtime-sources\Cyrune\Arcade\data` |
 | `Arcade/test_spectaculator_launch.ps1` | Obsolete diagnostic | Replaced by the configurable ZX preflight/live matrix and focused coverage of the Windows-default association route |
-| Legacy source checkouts and recovery bundles | Archived recovery sources | Retained in place through monitoring; no deletion authorized |
+| Legacy source checkouts and recovery bundles | Archived recovery sources | Monitoring completed and archival was explicitly authorized on 2026-08-31. Both intact checkouts now reside beneath `F:\Projects\Coding\Cyrune Migration Recovery\2026-08-31\archived-sources`; verified bundles remain beneath the 2026-08-25 recovery directory. |
 
 The orphan background recovery copy is 2,707,748 bytes with SHA-256 `ED79E0B5527577163C3736C4F1A530F774AD2B0E192A8A71D6E88918E20C8A53`. The source file was not removed.
 
@@ -67,24 +67,18 @@ Rollback must preserve legitimate writes made after cutover. Compare current ext
 
 1. Close Firefox and Zen so Relay and Host cannot write during rollback.
 2. Revert migration code with an ordinary Git revert or switch to a verified migration checkpoint. Keep Portal, Relay, Host, and Arcade revisions mutually compatible; do not use a destructive reset.
-3. For native registration, restore the verified pre-Cyrune manifest and launcher recorded in `phase-4-host-cutover.md`, confirm their hashes, then restart the browser before testing status.
-4. For runtime pointers, restore the verified pre-Phase-6 Host configuration only after comparing the active external Portal database and Arcade state for newer writes. Use the still-present source runtime or documented environment overrides; do not delete the external copies.
+3. For native registration, rehydrate the legacy checkout from its read-only archive into a deliberate working location, then restore a verified manifest and launcher using that exact location. The recorded pre-Cyrune manifest still names the retired top-level path and must not be restored unchanged. Confirm hashes, then restart the browser before testing status.
+4. For runtime pointers, restore the verified pre-Phase-6 Host configuration only after comparing the active external Portal database and Arcade state for newer writes. Use an explicitly rehydrated legacy source or documented environment overrides; do not run against or modify the read-only archive, and do not delete the external copies.
 5. For Relay, reload the prior unpackaged source or install the preserved signed package appropriate to that revision. Do not label an unsigned local archive as Mozilla-signed.
-6. For local-page links, temporarily restore the legacy Portal and Arcade `file://` URLs only while their untouched checkouts remain available. Return bookmarks to the Cyrune URLs when resuming the migration.
+6. For local-page links, use legacy Portal and Arcade `file://` URLs only after rehydrating the archived checkouts to the matching paths. Return bookmarks to the Cyrune URLs when resuming the migration.
 7. Verify Host status, Portal database counts, Arcade collections/profiles, and one non-destructive read workflow before allowing writes or launches.
 
 Component-specific details and recovery hashes remain in `phase-4-host-cutover.md`, `phase-6-runtime-data.md`, and `phase-7-packaging.md`.
 
-## Gates Still Requiring Interactive or Time-Based Evidence
+## Final Cutover Confirmation — 2026-08-31
 
-The following are intentionally not claimed by this unattended audit:
+Normal development and the practical single-Portal-tab runtime workflow were confirmed across Portal, Widgets, Arcade, Relay and Host. Temporary Relay installation, local-file permissions, reload/reconnection, cold Host shutdown/restart, and Portal/Arcade delivery and management workflows pass. With every browser closed, no Cyrune Host process remained. Active Host configuration and native registration contain no reference to either retired top-level checkout.
 
-- confirmed installed-extension operation in both Firefox and Zen;
-- a temporary development installation;
-- a complete browser restart followed by Host reconnection;
-- multiple live Portal tabs and active-target routing;
-- the complete live delivery/launch/reveal/rebind/metadata/scraper/POK/incoming/trash/emulator/profile workflow matrix;
-- completion of an agreed normal-development monitoring period;
-- archival of legacy sources, which requires explicit confirmation.
+The user explicitly authorized archival after monitoring. The complete legacy WebHub checkout (10,657 files, 1,116,675,909 bytes, Git HEAD `388ee274ad5920c69679ecc186527a17b29099f5`, including its preserved untracked `Infrastructure TODO.md`) and EmuGUI checkout (297 files, 4,680,544 bytes, Git HEAD `90bb0065673a4ff7bb5999fecf6dd399d394bc38`) were moved intact to `F:\Projects\Coding\Cyrune Migration Recovery\2026-08-31\archived-sources`. Post-move identities and file totals match the pre-move inventory. The ignored Cyrune `Arcade/data` baseline was also moved intact to the dated `archived-runtime-sources` tree after matching its Phase 6 recovery fingerprint. Nothing was deleted. After archival, all 79 Arcade tests pass and the non-launching preflight loads the external 12,933-game library with its three emulator executables and two managed profiles available.
 
-The configured `origin` already uses the final `Cyrune` repository identity, so no remote rename is required. The legacy remote remains as a recovery reference.
+Cyrune on `master` is now the active project. Installed/signed Relay testing remains deferred until extension development stabilises, and concurrent Portal-tab routing remains deferred because it is outside the current usage model; neither is a migration cutover blocker. The configured `origin` already uses the final `Cyrune` repository identity, while the legacy remote remains a recovery reference.

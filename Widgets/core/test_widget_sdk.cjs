@@ -154,24 +154,27 @@ test('local widgets require opt-in and cannot claim built-in trust', () => {
   assert.deepEqual(JSON.parse(JSON.stringify(result)), { source: 'local', trusted: false });
 });
 
-test('settings validation accepts numeric form values and rejects incorrect types', () => {
+test('settings validation accepts numeric form values, including numeric enums, and rejects invalid values', () => {
   const context = makeContext();
   const result = vm.runInContext(`(() => {
     WidgetSDK.localPackages.setEnabled(true);
     const descriptor = WidgetSDK.registry.register({
       id: 'settings-test', name: 'Settings', category: 'Other', description: 'Fixture', allowedIn: ['column'],
       defaultConfig: { count: 2, enabled: true }, defaultData: {},
-      settingsSchema: { type: 'object', properties: { count: { type: 'number' }, enabled: { type: 'boolean' } } },
+      settingsSchema: { type: 'object', properties: { count: { type: 'number', enum: [1, 2, 3] }, enabled: { type: 'boolean' } } },
       capabilities: {}, responsive: { minWidth: 180 }, render() {}
     }, { source: 'local' });
     return [
       WidgetSDK.settings.validateDraft(descriptor, { config: { count: '3', enabled: true } }),
-      WidgetSDK.settings.validateDraft(descriptor, { config: { count: 'nope', enabled: 'yes' } })
+      WidgetSDK.settings.validateDraft(descriptor, { config: { count: 'nope', enabled: 'yes' } }),
+      WidgetSDK.settings.validateDraft(descriptor, { config: { count: '4', enabled: true } })
     ];
   })()`, context);
   assert.equal(result[0].valid, true);
   assert.equal(result[1].valid, false);
   assert.equal(result[1].errors.length, 2);
+  assert.equal(result[2].valid, false);
+  assert.deepEqual([...result[2].errors], ['count has an unsupported value.']);
 });
 
 test('widgets read shared settings and optional network obeys the Nexus privacy gate', async () => {

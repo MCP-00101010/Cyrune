@@ -2,7 +2,7 @@
 
 Cyrune Nexus is the local control centre for the Cyrune project. It combines a project-health dashboard with the management surface for settings shared across Portal, Widgets, Arcade, Relay, Host, and future components.
 
-Open `index.html` directly in Firefox. Relay 1.1.0 authenticates that exact local document—including its client-side hash routes—and connects it to Host-backed settings, project status, project documents, allowlisted TODO editing in Visual Studio Code, and an explicit read-only origin check. Without Relay or Host, Nexus remains usable as a clearly labelled, non-authoritative preview and reports the missing service instead of inventing healthy state.
+Open `index.html` directly in Firefox. Relay 1.1.1 authenticates that exact local document—including its client-side hash routes—and connects it to Host-backed settings, project status, project documents, allowlisted TODO editing in Visual Studio Code, and an explicit read-only origin check. Without Relay or Host, Nexus remains usable as a clearly labelled, non-authoritative preview and reports the missing service instead of inventing healthy state.
 
 ## Current Release
 

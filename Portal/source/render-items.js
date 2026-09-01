@@ -356,6 +356,7 @@ function createBoardItemElement(item, columnId, depth = 1, parentFolder = null, 
       sourceParentId: parentFolder ? parentFolder.id : null,
       fromDynamicFolderView
     };
+    if (item.type === 'widget') captureNavDragGeometry();
     event.dataTransfer.setData('text/plain', item.id);
     event.dataTransfer.effectAllowed = fromDynamicFolderView ? 'copy' : 'move';
     event.dataTransfer.dropEffect = fromDynamicFolderView ? 'copy' : 'move';

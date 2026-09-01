@@ -2659,7 +2659,7 @@ function attachSettingsListeners() {
     _pendingDatabasePath = '';
     state.databasePath = res.databasePath;
     resetSharedDiskBaseline(res.databasePath);
-    saveState({ skipDiskSync: true });
+    saveState();
     await updateDatabasePathControls();
     await updateAboutBridgeStatus();
     if (typeof startSharedDiskPolling === 'function') startSharedDiskPolling();

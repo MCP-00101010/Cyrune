@@ -88,7 +88,7 @@ Repository-wide migration, tooling, and coordinated-release changes belong in th
 
 ## Documentation Map
 
-- `CYRUNE-MONOREPO-TODO.md` is the authoritative migration and cutover checklist.
+- `docs/history/cyrune-monorepo-migration.md` preserves the completed migration and cutover checklist as a retired historical record.
 - `Portal/Portal-TODO.md`, `Arcade/Arcade-TODO.md`, `Relay/Relay-TODO.md`, `Host/Host-TODO.md`, `Widgets/Widgets-TODO.md`, and `Nexus/Nexus-TODO.md` own active component work.
 - Each component's `<Component>-CHANGELOG.md` records completed product changes.
 - `CHANGELOG.md` records repository-wide changes.
@@ -104,6 +104,6 @@ Repository-wide migration, tooling, and coordinated-release changes belong in th
 
 ## Migration Status
 
-The source, component histories, tests, Host boundary, widget catalogue, packaging workflow, and active Portal/Arcade runtime data have moved into Cyrune. Portal and Arcade have been verified at their permanent Cyrune paths, with their live data beneath `%LOCALAPPDATA%\Cyrune`. Legacy checkouts remain recovery sources until the remaining manual retirement gates in `CYRUNE-MONOREPO-TODO.md` are explicitly completed.
+The monorepo migration is complete and Cyrune on `master` is the active project. Source, preserved component histories, tests, the Host boundary, widget catalogue, packaging workflow, and active Portal/Arcade runtime data now use Cyrune. Portal and Arcade have been verified at their permanent Cyrune paths, with live data beneath `%LOCALAPPDATA%\Cyrune`. The intact legacy checkouts were retired to the dated migration-recovery archive on 2026-08-31; verified Git bundles and runtime snapshots remain available for recovery.
 
 New work should target this repository and use the Cyrune component names. Legacy names should appear only in compatibility code, historical documentation, migration fixtures, or tests that deliberately verify old data continues to load.

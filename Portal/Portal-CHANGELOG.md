@@ -5,6 +5,34 @@ Format: `[version] — date` followed by Added / Changed / Fixed sections.
 
 ---
 
+## [0.12.2] — 2026-09-01
+
+### Fixed
+
+- Drag previews now preserve the rendered pixel dimensions of every nested image, preventing crest-heavy Football Tracker widgets from expanding into oversized artwork while being moved.
+
+### Validation
+
+- All 105 Portal tests pass, including drag-and-drop regression coverage for fixed-size nested images. All 31 cross-component tests plus infrastructure and version validation also pass.
+
+## [0.12.1] — 2026-08-31
+
+### Added
+
+- Added a per-item “Ignore inherited tags” control for bookmarks, applications, games, and folders; opted-out folders still pass their own shared tags to descendants.
+- Added centralized persistence/recovery interface text as the first locale-extraction boundary.
+
+### Changed
+
+- Completed the required-Relay cutover: Portal no longer treats or promotes its page-local cache as writable authority, updates that cache only after authoritative loads/saves, discards mutations after authority loss, and always reloads Relay/Host state on recovery.
+- Portal validates Relay's minimum protocol advertisements before enabling storage and gives explicit same-checkout reload guidance for incompatible or outdated temporary extensions.
+- Board background CSS is updated only when its effective image/fit/opacity signature changes, and bottom-aligned sidebar drag placement now uses geometry captured before preview insertion.
+- Generic content/folder modals now use divided action footers, and Sets Manager actions use the shared stacked utility-header pattern.
+
+### Validation
+
+- All 104 Portal tests pass across 17 test files, including focused authority, protocol, inheritance, background, modal, and sidebar drag coverage. JavaScript syntax and infrastructure validation also pass.
+
 ## [0.12.0] — 2026-08-31
 
 ### Added

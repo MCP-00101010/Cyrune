@@ -14,7 +14,7 @@ Adapters are allowlisted local code in `Nexus/source/adapters.js`. Manifest data
 
 `infrastructure/protocols.json` is the authoritative catalogue of current protocol versions, participants and payload ceilings. A component manifest declares the versions it implements. Relay and Host advertise their component version, protocols and capabilities during their existing authenticated registration and health exchanges.
 
-Nexus compares advertised versions with the manifest requirements. Missing advertisements are reported as unknown; a missing or older required protocol is incompatible. Negotiation is diagnostic in this release and does not rename existing wire messages. Compatibility identifiers remain governed by `compatibility-register.json`.
+Nexus compares advertised versions with the manifest requirements. Relay additionally enforces the minimum protocols advertised by authenticated Portal, Arcade, and Nexus registrations, while Portal validates Relay's advertised minimums before enabling mutations. Relay treats a missing or older `host-native` protocol as an unavailable Host and continues only with capabilities that remain Relay-owned. Missing advertisements are reported as unknown; a missing or older required protocol is incompatible. Compatibility identifiers remain governed by `compatibility-register.json`.
 
 ## Migrations
 

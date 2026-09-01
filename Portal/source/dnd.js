@@ -1,6 +1,15 @@
 let dragPayload = null;
 let _dropTarget = null;
 let _dropPos    = null;
+let navDragGeometry = new Map();
+
+function captureNavDragGeometry() {
+  navDragGeometry = new Map();
+  document.querySelectorAll('#navList .nav-item[data-id]').forEach(element => {
+    const rect = element.getBoundingClientRect();
+    navDragGeometry.set(element.dataset.id, { top: rect.top, height: rect.height });
+  });
+}
 
 const BOARD_DROP_AREAS = ['board', 'speed-dial', 'essential', 'import-manager'];
 
@@ -193,6 +202,7 @@ function getExternalDrop(event) {
 function removeDragPlaceholders() {
   _dropTarget = null;
   _dropPos    = null;
+  navDragGeometry.clear();
   _clearDropDecorations();
 }
 
@@ -370,17 +380,21 @@ function _insertDragPreview(clone, parent, beforeEl, options = {}) {
 }
 
 function _prepareDragImageClone(element) {
+  const sourceImages = Array.from(element.querySelectorAll('img'));
   const clone = element.cloneNode(true);
   clone.classList.remove('selected', 'dragging', 'multi-drag-source', 'drop-target', 'drop-position-before', 'drop-position-after');
   clone.removeAttribute('draggable');
   clone.removeAttribute('data-drop-position');
-  clone.querySelectorAll('img').forEach(img => {
-    img.style.width = '100%';
-    img.style.height = '100%';
-    img.style.maxWidth = '100%';
-    img.style.maxHeight = '100%';
-    img.style.objectFit = 'contain';
-    img.style.display = 'block';
+  clone.querySelectorAll('img').forEach((img, index) => {
+    const rect = sourceImages[index]?.getBoundingClientRect?.();
+    if (rect && Number.isFinite(rect.width) && rect.width > 0 && Number.isFinite(rect.height) && rect.height > 0) {
+      img.style.width = `${rect.width}px`;
+      img.style.height = `${rect.height}px`;
+      img.style.maxWidth = `${rect.width}px`;
+      img.style.maxHeight = `${rect.height}px`;
+      img.style.flex = '0 0 auto';
+    }
+    img.draggable = false;
   });
   return clone;
 }
@@ -1263,13 +1277,7 @@ function _navPlacementGroupsMatch(targetItem) {
 }
 
 function _navInsertionSplitRatio(targetItem) {
-  if (dragPayload?.area !== 'nav' || !_isBottomAlignedNavWidget(targetItem)) return 0.5;
-  const targetPath = findNavItemPath(targetItem.id);
-  const draggedPath = findNavItemPath(dragPayload.itemId);
-  if (!targetPath || !draggedPath || targetPath.list !== draggedPath.list) return 0.5;
-  const targetIndex = targetPath.list.findIndex(item => item.id === targetItem.id);
-  const draggedIndex = draggedPath.list.findIndex(item => item.id === dragPayload.itemId);
-  return draggedIndex > targetIndex ? 0.68 : 0.5;
+  return 0.5;
 }
 
 function handleNavItemDragOver(event, item, parent) {
@@ -1316,7 +1324,9 @@ function handleNavItemDragOver(event, item, parent) {
   event.dataTransfer.dropEffect = _currentDropEffect();
 
   const element = event.currentTarget;
-  const rect = element.getBoundingClientRect();
+  const rect = _isBottomAlignedNavWidget(item)
+    ? (navDragGeometry.get(item.id) || element.getBoundingClientRect())
+    : element.getBoundingClientRect();
   const splitRatio = _navInsertionSplitRatio(item);
   const position = event.clientY - rect.top < rect.height * splitRatio ? 'before' : 'after';
 

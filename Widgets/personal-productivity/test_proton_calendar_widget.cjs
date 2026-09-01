@@ -75,6 +75,14 @@ test('Calendar migrates legacy Proton sources without persisting sharing URLs', 
   assert.doesNotMatch(JSON.stringify(context.widget.config), /secret\.example/);
 });
 
+test('completed calendar loads refresh Daily Briefing instances immediately', async () => {
+  let briefingRefreshes = 0;
+  const { context } = createContext({ _dailyBriefingRefreshAll: () => { briefingRefreshes += 1; } });
+  context.widget = { id: 'calendar-1', config: { calendars: [], refreshMinutes: 60 }, data: {} };
+  await vm.runInContext('_calendarEnsureData(widget, { force: true })', context);
+  assert.equal(briefingRefreshes, 1);
+});
+
 test('ICS parser handles timed, all-day, escaped, and excluded recurring events', () => {
   const { context } = createContext();
   context.icsText = [

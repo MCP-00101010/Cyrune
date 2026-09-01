@@ -145,7 +145,7 @@ test('declarative registry and allowlisted adapters negotiate protocol versions'
   assert.equal(adapters.compatibility(relay, null).state, 'unknown');
   assert.deepEqual(adapters.compatibility(relay, {
     services: { relay: { protocols: relay.protocols } }
-  }), { state: 'compatible', summary: '4 protocol contracts compatible' });
+  }), { state: 'compatible', summary: '5 protocol contracts compatible' });
   assert.equal(adapters.compatibility(relay, {
     services: { relay: { protocols: { ...relay.protocols, 'host-native': 1 } } }
   }).state, 'incompatible');

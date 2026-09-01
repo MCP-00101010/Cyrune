@@ -4,6 +4,13 @@ const path = require('node:path');
 const test = require('node:test');
 const vm = require('node:vm');
 
+const HOST_PROTOCOLS = { 'host-native': 2, 'arcade-service': 1, 'component-settings': 2 };
+const CLIENT_PROTOCOLS = {
+  MW_REGISTER: { 'portal-relay': 1, 'component-settings': 2 },
+  MW_EMUGUI_REGISTER: { 'arcade-relay': 1, 'arcade-service': 1, 'component-settings': 2 },
+  MW_NEXUS_REGISTER: { 'nexus-relay': 2, 'component-settings': 2 }
+};
+
 function deferred() {
   let resolve;
   const promise = new Promise(r => { resolve = r; });
@@ -59,7 +66,7 @@ async function loadBackground(options = {}) {
         nativeRequests.push(message);
         if (message.type === 'PING') {
           if (options.nativeUnavailable) throw new Error('native unavailable');
-          return options.nativePing?.promise || { ok: true };
+          return options.nativePing?.promise || { ok: true, protocols: HOST_PROTOCOLS };
         }
         if (message.type === 'PORTAL_GET_STORAGE_CONFIG') return { ok: true, config: { databasePath: 'C:\\hub.json' } };
         if (message.type === 'NEXUS_GET_COMPONENT_SETTINGS') {
@@ -104,7 +111,14 @@ async function loadBackground(options = {}) {
         return { ok: true };
       },
       sendMessage: async () => ({ ok: true }),
-      onMessage: { addListener: listener => { listeners.message = listener; } }
+      onMessage: { addListener: listener => {
+        listeners.message = (message, ...args) => listener(
+          CLIENT_PROTOCOLS[message?.type] && message.protocols === undefined
+            ? { ...message, protocols: CLIENT_PROTOCOLS[message.type] }
+            : message,
+          ...args
+        );
+      } }
     },
     extension: {
       isAllowedFileSchemeAccess: async () => options.fileSchemeAccess !== false
@@ -192,7 +206,7 @@ async function loadBackground(options = {}) {
         postMessage(message) {
           connection.messages.push(message);
           setImmediate(() => {
-            if (message.type === 'PING') messageListeners.forEach(listener => listener({ ok: true }));
+            if (message.type === 'PING') messageListeners.forEach(listener => listener({ ok: true, protocols: HOST_PROTOCOLS }));
             else if (message.type === 'NEXUS_GET_COMPONENT_SETTINGS') {
               messageListeners.forEach(listener => listener({
                 ok: true,
@@ -266,6 +280,19 @@ async function loadBackground(options = {}) {
   await new Promise(resolve => setImmediate(resolve));
   return { context, listeners, nativeWrites, nativeRequests, pendingWrites, sentTabs, nativeConnections, executedScripts, createdTabs, updatedTabs, scheduledTimeouts, storageValues, createdAlarms, createdNotifications };
 }
+
+test('Relay enforces minimum protocols for every authenticated page role', async () => {
+  const harness = await loadBackground();
+  for (const role of ['portal', 'arcade', 'nexus']) {
+    const rejected = harness.context.validateClientProtocols(role, {});
+    assert.equal(rejected.ok, false);
+    assert.equal(rejected.errorCode, 'INCOMPATIBLE_PROTOCOL');
+    const accepted = harness.context.validateClientProtocols(role, CLIENT_PROTOCOLS[
+      role === 'portal' ? 'MW_REGISTER' : role === 'arcade' ? 'MW_EMUGUI_REGISTER' : 'MW_NEXUS_REGISTER'
+    ]);
+    assert.equal(accepted.ok, true);
+  }
+});
 
 test('extension notification jobs persist, fire once, and enter the Hub notification feed', async () => {
   const harness = await loadBackground();

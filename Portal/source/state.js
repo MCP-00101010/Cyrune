@@ -214,9 +214,6 @@ let sharedDiskSaveWaiters = [];
 let localStateMutationSequence = 0;
 let localCacheMeta = loadLocalCacheMeta();
 let localCacheQuotaNoticeShown = false;
-let localCacheQueuedSnapshot = null;
-let localCacheQueuedOptions = null;
-let localCacheFlushPromise = null;
 let inheritedTagContextCache = new WeakMap();
 let boardNavInheritedTagsCache = new Map();
 let liveBookmarkSourceCache = null;
@@ -565,6 +562,7 @@ function createFolderRecord(title, options = {}) {
     rules: normalizeDynamicRules(options.rules),
     sortMode: normalizeDynamicSortMode(options.sortMode)
   };
+  if (options.ignoreInheritedTags === true) folder.ignoreInheritedTags = true;
   if (options.locked === true) folder.locked = true;
   migrateItems(folder.children);
   return folder;
@@ -572,6 +570,7 @@ function createFolderRecord(title, options = {}) {
 
 function migrateItems(items) {
   for (const item of (items || [])) {
+    if (item.ignoreInheritedTags !== true) delete item.ignoreInheritedTags;
     if (item.type === 'divider') { item.type = 'title'; item.title = ''; }
     if (item.type === 'bookmark') {
       if (!item.tags) item.tags = [];
@@ -1232,17 +1231,23 @@ function persistStateToLocalCache(json = null, options = {}) {
     stored = true;
     localCacheQuotaNoticeShown = false;
   } catch (error) {
-    if (!isStorageQuotaError(error)) throw error;
-    console.warn('Cyrune Portal: local browser cache quota exceeded', error);
-    clearTrashCacheForQuotaRecovery();
-    try {
-      localStorage.setItem(STORAGE_KEY, snapshot);
-      stored = true;
-      localCacheQuotaNoticeShown = false;
-    } catch (retryError) {
-      if (!isStorageQuotaError(retryError)) throw retryError;
-      clearFullLocalCacheSnapshot();
-      notifyLocalCacheQuota(sharedSaveTarget || source === 'shared');
+    if (!isStorageQuotaError(error)) {
+      console.warn('Cyrune Portal: local recovery cache is unavailable', error);
+    } else {
+      console.warn('Cyrune Portal: local browser cache quota exceeded', error);
+      clearTrashCacheForQuotaRecovery();
+      try {
+        localStorage.setItem(STORAGE_KEY, snapshot);
+        stored = true;
+        localCacheQuotaNoticeShown = false;
+      } catch (retryError) {
+        if (!isStorageQuotaError(retryError)) {
+          console.warn('Cyrune Portal: local recovery cache is unavailable', retryError);
+        } else {
+          clearFullLocalCacheSnapshot();
+          notifyLocalCacheQuota(sharedSaveTarget || source === 'shared');
+        }
+      }
     }
   }
 
@@ -1268,27 +1273,6 @@ function persistStateToLocalCache(json = null, options = {}) {
   }
   persistLocalCacheMeta(metaPatch);
   return snapshot;
-}
-
-function queueStateLocalCachePersist(snapshot, options = {}) {
-  localCacheQueuedSnapshot = snapshot;
-  localCacheQueuedOptions = {
-    ...(localCacheQueuedOptions || {}),
-    ...options,
-    sharedSaveTarget: options.sharedSaveTarget === true || localCacheQueuedOptions?.sharedSaveTarget === true
-  };
-  if (localCacheFlushPromise) return localCacheFlushPromise;
-  localCacheFlushPromise = Promise.resolve().then(() => {
-    const queuedSnapshot = localCacheQueuedSnapshot;
-    const queuedOptions = localCacheQueuedOptions || {};
-    localCacheQueuedSnapshot = null;
-    localCacheQueuedOptions = null;
-    return persistStateToLocalCache(queuedSnapshot, queuedOptions);
-  }).finally(() => {
-    localCacheFlushPromise = null;
-    if (localCacheQueuedSnapshot) void queueStateLocalCachePersist(localCacheQueuedSnapshot, localCacheQueuedOptions || {});
-  });
-  return localCacheFlushPromise;
 }
 
 function setSharedDiskBaseline(fileInfo, path = state?.databasePath || '') {
@@ -1453,6 +1437,30 @@ function queueSharedDiskSave(snapshot, path = state?.databasePath || sharedDiskB
   });
 }
 
+function discardSharedDiskSaveAfterAuthorityFailure(error = null) {
+  let cachedSnapshot = null;
+  try { cachedSnapshot = localStorage.getItem(STORAGE_KEY); } catch {}
+  sharedDiskSaveGeneration += 1;
+  resolveSharedDiskSaveWaiters(Infinity, {
+    ok: false,
+    conflict: false,
+    persisted: 'none',
+    error: error?.message || String(error || 'Authoritative Portal storage is unavailable')
+  });
+  sharedDiskQueuedSnapshot = null;
+  sharedDiskQueuedPath = '';
+  sharedDiskQueuedSequence = 0;
+  sharedDiskHasPendingChanges = false;
+  clearSharedDiskFlushTimer();
+  if (cachedSnapshot) {
+    try { restoreStateSnapshot(cachedSnapshot); } catch {}
+  }
+  if (typeof setPortalReadOnlyMode === 'function') {
+    setPortalReadOnlyMode(true, 'Read-only: Cyrune Relay lost its authoritative storage connection. The attempted change was discarded and the last saved view was restored.');
+  }
+  if (typeof renderAll === 'function') setTimeout(() => renderAll(), 0);
+}
+
 async function flushSharedDiskSaveQueue() {
   if (sharedDiskSaveInFlight || sharedDiskWritesBlocked) return;
   if (typeof bridge === 'undefined' || !bridge.storageIsAvailable?.()) return;
@@ -1474,12 +1482,7 @@ async function flushSharedDiskSaveQueue() {
       const result = await bridge.saveState(snapshot, { expectedVersion, expectedHash });
       if (saveGeneration !== sharedDiskSaveGeneration) break;
       if (!result?.ok) {
-        if (!sharedDiskQueuedSnapshot) {
-          sharedDiskQueuedSnapshot = snapshot;
-          sharedDiskQueuedPath = path;
-          sharedDiskQueuedSequence = snapshotSequence;
-        }
-        sharedDiskHasPendingChanges = true;
+        discardSharedDiskSaveAfterAuthorityFailure(new Error(result?.error || 'Authoritative Portal storage rejected the save'));
         break;
       }
       if (result.conflict) {
@@ -1503,14 +1506,9 @@ async function flushSharedDiskSaveQueue() {
       });
       resolveSharedDiskSaveWaiters(snapshotSequence, result);
       if (sharedDiskQueuedSnapshot) sharedDiskHasPendingChanges = true;
-    } catch {
+    } catch (error) {
       if (saveGeneration !== sharedDiskSaveGeneration) break;
-      if (!sharedDiskQueuedSnapshot) {
-        sharedDiskQueuedSnapshot = snapshot;
-        sharedDiskQueuedPath = path;
-        sharedDiskQueuedSequence = snapshotSequence;
-      }
-      sharedDiskHasPendingChanges = true;
+      discardSharedDiskSaveAfterAuthorityFailure(error);
       break;
     } finally {
       sharedDiskSaveInFlight = false;
@@ -1520,7 +1518,7 @@ async function flushSharedDiskSaveQueue() {
   if (sharedDiskQueuedSnapshot && !sharedDiskWritesBlocked && !sharedDiskSaveInFlight) scheduleSharedDiskFlush();
 }
 
-function saveState(options = {}) {
+function saveState() {
   if (typeof portalReadOnlyMode !== 'undefined' && portalReadOnlyMode) {
     if (portalReadOnlySnapshot) {
       try { restoreStateSnapshot(portalReadOnlySnapshot); } catch {}
@@ -1529,39 +1527,22 @@ function saveState(options = {}) {
     if (typeof showNotice === 'function') showNotice('Portal is read-only until Cyrune Relay reconnects. This change was not applied.');
     return Promise.resolve({ ok: false, readOnly: true, persisted: 'none' });
   }
-  const { skipDiskSync = false } = options;
   localStateMutationSequence += 1;
   invalidateDerivedCaches();
+  if (typeof bridge === 'undefined' || !bridge.storageIsAvailable?.()) {
+    discardSharedDiskSaveAfterAuthorityFailure(new Error('Cyrune Relay is not connected'));
+    return Promise.resolve({ ok: false, readOnly: true, persisted: 'none' });
+  }
+  if (bridge.storageMode?.() === 'host'
+      && getSharedDiskBaselinePath() !== (state.databasePath || '').trim()) {
+    resetSharedDiskBaseline(state.databasePath || '');
+  }
+  if (sharedDiskWritesBlocked) {
+    return Promise.resolve({ ok: false, conflict: true, persisted: 'none' });
+  }
   const json = serializeStateSnapshot();
   isDirty = true;
-  let queuedSharedDiskSave = false;
-  let sharedSavePromise = null;
-  if (typeof bridge !== 'undefined' && bridge.isAvailable()) {
-    const shouldSyncSharedDisk = !skipDiskSync && bridge.storageIsAvailable?.();
-    if (shouldSyncSharedDisk && bridge.storageMode?.() === 'host'
-        && getSharedDiskBaselinePath() !== (state.databasePath || '').trim()) {
-      resetSharedDiskBaseline(state.databasePath || '');
-    }
-    if (shouldSyncSharedDisk && !sharedDiskWritesBlocked) {
-      sharedSavePromise = queueSharedDiskSave(json, state.databasePath || sharedDiskBaselinePath);
-      queuedSharedDiskSave = true;
-    }
-  }
-  const localSavePromise = queueStateLocalCachePersist(json, { sharedSaveTarget: queuedSharedDiskSave });
-  const localResult = {
-    ok: true,
-    conflict: false,
-    persisted: 'local',
-    databasePath: state.databasePath || sharedDiskBaselinePath || ''
-  };
-  if (!sharedSavePromise) return localSavePromise.then(() => localResult);
-  return Promise.all([
-    sharedSavePromise,
-    localSavePromise.catch(error => {
-      console.warn('Cyrune Portal: failed to persist local browser cache', error);
-      return null;
-    })
-  ]).then(([sharedResult]) => sharedResult);
+  return queueSharedDiskSave(json, state.databasePath || sharedDiskBaselinePath);
 }
 
 function getActiveBoard() {
@@ -1790,7 +1771,12 @@ function getBoardNavInheritedTags(boardId) {
   function collect(items, chain = []) {
     for (const item of (items || [])) {
       if (item.type === 'board' && item.boardId === boardId) {
-        for (const f of chain) if (f.sharedTags) tags.push(...f.sharedTags);
+        let inherited = [];
+        for (const folder of chain) {
+          if (folder.ignoreInheritedTags === true) inherited = [];
+          if (folder.sharedTags) inherited.push(...folder.sharedTags);
+        }
+        tags.push(...inherited);
         return true;
       }
       if (item.type === 'folder' && item.children) {
@@ -1825,7 +1811,9 @@ function collectFolderAncestorTags(board, folderId) {
   if (!folderId || !board) return [];
   const found = findBoardItemInColumns(board, folderId);
   if (!found?.item) return [];
-  const parentTags = found.parent ? collectFolderAncestorTags(board, found.parent.id) : [];
+  const parentTags = found.item.ignoreInheritedTags === true
+    ? []
+    : (found.parent ? collectFolderAncestorTags(board, found.parent.id) : []);
   const ownShared = found.item.sharedTags || [];
   return [...parentTags, ...ownShared];
 }
@@ -2042,11 +2030,13 @@ function addNavSection(item) {
   state.navItems.push({ ...item, id: nextId });
 }
 
-function addBookmark(title, url, columnId, tags = [], faviconCache = '') {
+function addBookmark(title, url, columnId, tags = [], faviconCache = '', options = {}) {
   if (!isValidUrl(url)) { alert('Please enter a valid URL.'); return false; }
   const board = getActiveBoard();
   const column = board.columns.find(col => col.id === columnId) || board.columns[0];
-  column.items.push({ id: `bm-${Date.now()}`, type: 'bookmark', title, url: normalizeUrl(url), tags, faviconCache });
+  const bookmark = { id: `bm-${Date.now()}`, type: 'bookmark', title, url: normalizeUrl(url), tags, faviconCache };
+  if (options.ignoreInheritedTags === true) bookmark.ignoreInheritedTags = true;
+  column.items.push(bookmark);
   return true;
 }
 
@@ -2119,7 +2109,7 @@ function renameContextItem(text, contextTarget) {
   }
 }
 
-function editBookmarkContext(title, url, tags = [], contextTarget) {
+function editBookmarkContext(title, url, tags = [], contextTarget, options = {}) {
   if (!contextTarget || contextTarget.area !== 'board-item') return false;
   if (!isValidUrl(url)) {
     alert('Please enter a valid URL.');
@@ -2132,6 +2122,8 @@ function editBookmarkContext(title, url, tags = [], contextTarget) {
     found.item.title = title;
     found.item.url = normalizeUrl(url);
     found.item.tags = tags;
+    if (options.ignoreInheritedTags === true) found.item.ignoreInheritedTags = true;
+    else delete found.item.ignoreInheritedTags;
     return true;
   }
   return false;
@@ -2238,6 +2230,7 @@ function removeEssential(slot) {
 // --- Tag inheritance ---
 
 function filterInheritedTagIdsForItem(item, tagIds = []) {
+  if (item?.ignoreInheritedTags === true) return [];
   const explicitTagIds = new Set([
     ...(item?.tags || []),
     ...(item?.sharedTags || [])
@@ -2255,9 +2248,10 @@ function _buildBoardInheritedTagContext(board) {
       if (!item?.id) continue;
       itemContexts.set(item.id, { inheritedTagIds });
       if (item.type === 'folder' && Array.isArray(item.children) && item.children.length) {
+        const folderInheritedTagIds = item.ignoreInheritedTags === true ? [] : inheritedTagIds;
         const childInheritedTagIds = item.sharedTags?.length
-          ? [...new Set([...inheritedTagIds, ...item.sharedTags])]
-          : inheritedTagIds;
+          ? [...new Set([...folderInheritedTagIds, ...item.sharedTags])]
+          : folderInheritedTagIds;
         walkItems(item.children, tab, childInheritedTagIds);
       }
     }
@@ -2564,7 +2558,7 @@ function clearImportManager() {
   state.importManager.items = [];
 }
 
-function editFolder(itemId, title, tags, sharedTags, ct = null) {
+function editFolder(itemId, title, tags, sharedTags, ct = null, options = {}) {
   const board = getBoardForContext(ct);
   let item = board ? findBoardItemInColumns(board, itemId)?.item : null;
   if (!item) item = findNavItemPath(itemId)?.item;
@@ -2572,6 +2566,8 @@ function editFolder(itemId, title, tags, sharedTags, ct = null) {
     item.title = title;
     item.tags = tags;
     item.sharedTags = sharedTags;
+    if (options.ignoreInheritedTags === true) item.ignoreInheritedTags = true;
+    else delete item.ignoreInheritedTags;
     item.folderMode = normalizeFolderMode(item.folderMode);
     item.rules = normalizeDynamicRules(item.rules);
     item.sortMode = normalizeDynamicSortMode(item.sortMode);

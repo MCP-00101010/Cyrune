@@ -2,7 +2,7 @@
 
 This log records repository-wide migration, tooling, and coordinated release changes only. Product changes belong in the affected component changelog.
 
-## [Unreleased] — migration started 2026-08-25
+## [Unreleased] — Cyrune active since 2026-08-31
 
 ### Added
 
@@ -30,6 +30,7 @@ This log records repository-wide migration, tooling, and coordinated release cha
 
 ### Changed
 
+- Completed the Cyrune monorepo cutover on 2026-08-31 and made `master` the sole active development checkout. The intact legacy WebHub and EmuGUI repositories, including WebHub's preserved untracked `Infrastructure TODO.md`, were moved beneath the dated migration-recovery archive after their Git identities and file totals were verified. The ignored Cyrune `Arcade/data` migration baseline was separately archived after matching its verified Phase 6 recovery fingerprint; active Host configuration and native registration contain no references to either retired checkout path. Post-archive validation passes all 79 Arcade tests and the non-launching 12,933-game emulator/profile preflight from the external runtime root.
 - Linked all active architecture guidance from the project and component READMEs, restored missing Portal module/persistence/settings/rendering rules and full modal details, and replaced stale legacy product wording in Arcade guidance while labelling retained compatibility variables.
 - Renamed every component TODO and changelog with its component prefix, reconciled the legacy Portal and Arcade backlogs into the owning current TODOs, and updated repository references.
 - Replaced remaining user-facing WebHub, EmuGUI, and Morpheus labels with Cyrune Portal, Arcade, Relay, Host, and Widgets while preserving compatibility-sensitive installed IDs, storage keys, events, binding fields, credential namespaces, and portable-format identifiers.

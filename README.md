@@ -9,15 +9,15 @@ Cyrune is the combined home of the Portal dashboard, Arcade game-library fronten
 - `Relay/` — the Firefox-compatible WebExtension that connects trusted local pages to browser and native capabilities.
 - `Host/` — the relocated native-messaging process, installers, templates, and host-specific tests.
 - `Widgets/` — category-based homes for Portal widgets and their focused tests, plus the shared widget runtime and SDK under `Widgets/core/`. Portal remains their runtime host.
-- `Nexus/` — a direct-file project-status dashboard and the management surface for shared Cyrune variables. The current first draft uses honest partial diagnostics and a browser-local settings preview while its Relay/Host service is being built.
+- `Nexus/` — the direct-file project-status dashboard and management surface for shared Cyrune settings, sanitized validation/activity state, component documents, and fixed repository diagnostics. Its authenticated Relay/Host service remains available while the page is closed, with clearly labelled cached fallback views when disconnected.
 
 Shared integration and migration checks live in `tests/`; repository tools live in `tools/`; generated output belongs in the ignored `artifacts/` directory.
 
-## Migration Status
+## Project Status
 
-Migration is active on `migration/cyrune-monorepo`. Portal and Arcade now run from their Cyrune paths through the relocated Relay and Host, and the category-based widget regrouping is complete. External Portal/Arcade runtime-data migration, packaging, and final cutover checks remain. The legacy checkouts stay available as recovery sources until every migration gate passes. See `CYRUNE-MONOREPO-TODO.md` for the authoritative sequence and rollback gates, and `docs/migration/2026-08-25-handover.md` for the current continuation context.
+Cyrune on `master` is the active project. The monorepo migration completed on 2026-08-31: Portal and Arcade run from their Cyrune paths, mutable runtime data lives beneath `%LOCALAPPDATA%\Cyrune`, and Relay, Host, Widgets, Nexus, packaging, and coordinated validation use this checkout.
 
-Do not delete or redirect the old checkouts merely because their histories are present here.
+The intact legacy WebHub and EmuGUI checkouts are archived as read-only recovery sources beneath `F:\Projects\Coding\Cyrune Migration Recovery\2026-08-31\archived-sources`; the independently verified Git bundles and runtime snapshots remain beneath the dated recovery area. See [`docs/history/cyrune-monorepo-migration.md`](docs/history/cyrune-monorepo-migration.md) and `docs/migration/phase-8-cutover-monitoring.md` for the completed cutover record and rollback guidance.
 
 ## Validation
 

@@ -169,3 +169,26 @@ test('multi-drag image renders every dragged bookmark in payload order', () => {
   assert.equal(sources.some(source => source.classList.contains('dragging')), false);
   assert.equal(sources.some(source => source.classList.contains('multi-drag-source')), false);
 });
+
+test('drag images preserve each source image size instead of stretching crests', () => {
+  const harness = loadDnd([]);
+  const sourceImage = { getBoundingClientRect: () => ({ width: 18, height: 18 }) };
+  const clonedImage = { style: {}, draggable: true };
+  const clone = {
+    classList: { remove() {} },
+    removeAttribute() {},
+    querySelectorAll: selector => selector === 'img' ? [clonedImage] : []
+  };
+  harness.context.element = {
+    querySelectorAll: selector => selector === 'img' ? [sourceImage] : [],
+    cloneNode: () => clone
+  };
+
+  const result = vm.runInContext('_prepareDragImageClone(element).querySelectorAll("img")[0]', harness.context);
+  assert.equal(result.style.width, '18px');
+  assert.equal(result.style.height, '18px');
+  assert.equal(result.style.maxWidth, '18px');
+  assert.equal(result.style.maxHeight, '18px');
+  assert.equal(result.style.flex, '0 0 auto');
+  assert.equal(result.draggable, false);
+});

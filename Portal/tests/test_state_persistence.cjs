@@ -61,16 +61,33 @@ test('Portal persisted schema migrations are ordered and reject newer data', () 
   assert.throws(() => vm.runInContext('migrateStateSchema({ schemaVersion: 7 })', context), /newer than supported/);
 });
 
-test('same-turn saves serialize synchronously but coalesce browser-cache writes', async () => {
+test('page cache updates only after the authoritative save succeeds', async () => {
   const harness = loadStateScript();
-  vm.runInContext("state.hubName = 'First'; saveState({ skipDiskSync: true })", harness.context);
-  const latest = vm.runInContext("state.hubName = 'Second'; saveState({ skipDiskSync: true })", harness.context);
+  vm.runInContext("state.hubName = 'First'; saveState()", harness.context);
+  const latest = vm.runInContext("state.hubName = 'Second'; saveState()", harness.context);
+  await new Promise(resolve => setTimeout(resolve, 300));
+  assert.equal(harness.storageWrites.filter(entry => entry.key === 'morpheus-webhub-state').length, 0);
+  harness.saves[0].pending.resolve({ ok: true, conflict: false, databasePath: '/hub.json', fileInfo: { version: 'v1', contentHash: 'h1' } });
   await latest;
   const stateWrites = harness.storageWrites.filter(entry => {
     try { return JSON.parse(entry.value).hubName !== undefined; } catch { return false; }
   });
   assert.equal(stateWrites.length, 1);
   assert.equal(JSON.parse(stateWrites[0].value).hubName, 'Second');
+});
+
+test('per-item inheritance opt-out stops ancestor tags but still shares folder tags with children', () => {
+  const harness = loadStateScript();
+  const result = vm.runInContext(`(() => {
+    const child = { id: 'child', type: 'bookmark', title: 'Child', url: 'https://example.com', tags: [] };
+    const folder = { id: 'folder', type: 'folder', title: 'Folder', tags: [], sharedTags: ['folder-tag'], ignoreInheritedTags: true, children: [child] };
+    state.boards = [{ id: 'board', title: 'Board', sharedTags: ['board-tag'], tabs: [{ id: 'tab', title: 'Tab', sharedTags: ['tab-tag'], columns: [{ id: 'column', items: [folder] }], inbox: { id: 'inbox', items: [] } }] }];
+    state.activeBoardId = 'board'; state.activeTabId = 'tab';
+    invalidateDerivedCaches();
+    return { folder: computeInheritedTags(folder, state.boards[0]), child: computeInheritedTags(child, state.boards[0]) };
+  })()`, harness.context);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.folder)), []);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.child)), ['folder-tag']);
 });
 
 test('page debounce resolves every covered save only after latest snapshot persists', async () => {

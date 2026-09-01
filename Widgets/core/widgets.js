@@ -804,10 +804,17 @@ WIDGET_REGISTRY['notes'] = {
 
 // ---- To-do list widget ----
 
+function _todoDate(value) {
+  const date = String(value || '');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return '';
+  const parsed = new Date(`${date}T00:00:00`);
+  return Number.isFinite(parsed.getTime()) && parsed.getFullYear() === Number(date.slice(0, 4)) && parsed.getMonth() + 1 === Number(date.slice(5, 7)) && parsed.getDate() === Number(date.slice(8, 10)) ? date : '';
+}
+
 WIDGET_REGISTRY['todo'] = {
   name: 'To-do List',
   category: 'Personal & Productivity',
-  description: 'Checklist with add and remove',
+  description: 'Checklist with optional deadlines for Daily Briefing',
   allowedIn: ['column'],
   defaultConfig: {},
   defaultData: { items: [] },
@@ -822,6 +829,7 @@ WIDGET_REGISTRY['todo'] = {
     const rerender = () => {
       list.innerHTML = '';
       widget.data.items.forEach(item => {
+        item.dueDate = _todoDate(item.dueDate || item.deadline);
         const row = document.createElement('label');
         row.className = 'widget-todo-row' + (item.done ? ' done' : '');
         row.addEventListener('mousedown', e => e.stopPropagation());
@@ -839,6 +847,18 @@ WIDGET_REGISTRY['todo'] = {
         span.className = 'widget-todo-text';
         span.textContent = item.text;
 
+        const due = document.createElement('input');
+        due.type = 'date';
+        due.className = 'widget-todo-deadline';
+        due.value = item.dueDate;
+        due.title = item.dueDate ? `Due ${item.dueDate}` : 'Optional deadline';
+        due.setAttribute('aria-label', `Deadline for ${item.text}`);
+        due.addEventListener('mousedown', event => event.stopPropagation());
+        due.addEventListener('click', event => event.stopPropagation());
+        due.addEventListener('change', event => {
+          event.stopPropagation(); item.dueDate = _todoDate(due.value); due.title = item.dueDate ? `Due ${item.dueDate}` : 'Optional deadline'; saveState();
+        });
+
         const del = document.createElement('button');
         del.type = 'button';
         del.className = 'widget-todo-delete';
@@ -853,6 +873,7 @@ WIDGET_REGISTRY['todo'] = {
 
         row.appendChild(cb);
         row.appendChild(span);
+        row.appendChild(due);
         row.appendChild(del);
         list.appendChild(row);
       });
@@ -868,6 +889,12 @@ WIDGET_REGISTRY['todo'] = {
     input.className = 'widget-todo-input';
     input.placeholder = 'Add item…';
 
+    const dueInput = document.createElement('input');
+    dueInput.type = 'date';
+    dueInput.className = 'widget-todo-add-deadline';
+    dueInput.title = 'Optional deadline';
+    dueInput.setAttribute('aria-label', 'Optional task deadline');
+
     const addBtn = document.createElement('button');
     addBtn.type = 'button';
     addBtn.className = 'widget-todo-add-btn';
@@ -876,8 +903,9 @@ WIDGET_REGISTRY['todo'] = {
     const addItem = () => {
       const text = input.value.trim();
       if (!text) return;
-      widget.data.items.push({ id: `td-${Date.now()}`, text, done: false });
+      widget.data.items.push({ id: `td-${Date.now()}`, text, done: false, dueDate: _todoDate(dueInput.value) });
       input.value = '';
+      dueInput.value = '';
       rerender();
       saveState();
     };
@@ -885,6 +913,7 @@ WIDGET_REGISTRY['todo'] = {
     input.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); addItem(); } });
 
     addRow.appendChild(input);
+    addRow.appendChild(dueInput);
     addRow.appendChild(addBtn);
     el.appendChild(list);
     el.appendChild(addRow);
