@@ -485,6 +485,13 @@ function _normalizeDraggedBookmark(item) {
   return item;
 }
 
+function _normalizeCompactLauncherItem(item) {
+  if (!item) return null;
+  if (!item.type) item.type = 'bookmark';
+  if (!Array.isArray(item.tags)) item.tags = [];
+  return item;
+}
+
 function _cloneBookmarkForDragCopy(item) {
   if (!item?.url) return null;
   return _normalizeDraggedBookmark({
@@ -515,23 +522,23 @@ function _takeDraggedBoardItems(board) {
   return _dragItemIds().map(itemId => removeBoardItemById(itemId)).filter(Boolean);
 }
 
-function _takeDraggedBookmarkItem(board) {
+function _takeDraggedCompactLauncherItem(board) {
   if (!dragPayload) return null;
   if (dragPayload.area === 'speed-dial') {
-    return _normalizeDraggedBookmark(removeSpeedDialItemById(board, dragPayload.itemId));
+    return _normalizeCompactLauncherItem(removeSpeedDialItemById(board, dragPayload.itemId));
   }
-  if (dragPayload.area === 'board' && dragPayload.itemType === 'bookmark') {
-    return _normalizeDraggedBookmark(_takeDraggedBoardItem(board));
+  if (dragPayload.area === 'board' && _compactLauncherItemTypeAllowed(dragPayload.itemType)) {
+    return _normalizeCompactLauncherItem(_takeDraggedBoardItem(board));
   }
-  if (dragPayload.area === 'import-manager' && dragPayload.itemType === 'bookmark') {
-    return _normalizeDraggedBookmark(_takeImportManagerDraggedItem());
+  if (dragPayload.area === 'import-manager' && _compactLauncherItemTypeAllowed(dragPayload.itemType)) {
+    return _normalizeCompactLauncherItem(_takeImportManagerDraggedItem());
   }
   if (dragPayload.area === 'essential') {
     const item = state.essentials[dragPayload.slot];
     if (!item) return null;
     state.essentials[dragPayload.slot] = null;
     trimEssentialsTail();
-    return _normalizeDraggedBookmark(item);
+    return _normalizeCompactLauncherItem(item);
   }
   return null;
 }
@@ -548,10 +555,10 @@ function _extractDraggedItem(board) {
     return _takeImportManagerDraggedItem();
   }
   if (dragPayload.area === 'speed-dial') {
-    return _takeDraggedBookmarkItem(board);
+    return _takeDraggedCompactLauncherItem(board);
   }
   if (dragPayload.area === 'essential') {
-    return _takeDraggedBookmarkItem(board);
+    return _takeDraggedCompactLauncherItem(board);
   }
   return null;
 }
@@ -573,7 +580,7 @@ function _takeDraggedItemsForInbox(board) {
     const item = removeNavItemById(dragPayload.itemId);
     if (item) items = [item];
   } else if (dragPayload?.area === 'speed-dial' || dragPayload?.area === 'essential') {
-    const item = _takeDraggedBookmarkItem(board);
+    const item = _takeDraggedCompactLauncherItem(board);
     if (item) items = [item];
   }
   stripTransientItemLocks(items);
@@ -618,7 +625,7 @@ function handleBoardTabInboxDrop(event, board, tab) {
 function _draggedFolderChildType() {
   if (!dragPayload) return null;
   if (dragPayload.area === 'board' || dragPayload.area === 'import-manager') return dragPayload.itemType || null;
-  if (dragPayload.area === 'speed-dial' || dragPayload.area === 'essential') return 'bookmark';
+  if (dragPayload.area === 'speed-dial' || dragPayload.area === 'essential') return dragPayload.itemType || 'bookmark';
   return null;
 }
 
@@ -645,18 +652,7 @@ function createEssentialSlotPreview() {
   if (!item) return null;
   const wrapper = document.createElement('div');
   wrapper.className = 'drag-preview essential-slot-preview';
-  if (item.url) {
-    const img = document.createElement('img');
-    setFavicon(img, item, 64);
-    img.alt = '';
-    img.draggable = false;
-    wrapper.appendChild(img);
-  } else {
-    const fb = document.createElement('span');
-    fb.className = 'essential-slot-fallback';
-    fb.textContent = item.title ? item.title[0].toUpperCase() : '?';
-    wrapper.appendChild(fb);
-  }
+  appendCompactLauncherArtwork(wrapper, item, 64);
   return wrapper;
 }
 
@@ -691,12 +687,8 @@ function handleEssentialSlotDrop(targetSlot) {
     state.essentials[targetSlot] = srcItem;
     state.essentials[srcSlot] = null;
     trimEssentialsTail();
-  } else if (
-    dragPayload.area === 'speed-dial'
-    || (dragPayload.area === 'board' && dragPayload.itemType === 'bookmark')
-    || (dragPayload.area === 'import-manager' && dragPayload.itemType === 'bookmark')
-  ) {
-    const item = _takeDraggedBookmarkItem(board);
+  } else if (_compactLauncherAreaAllowed(dragPayload.area)) {
+    const item = _takeDraggedCompactLauncherItem(board);
     if (!item) { dragPayload = null; return; }
     while (state.essentials.length <= targetSlot) state.essentials.push(null);
     state.essentials[targetSlot] = item;
@@ -936,7 +928,7 @@ function handleBoardItemDrop(event, targetItem, columnId, parentFolder, depth) {
   if (dragPayload.area === 'speed-dial' || dragPayload.area === 'essential' || dragPayload.area === 'import-manager') {
     const extractedItems = dragPayload.area === 'import-manager'
       ? _takeImportManagerDraggedItems()
-      : [_takeDraggedBookmarkItem(board)].filter(Boolean);
+      : [_takeDraggedCompactLauncherItem(board)].filter(Boolean);
     if (!extractedItems.length) { dragPayload = null; return; }
     if (!targetPath) {
       extractedItems.forEach(extracted => addBoardItemToColumn(columnId, extracted));
@@ -1018,7 +1010,7 @@ function handleBoardColumnDrop(event, columnId) {
     draggedItems = _takeImportManagerDraggedItems();
     if (!draggedItems.length) { dragPayload = null; return; }
   } else {
-    const draggedItem = _takeDraggedBookmarkItem(board);
+    const draggedItem = _takeDraggedCompactLauncherItem(board);
     draggedItems = draggedItem ? [draggedItem] : [];
     if (!draggedItems.length) { dragPayload = null; return; }
   }
@@ -1193,19 +1185,22 @@ function handleImportManagerFolderContainerDrop(event, folderItem, depth) {
 
 // --- Speed dial drag & drop ---
 
-function _speedDialAreaAllowed(area) {
+function _compactLauncherItemTypeAllowed(itemType) {
+  return itemType === 'bookmark' || itemType === 'application' || itemType === 'game';
+}
+
+function _compactLauncherAreaAllowed(area) {
   if (_hasMultiItemDrag()) return false;
-  return area === 'speed-dial'
-    || area === 'essential'
-    || (area === 'board' && dragPayload.itemType === 'bookmark')
-    || (area === 'import-manager' && dragPayload.itemType === 'bookmark');
+  return ((area === 'speed-dial' || area === 'essential') && _compactLauncherItemTypeAllowed(dragPayload.itemType || 'bookmark'))
+    || (area === 'board' && _compactLauncherItemTypeAllowed(dragPayload.itemType))
+    || (area === 'import-manager' && _compactLauncherItemTypeAllowed(dragPayload.itemType));
 }
 
 function handleSpeedDialSlotDragOver(event, target, slot) {
   if (getActiveBoard()?.locked) return;
   if (target?.speedDial?.[slot]) return;
   if (!dragPayload && !isExternalDrag(event)) return;
-  if (dragPayload && !_speedDialAreaAllowed(dragPayload.area)) return;
+  if (dragPayload && !_compactLauncherAreaAllowed(dragPayload.area)) return;
   if (dragPayload?.area === 'speed-dial' && dragPayload.slot === slot) return;
   event.preventDefault();
   event.stopPropagation();
@@ -1220,7 +1215,7 @@ function handleSpeedDialSlotDragOver(event, target, slot) {
 }
 
 function _takeSpeedDialDragItem(target, slot) {
-  if (dragPayload.area !== 'speed-dial') return _takeDraggedBookmarkItem(getActiveBoard());
+  if (dragPayload.area !== 'speed-dial') return _takeDraggedCompactLauncherItem(getActiveBoard());
   const source = getActiveBoard();
   if (!source) return null;
   if (source === target && dragPayload.slot === slot) return null;
@@ -1236,12 +1231,12 @@ function handleSpeedDialSlotDrop(event, target, slot) {
   event.currentTarget.querySelectorAll('.drag-preview').forEach(el => el.remove());
   if (isExternalDrag(event)) {
     const ext = getExternalDrop(event);
-    if (ext?.application) showNotice('Add applications to a board column or folder.');
+    if (ext?.application) void addDroppedApplicationShortcut(ext, { area: 'speed-dial', slot });
     else if (ext?.unsupportedFile) showNotice(`${ext.title} is not a supported application shortcut.`);
     else if (ext) openExternalBookmarkModal(ext.url, ext.title, { area: 'speed-dial', slot }, ext.faviconCache);
     return;
   }
-  if (!dragPayload || !_speedDialAreaAllowed(dragPayload.area)) return;
+  if (!dragPayload || !_compactLauncherAreaAllowed(dragPayload.area)) return;
   pushUndoSnapshot();
   const item = _takeSpeedDialDragItem(target, slot);
   if (!item || !setSpeedDialSlot(target, slot, item)) {

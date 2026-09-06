@@ -266,6 +266,33 @@ input::placeholder {
   display: block;
 }
 
+.essential-slot .compact-application-icon,
+.speed-link .compact-application-icon {
+  width: 70%;
+  height: 70%;
+  color: var(--accent);
+}
+
+.compact-game-thumbnail {
+  border-radius: 8px;
+  object-fit: cover !important;
+}
+
+.compact-game-icon {
+  display: grid;
+  place-items: center;
+  width: 70%;
+  height: 70%;
+  border-radius: 8px;
+  background: var(--panel-strong);
+  color: var(--accent);
+}
+
+.compact-game-icon > svg {
+  width: 72%;
+  height: 72%;
+}
+
 .essential-slot-fallback {
   font-size: 0.9rem;
   font-weight: 700;

@@ -57,7 +57,6 @@ Future network- and native-dependent widgets must use the shared SDK, cache, sch
 
 - Visually verify the clipped 5°×5° night mesh and zero-buffer GeoJSON workaround in Firefox at equinox/solstice times, multiple zooms/cameras, and both themes. The earlier longitude-only strip attempt still produced pole-to-terminator spokes, while the default source buffer triggered MapLibre's documented zoom-dependent duplicate-rendering bug; deterministic seasonal/antimeridian bounds and centre-anchored scroll zoom tests pass, but the in-app browser remained unavailable during the correction.
 - Keep pinned MapLibre 5.24 until the night hemisphere and terminator have passed that direct-file visual comparison; do not repeat the failed 6.1 ESM upgrade.
-- have a toggle icon underneath zoom controls to toggle light/dark mode without having to open settings modal (implement also in hazard and weather map)
 
 ## other widget ideas
 

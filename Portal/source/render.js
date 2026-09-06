@@ -1228,32 +1228,38 @@ function renderEssentials() {
     cell.dataset.slot = slot;
 
     if (item) {
+      const isApplication = item.type === 'application';
+      const isGame = item.type === 'game';
       const link = document.createElement('a');
-      link.href = item.url || '#';
-      link.target = '_blank';
-      link.rel = 'noreferrer noopener';
+      link.href = isApplication || isGame ? '#' : (item.url || '#');
+      if (isApplication || isGame) link.setAttribute('role', 'button');
+      if (!isApplication && !isGame) {
+        link.target = '_blank';
+        link.rel = 'noreferrer noopener';
+      }
       link.draggable = true;
       link.dataset.bookmarkId = item.id || '';
-      link.dataset.tooltip = buildTooltip(item);
-      link.dataset.tooltipKind = 'bookmark';
-      link.addEventListener('click', () => recordBookmarkOpen(item));
-
-      if (item.url) {
-        const img = document.createElement('img');
-        setFavicon(img, item, 64);
-        img.alt = item.title || '';
-        img.draggable = false;
-        link.appendChild(img);
-      } else {
-        const fallback = document.createElement('span');
-        fallback.className = 'essential-slot-fallback';
-        fallback.textContent = item.title ? item.title[0].toUpperCase() : '?';
-        link.appendChild(fallback);
+      if (isGame) registerGameTooltipTarget(link, item);
+      else {
+        link.dataset.tooltip = buildTooltip(item);
+        link.dataset.tooltipKind = isApplication ? 'application' : 'bookmark';
       }
+      link.addEventListener('click', event => {
+        if (isApplication) {
+          event.preventDefault();
+          void launchApplicationShortcut(item);
+        } else if (isGame) {
+          event.preventDefault();
+          void launchGameShortcut(item);
+        } else {
+          recordBookmarkOpen(item);
+        }
+      });
+      appendCompactLauncherArtwork(link, item, 64);
 
       link.addEventListener('dragstart', event => {
         event.stopPropagation();
-        dragPayload = { area: 'essential', slot, itemId: item.id };
+        dragPayload = { area: 'essential', slot, itemId: item.id, itemType: item.type || 'bookmark' };
         event.dataTransfer.setData('text/plain', item.id);
         event.dataTransfer.effectAllowed = 'move';
         applyDragImage(event, link);
@@ -1266,6 +1272,12 @@ function renderEssentials() {
       });
 
       cell.appendChild(link);
+      if (isApplication && !applicationStatusCache.has(item.appKey) && !applicationStatusRequests.has(item.appKey)) {
+        void refreshApplicationStatus(item);
+      }
+      if (isGame && !gameStatusCache.has(item.gameKey) && !gameStatusRequests.has(item.gameKey)) {
+        void refreshGameStatus(item);
+      }
     }
 
     cell.addEventListener('contextmenu', event => {
@@ -1279,6 +1291,7 @@ function renderEssentials() {
       if (dragPayload?.area === 'essential' && dragPayload.slot === slot) return;
       if (item) return;
       if (dragPayload?.area === 'nav') return;
+      if (dragPayload && !_compactLauncherAreaAllowed(dragPayload.area)) return;
       event.preventDefault();
       event.dataTransfer.dropEffect = dragPayload ? _currentDropEffect() : 'copy';
       if (!cell.classList.contains('drop-target')) {
@@ -1299,7 +1312,9 @@ function renderEssentials() {
       cell.classList.remove('drop-target');
       if (isExternalDrag(event)) {
         const ext = getExternalDrop(event);
-        if (ext) openExternalBookmarkModal(ext.url, ext.title, { area: 'essential', slot, item }, ext.faviconCache);
+        if (ext?.application) void addDroppedApplicationShortcut(ext, { area: 'essential', slot });
+        else if (ext?.unsupportedFile) showNotice(`${ext.title} is not a supported application shortcut.`);
+        else if (ext) openExternalBookmarkModal(ext.url, ext.title, { area: 'essential', slot, item }, ext.faviconCache);
         return;
       }
       handleEssentialSlotDrop(slot);
@@ -2153,7 +2168,8 @@ function renderSpeedDial(board) {
         if (getActiveBoard()?.locked) return;
         contextTarget = { area: 'speed-dial', slot };
         showContextMenu(event.clientX, event.clientY, [
-          { label: 'Add bookmark', action: 'addSpeedDialBookmark' }
+          { label: 'Add bookmark', action: 'addSpeedDialBookmark' },
+          { label: 'Add application', action: 'addApplication' }
         ]);
       }
     });
@@ -2170,35 +2186,41 @@ function renderSpeedDial(board) {
     }
 
     const link = document.createElement('a');
+    const isApplication = item.type === 'application';
+    const isGame = item.type === 'game';
     link.className = 'speed-link';
     link.dataset.itemId = item.id;
     link.dataset.slot = slot;
-    link.href = item.url || '#';
-    link.target = '_blank';
-    link.rel = 'noreferrer noopener';
+    link.href = isApplication || isGame ? '#' : (item.url || '#');
+    if (isApplication || isGame) link.setAttribute('role', 'button');
+    if (!isApplication && !isGame) {
+      link.target = '_blank';
+      link.rel = 'noreferrer noopener';
+    }
     link.draggable = true;
     link.dataset.bookmarkId = item.id || '';
-    link.dataset.tooltip = buildTooltip(item, board);
-    link.dataset.tooltipKind = 'bookmark';
-    link.addEventListener('click', () => recordBookmarkOpen(item));
-
-    if (item.url) {
-      const favicon = document.createElement('img');
-      setFavicon(favicon, item, 256);
-      favicon.alt = item.title || 'Bookmark';
-      favicon.draggable = false;
-      link.appendChild(favicon);
-    } else {
-      const fallback = document.createElement('span');
-      fallback.className = 'speed-link-fallback';
-      fallback.textContent = item.title ? item.title[0].toUpperCase() : '?';
-      link.appendChild(fallback);
+    if (isGame) registerGameTooltipTarget(link, item);
+    else {
+      link.dataset.tooltip = buildTooltip(item, board);
+      link.dataset.tooltipKind = isApplication ? 'application' : 'bookmark';
     }
+    link.addEventListener('click', event => {
+      if (isApplication) {
+        event.preventDefault();
+        void launchApplicationShortcut(item);
+      } else if (isGame) {
+        event.preventDefault();
+        void launchGameShortcut(item);
+      } else {
+        recordBookmarkOpen(item);
+      }
+    });
+    appendCompactLauncherArtwork(link, item, 256);
 
     link.addEventListener('dragstart', event => {
       if (board?.locked) { event.preventDefault(); return; }
       event.stopPropagation();
-      dragPayload = { area: 'speed-dial', itemId: item.id, slot };
+      dragPayload = { area: 'speed-dial', itemId: item.id, slot, itemType: item.type || 'bookmark' };
       event.dataTransfer.setData('text/plain', item.id);
       event.dataTransfer.effectAllowed = 'move';
       applyDragImage(event, link);
@@ -2209,6 +2231,12 @@ function renderSpeedDial(board) {
       removeDragPlaceholders();
     });
     cell.appendChild(link);
+    if (isApplication && !applicationStatusCache.has(item.appKey) && !applicationStatusRequests.has(item.appKey)) {
+      void refreshApplicationStatus(item);
+    }
+    if (isGame && !gameStatusCache.has(item.gameKey) && !gameStatusRequests.has(item.gameKey)) {
+      void refreshGameStatus(item);
+    }
     elements.speedDial.appendChild(cell);
   }
 }

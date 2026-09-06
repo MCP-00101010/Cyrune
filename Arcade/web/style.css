@@ -211,6 +211,19 @@ h2 {
   color: var(--muted);
 }
 
+.brand-status {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.arcade-version {
+  color: var(--accent);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
 .search {
   display: block;
   margin-bottom: 22px;

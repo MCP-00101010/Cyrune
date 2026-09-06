@@ -1,3 +1,5 @@
+const ARCADE_VERSION = '0.2.2';
+
 const state = {
   games: [],
   gamesById: new Map(),
@@ -135,6 +137,7 @@ const els = {
   colgroup: document.querySelector("#game-colgroup"),
   headRow: document.querySelector("#game-head-row"),
   count: document.querySelector("#library-count"),
+  version: document.querySelector("#arcade-version"),
   resultCount: document.querySelector("#result-count"),
   selectionCount: document.querySelector("#selection-count"),
   activeSummary: document.querySelector("#active-summary"),
@@ -168,6 +171,11 @@ const els = {
   busyMessage: document.querySelector("#busy-message"),
   busyProgress: document.querySelector("#busy-progress"),
 };
+
+if (els.version) {
+  els.version.textContent = `v${ARCADE_VERSION}`;
+  els.version.setAttribute('aria-label', `Cyrune Arcade version ${ARCADE_VERSION}`);
+}
 
 function loadUiState() {
   const defaults = {
@@ -1657,6 +1665,8 @@ function showCollectionBulkModal(games) {
       <p>${games.length.toLocaleString()} collection game${games.length === 1 ? "" : "s"} selected.</p>
       <div class="modal-actions">
         <button data-action="metadata">Edit Metadata</button>
+        <button class="secondary" data-action="set-country">Set Country</button>
+        <button class="secondary" data-action="set-language">Set Language</button>
         <button class="secondary" data-action="favourite-add" ${favouriteAddGames.length ? "" : "disabled"}>Add to Favourites (${favouriteAddGames.length.toLocaleString()})</button>
         <button class="secondary" data-action="favourite-remove" ${favouriteRemoveGames.length ? "" : "disabled"}>Remove from Favourites (${favouriteRemoveGames.length.toLocaleString()})</button>
         <button class="secondary danger-text" data-action="delete">Delete Selected</button>
@@ -1682,6 +1692,11 @@ function showCollectionBulkModal(games) {
     if (action === "metadata") {
       overlay.remove();
       showMetadataModal(games.map((game) => game.id), true);
+      return;
+    }
+    if (action === "set-country" || action === "set-language") {
+      overlay.remove();
+      showMetadataModal(games.map((game) => game.id), true, action === "set-country" ? "countries" : "languages");
       return;
     }
     try {
@@ -2814,6 +2829,8 @@ async function showContextMenu(event, gameId) {
   const editButtons = state.activeCollection?.writable && !isIncoming && !isTrash
     ? `
       <button data-action="metadata">Edit Metadata</button>
+      <button data-action="set-country">Set Country</button>
+      <button data-action="set-language">Set Language</button>
       <button data-action="rename">Rename</button>
       <button data-action="delete" class="danger">Delete</button>
     `
@@ -2838,6 +2855,7 @@ async function showContextMenu(event, gameId) {
     <div class="context-section">
       ${emulatorButtons}
       <button data-action="send-webhub">${webHubHandoff.rebindGameKey ? "Update Portal Shortcut" : "Send to Portal"}</button>
+      <button data-action="research-web">Search the Web</button>
     </div>
     <div class="context-section">
       <button data-action="explorer">Open in Explorer</button>
@@ -2887,12 +2905,20 @@ async function handleContextAction(action, emulator) {
       await sendSelectedToWebHub();
       return;
     }
+    if (action === "research-web") {
+      openGameResearchSearch(state.selected);
+      return;
+    }
     if (action === "rename") {
       await renameSelected();
       return;
     }
     if (action === "metadata") {
       showMetadataModal([state.selected.id], false);
+      return;
+    }
+    if (action === "set-country" || action === "set-language") {
+      showMetadataModal([state.selected.id], false, action === "set-country" ? "countries" : "languages");
       return;
     }
     if (action === "delete") {
@@ -2936,6 +2962,19 @@ async function handleContextAction(action, emulator) {
     }
     await renderDetails(error.message, true);
   }
+}
+
+function openGameResearchSearch(game) {
+  const title = String(game?.title || "").trim().slice(0, 160);
+  if (!title) return;
+  const platform = String(game?.platform || game?.computer || "ZX Spectrum").trim().slice(0, 80);
+  const system = String(game?.system || game?.memory || "").trim().slice(0, 80);
+  const terms = [...new Set([title, platform, system].filter(Boolean))];
+  const url = new URL("https://duckduckgo.com/");
+  url.searchParams.set("q", terms.join(" "));
+  const linkPreference = arcadeCyruneSettings.get()?.values?.behaviour?.externalLinks;
+  if (linkPreference === "current-tab") window.location.assign(url.href);
+  else window.open(url.href, "_blank", "noopener,noreferrer");
 }
 
 async function importIncomingSelected() {
@@ -3135,7 +3174,7 @@ async function applySelectedScrapeMatch(overlay, game, preview) {
   }
 }
 
-function showMetadataModal(gameIds, isBulk) {
+function showMetadataModal(gameIds, isBulk, focusField = "") {
   if (!state.activeCollection?.writable) return;
   const games = gameIds.map((id) => state.selected?.id === id ? state.selected : state.gamesById.get(id)).filter(Boolean);
   if (!games.length) return;
@@ -3205,6 +3244,7 @@ function showMetadataModal(gameIds, isBulk) {
   setupMetadataComboDropdowns(overlay);
   setupMetadataProfileFilter(overlay, isBulk);
   bindMetadataPreview(overlay, gameIds, isBulk);
+  focusMetadataQuickAction(overlay, focusField, isBulk);
   overlay.addEventListener("click", async (event) => {
     if (event.target === overlay) {
       overlay.remove();
@@ -3276,6 +3316,19 @@ function showMetadataModal(gameIds, isBulk) {
       errorBox.textContent = error.payload?.errors?.join("; ") || error.message;
     }
   });
+}
+
+function focusMetadataQuickAction(overlay, field, isBulk) {
+  if (!field) return;
+  const combo = overlay.querySelector(`[data-meta="${field}"]`);
+  if (!combo) return;
+  if (isBulk) {
+    const apply = overlay.querySelector(`[data-apply="${field}"]`);
+    if (apply) apply.checked = true;
+  }
+  combo.classList.add("open");
+  combo.closest(".metadata-field")?.scrollIntoView({ block: "center" });
+  combo.querySelector(".metadata-combo-button")?.focus();
 }
 
 function metadataField(id, label, value, type = "text", isBulk = false, placeholder = "", layout = "") {

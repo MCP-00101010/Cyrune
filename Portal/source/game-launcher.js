@@ -2,6 +2,11 @@ const gameStatusCache = new Map();
 const gameStatusRequests = new Map();
 const gameTooltipItems = new WeakMap();
 
+function _renderGameShortcutSurfaces() {
+  if (typeof renderContentSurfaces === 'function') renderContentSurfaces();
+  if (typeof renderEssentials === 'function') renderEssentials();
+}
+
 const GAME_SYSTEMS = Object.freeze({
   'zx-spectrum': { label: 'ZX Spectrum', iconId: 'icon-system-zx-spectrum' },
   'atari-st': { label: 'Atari ST', iconId: 'icon-system-atari-st' },
@@ -155,7 +160,7 @@ async function refreshGameStatus(item, options = {}) {
       }
     }
     if (portableMetadataChanged) void saveState();
-    if (options.render !== false && changed && typeof renderContentSurfaces === 'function') renderContentSurfaces();
+    if (options.render !== false && changed) _renderGameShortcutSurfaces();
     return normalized;
   }).catch(error => {
     const status = { gameKey: item.gameKey, state: 'unavailable', title: item.title || 'Game', thumbnailCache: item.thumbnailCache || '', error: error?.message || '' };
@@ -174,7 +179,7 @@ async function launchGameShortcut(item) {
     return true;
   } catch (error) {
     const status = await refreshGameStatus(item, { render: false });
-    renderContentSurfaces();
+    _renderGameShortcutSurfaces();
     showNotice(status.state === 'ready'
       ? (error?.message || `${item.title || 'The game'} could not be launched.`)
       : getGameStatusMessage(status, item.title || 'This game'));
@@ -230,7 +235,7 @@ async function applyExternalGameBindingUpdate(source = {}) {
   const status = { ...source, gameKey, state: 'ready', thumbnailCache: thumbnail || entries[0].item.thumbnailCache || '' };
   gameStatusCache.set(gameKey, status);
   const saved = await saveState();
-  renderContentSurfaces();
+  _renderGameShortcutSurfaces();
   showNotice(`${entries[0].item.title || 'Game'} was rebound on this device.`);
   return { ok: saved?.ok !== false, persisted: saved?.persisted || '' };
 }
@@ -240,7 +245,7 @@ async function forgetGameShortcut(item) {
   try {
     await bridge.forgetGame(item.gameKey);
     gameStatusCache.set(item.gameKey, { gameKey: item.gameKey, state: 'unbound', title: item.title || 'Game', thumbnailCache: item.thumbnailCache || '' });
-    renderContentSurfaces();
+    _renderGameShortcutSurfaces();
     showNotice(`${item.title || 'Game'} is no longer bound on this device.`);
     return true;
   } catch (error) {
@@ -250,14 +255,38 @@ async function forgetGameShortcut(item) {
 }
 
 function duplicateGameShortcut(context = contextTarget) {
-  const board = getBoardForContext(context);
-  const found = board ? findBoardItemInColumns(board, context?.itemId) : null;
-  if (!found?.item || found.item.type !== 'game') return false;
+  const board = getBoardForContext(context) || getActiveBoard();
+  let source = context?.item || null;
+  let target = null;
+  let insertAt = -1;
+  if (context?.area === 'essential') {
+    source = state.essentials?.[context.slot] || source;
+    target = state.essentials;
+    insertAt = target.findIndex((item, index) => index > context.slot && !item);
+    if (insertAt === -1) insertAt = target.length;
+  } else if (context?.area === 'speed-dial-item') {
+    source = board?.speedDial?.[context.slot] || source;
+    insertAt = firstEmptySpeedDialSlot(board);
+    if (insertAt === -1) {
+      showNotice('No empty speed dial slot is available.');
+      return false;
+    }
+  } else {
+    const found = board ? findBoardItemInColumns(board, context?.itemId) : null;
+    if (found?.item) {
+      source = found.item;
+      target = found.list;
+      insertAt = found.list.indexOf(found.item) + 1;
+    }
+  }
+  if (!source || source.type !== 'game') return false;
   pushUndoSnapshot();
-  const copy = cloneData(found.item);
+  const copy = cloneData(source);
   copy.id = `game-item-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
   copy.title = `${copy.title || 'Game'} (copy)`;
-  found.list.splice(found.list.indexOf(found.item) + 1, 0, copy);
+  if (context?.area === 'speed-dial-item') setSpeedDialSlot(board, insertAt, copy);
+  else if (target) target.splice(insertAt, context?.area === 'essential' && insertAt < target.length ? 1 : 0, copy);
+  else return false;
   renderAll();
   void saveState();
   return true;
@@ -266,15 +295,18 @@ function duplicateGameShortcut(context = contextTarget) {
 function collectStoredGames(root = state) {
   const entries = [];
   const walk = (items, metadata, path = [], inheritedLocked = false) => {
-    for (const item of (items || [])) {
+    const { includeSlot = false, ...entryMetadata } = metadata;
+    for (let index = 0; index < (items || []).length; index += 1) {
+      const item = items[index];
       if (!item) continue;
-      const locked = inheritedLocked || item.locked === true || metadata.locked === true;
+      const locked = inheritedLocked || item.locked === true || entryMetadata.locked === true;
       if (item.type === 'game') {
         entries.push({
-          key: [metadata.area, metadata.boardId || '', metadata.tabId || '', metadata.columnId || '', ...path, item.id].join(':'),
+          key: [entryMetadata.area, entryMetadata.boardId || '', entryMetadata.tabId || '', entryMetadata.columnId || '', ...path, item.id].join(':'),
           item,
-          ...metadata,
-          location: [...metadata.locationParts, ...path].join(' / '),
+          ...entryMetadata,
+          ...(includeSlot ? { slot: index } : {}),
+          location: [...entryMetadata.locationParts, ...path].join(' / '),
           locked
         });
       } else if (item.type === 'folder' && !isDynamicFolder(item)) {
@@ -282,7 +314,9 @@ function collectStoredGames(root = state) {
       }
     }
   };
+  walk(root.essentials || [], { area: 'essential', locationParts: ['Essentials'], locked: false, includeSlot: true });
   for (const board of (root.boards || [])) {
+    walk(board.speedDial || [], { area: 'speed-dial-item', boardId: board.id, locationParts: [board.title || 'Untitled Board', 'Speed Dial'], locked: board.locked === true, includeSlot: true });
     for (const tab of getBoardTabs(board)) {
       for (const column of (tab.columns || [])) {
         walk(column.items || [], { area: 'board', boardId: board.id, tabId: tab.id, columnId: column.id, locationParts: [board.title || 'Untitled Board', tab.title || 'Untitled Tab', column.title || 'Untitled Column'], locked: board.locked === true });

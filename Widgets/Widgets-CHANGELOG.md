@@ -4,6 +4,17 @@ Historical entries below are preserved from Portal releases whose release notes 
 
 ---
 
+## [0.2.17] — 2026-09-04
+
+### Added
+
+- Added an accessible sun/moon basemap control beneath MapLibre's zoom controls in ISS Tracker, Global Hazards, and Weather Map.
+- The control switches between the existing Dark and Liberty styles, records Undo, persists the Widget configuration, and rebuilds the map through its normal lifecycle so overlays and saved camera state remain intact.
+
+### Validation
+
+- Focused Widget coverage verifies the shared toggle mapping, persistence path, accessible label, and placement after each map's zoom controls.
+
 ## [0.2.16] — 2026-09-01
 
 ### Fixed

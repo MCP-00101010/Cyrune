@@ -171,10 +171,11 @@ test('game tooltip details expose safe display labels rather than binding IDs', 
   assert.doesNotMatch(JSON.stringify(details), /hidden-/);
 });
 
-test('stored games are indexed across columns, folders, and Inboxes for the command palette', () => {
+test('stored games are indexed across compact launchers, columns, folders, and Inboxes for the command palette', () => {
   const launched = [];
   const state = {
-    boards: [{ id: 'board-1', title: 'Home', tabs: [{
+    essentials: [{ id: 'game-essential', type: 'game', title: 'Atic Atac', gameKey: 'game_essential123456' }],
+    boards: [{ id: 'board-1', title: 'Home', speedDial: [{ id: 'game-speed', type: 'game', title: 'Saboteur', gameKey: 'game_speeddial123456' }], tabs: [{
       id: 'tab-1', title: 'Main',
       columns: [{ id: 'column-1', title: 'Games', items: [{
         id: 'folder-1', type: 'folder', title: 'Spectrum', children: [{
@@ -201,14 +202,50 @@ test('stored games are indexed across columns, folders, and Inboxes for the comm
   const launcher = path.join(__dirname, '..', 'source', 'game-launcher.js');
   vm.runInContext(fs.readFileSync(launcher, 'utf8'), context, { filename: launcher });
   const stored = Array.from(context.collectStoredGames());
-  assert.deepEqual(stored.map(entry => entry.item.title), ['Jetpac', 'Knight Lore']);
-  assert.match(stored[0].location, /Home \/ Main \/ Games \/ Spectrum/);
+  assert.deepEqual(stored.map(entry => entry.item.title), ['Atic Atac', 'Saboteur', 'Jetpac', 'Knight Lore']);
+  assert.deepEqual(stored.slice(0, 2).map(entry => [entry.area, entry.slot]), [['essential', 0], ['speed-dial-item', 0]]);
+  assert.match(stored[2].location, /Home \/ Main \/ Games \/ Spectrum/);
   context.launchGameShortcut = item => launched.push(item.title);
 
   const palette = path.join(__dirname, '..', 'source', 'command-palette.js');
   vm.runInContext(fs.readFileSync(palette, 'utf8'), context, { filename: palette });
   const entries = Array.from(context.buildCommandPaletteEntries()).filter(entry => entry.group === 'Games');
-  assert.deepEqual(entries.map(entry => entry.label), ['Jetpac', 'Knight Lore']);
+  assert.deepEqual(entries.map(entry => entry.label), ['Atic Atac', 'Saboteur', 'Jetpac', 'Knight Lore']);
   entries[0].run();
-  assert.deepEqual(launched, ['Jetpac']);
+  assert.deepEqual(launched, ['Atic Atac']);
+});
+
+test('game shortcuts duplicate within Essentials and Speed Dial without changing their binding', () => {
+  const essential = { id: 'game-essential', type: 'game', title: 'Jetpac', gameKey: 'game_abcdefghijklmnop' };
+  const speed = { id: 'game-speed', type: 'game', title: 'Knight Lore', gameKey: 'game_qrstuvwxyz123456' };
+  const board = { id: 'board-1', speedDial: [speed, null, null], speedDialSlotCount: 3, tabs: [] };
+  const state = { essentials: [essential], boards: [board] };
+  let undoCount = 0;
+  const context = vm.createContext({
+    console, Map, Promise, Date, Math, state,
+    bridge: { supports: () => true },
+    contextTarget: null,
+    cloneData: value => structuredClone(value),
+    getBoardForContext: () => board,
+    getActiveBoard: () => board,
+    firstEmptySpeedDialSlot: target => target.speedDial.findIndex(item => !item),
+    setSpeedDialSlot: (target, slot, item) => {
+      if (slot < 0 || target.speedDial[slot]) return false;
+      target.speedDial[slot] = item;
+      return true;
+    },
+    findBoardItemInColumns: () => null,
+    pushUndoSnapshot: () => { undoCount += 1; },
+    renderAll: () => {},
+    saveState: async () => ({ ok: true }),
+    showNotice: () => {}
+  });
+  const filename = path.join(__dirname, '..', 'source', 'game-launcher.js');
+  vm.runInContext(fs.readFileSync(filename, 'utf8'), context, { filename });
+
+  assert.equal(context.duplicateGameShortcut({ area: 'essential', slot: 0, item: essential }), true);
+  assert.equal(context.duplicateGameShortcut({ area: 'speed-dial-item', slot: 0, item: speed }), true);
+  assert.equal(state.essentials[1].gameKey, essential.gameKey);
+  assert.equal(board.speedDial[1].gameKey, speed.gameKey);
+  assert.equal(undoCount, 2);
 });

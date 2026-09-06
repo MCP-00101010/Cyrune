@@ -65,3 +65,16 @@
     margin-left: auto;
   }
 }
+.widget-map-style-toggle > span {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  color: #24303b;
+  font-size: 17px;
+  line-height: 1;
+}
+
+.widget-map-style-toggle[data-map-style="liberty"] > span {
+  color: #142033;
+}

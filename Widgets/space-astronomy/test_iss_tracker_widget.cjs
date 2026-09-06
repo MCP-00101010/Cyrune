@@ -278,3 +278,67 @@ test('custom north control is clickable and resets every globe orientation axis'
   assert.match(northStyle, /pointer-events:\s*auto/);
   assert.match(northStyle, /cursor:\s*pointer/);
 });
+
+test('map widgets expose one shared persistent light and dark basemap control below zoom', () => {
+  const { context } = loadIssWidgets();
+  assert.equal(vm.runInContext("_nextWidgetMapStyle('dark')", context), 'liberty');
+  assert.equal(vm.runInContext("_nextWidgetMapStyle('liberty')", context), 'dark');
+  const interaction = vm.runInContext(`(() => {
+    let undoCount = 0;
+    let saveCount = 0;
+    let refreshCount = 0;
+    document = {
+      createElement(tagName) {
+        return {
+          tagName,
+          dataset: {},
+          children: [],
+          listeners: {},
+          setAttribute(name, value) { this[name] = value; },
+          addEventListener(name, listener) { this.listeners[name] = listener; },
+          appendChild(child) { this.children.push(child); },
+          remove() { this.removed = true; }
+        };
+      }
+    };
+    pushUndoSnapshot = () => { undoCount += 1; };
+    saveState = () => { saveCount += 1; };
+    refreshRenderedWidget = (candidate, candidateContext) => {
+      refreshCount += candidate.id === 'map-theme' && candidateContext === 'column' ? 1 : 100;
+      return true;
+    };
+    const widget = { id: 'map-theme', widgetType: 'issTracker', config: { mapStyle: 'dark' } };
+    const control = _createWidgetMapStyleControl(widget, 'column', _normalizeIssMapStyle);
+    const container = control.onAdd();
+    const button = container.children[0];
+    const initialLabel = button['aria-label'];
+    button.listeners.click({ preventDefault() {}, stopPropagation() {} });
+    control.onRemove();
+    return { style: widget.config.mapStyle, undoCount, saveCount, refreshCount, initialLabel, removed: container.removed };
+  })()`, context);
+  assert.deepEqual(JSON.parse(JSON.stringify(interaction)), {
+    style: 'liberty',
+    undoCount: 1,
+    saveCount: 1,
+    refreshCount: 1,
+    initialLabel: 'Switch to light basemap',
+    removed: true
+  });
+
+  const framework = fs.readFileSync(path.join(root, '..', 'Widgets', 'core', 'widgets.js'), 'utf8');
+  assert.match(framework, /className = 'widget-map-style-toggle'/);
+  assert.match(framework, /pushUndoSnapshot\(\)[\s\S]*?widget\.config\.mapStyle = _nextWidgetMapStyle[\s\S]*?saveState\(\)[\s\S]*?refreshRenderedWidget\(widget, context\)/);
+  assert.match(framework, /Switch to \$\{nextLabel\} basemap/);
+
+  for (const relative of [
+    ['space-astronomy', 'iss-tracker-widget.js'],
+    ['weather-hazards', 'weather-map-widget.js'],
+    ['weather-hazards', 'global-hazards-widget.js']
+  ]) {
+    const source = fs.readFileSync(path.join(root, '..', 'Widgets', ...relative), 'utf8');
+    const navigation = source.indexOf('new maplibregl.NavigationControl({ showCompass: false })');
+    const theme = source.indexOf('_createWidgetMapStyleControl(', navigation);
+    assert.ok(navigation >= 0, `${relative[1]} has zoom controls`);
+    assert.ok(theme > navigation, `${relative[1]} places its basemap control after zoom`);
+  }
+});

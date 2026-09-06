@@ -5,6 +5,33 @@ Format: `[version] — date` followed by Added / Changed / Fixed sections.
 
 ---
 
+## [0.12.4] — 2026-09-04
+
+### Fixed
+
+- Dragging application and game cards over empty Speed Dial or Essentials slots now shows their compact icon, artwork, or system-icon preview instead of an empty or generic target.
+- First-class game shortcuts now retain their launch, status, tooltip, editing, duplication, and device-binding actions after moving through Speed Dial or Essentials.
+
+### Validation
+
+- Portal drag-and-drop, compact-placement, game-launcher, global-symbol, persistence, and version checks cover the compact previews and game shortcut lifecycle.
+
+## [0.12.3] — 2026-09-01
+
+### Added
+
+- Application shortcuts can now be created from the native picker or dropped launcher links directly into empty Speed Dial and Essentials slots.
+
+### Fixed
+
+- Compact application shortcuts now retain their opaque binding and item type while moving between columns, folders, Inboxes, Speed Dial, and Essentials, and launch with application-specific icons, status refreshes, editing, duplication, and context actions.
+- Shared databases with empty compact-launcher slots now load normally instead of falling back to a fresh empty Portal state during item normalization.
+- Authoritative snapshot parse failures now leave the current state untouched and enter the read-only recovery path instead of being accepted as a valid empty shared database.
+
+### Validation
+
+- All 109 Portal tests pass, including focused exact-slot placement, drag-type, shared-database load, and authoritative-restore safety coverage. The full coordinated release gate passes 453 JavaScript tests, 173 Python tests, syntax and manifest checks, infrastructure/version validation, and zero-warning Relay lint.
+
 ## [0.12.2] — 2026-09-01
 
 ### Fixed

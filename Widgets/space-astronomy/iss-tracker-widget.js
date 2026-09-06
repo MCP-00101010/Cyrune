@@ -643,6 +643,7 @@ WIDGET_REGISTRY['issTracker'] = {
       map = new maplibregl.Map(mapOptions);
       map.touchZoomRotate?.disableRotation?.();
       map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
+      map.addControl(_createWidgetMapStyleControl(widget, context, _normalizeIssMapStyle), 'top-right');
     } catch (error) {
       status.classList.remove('hidden');
       status.classList.add('is-error');

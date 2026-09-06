@@ -1078,8 +1078,31 @@ function handleFolderTabContextMenu(event, navItem, folder) {
 
 function handleEssentialContextMenu(event, slot, item) {
   contextTarget = { area: 'essential', slot, item };
-  const options = item
+  const gameOptions = item?.type === 'game'
     ? [
+        { label: 'Launch game', action: 'launchGame' },
+        { label: 'Open in Cyrune Arcade', action: 'openGameInArcade' },
+        { label: 'Reveal game file', action: 'revealGame' },
+        { label: 'Rebind in Cyrune Arcade…', action: 'rebindGame' },
+        { label: 'Edit game shortcut', action: 'editGame' },
+        ...(getGameStatus(item).state === 'ready' ? [{ label: 'Forget device binding', action: 'forgetGame' }] : []),
+        { label: 'Duplicate', action: 'duplicateGame' },
+        { label: 'Move to tab inbox', action: 'moveToBoard' },
+        { label: 'Delete game', action: 'deleteEssential' }
+      ]
+    : null;
+  const options = gameOptions || (item?.type === 'application'
+    ? [
+        { label: 'Launch application', action: 'launchApplication' },
+        ...(item.applicationKind !== 'protocol-link' ? [{ label: 'Reveal application', action: 'revealApplication' }] : []),
+        { label: 'Edit application', action: 'editApplication' },
+        { label: 'Set up on this device…', action: 'rebindApplication' },
+        ...(getApplicationStatus(item).state === 'ready' ? [{ label: 'Forget device binding', action: 'forgetApplication' }] : []),
+        { label: 'Duplicate', action: 'duplicateApplication' },
+        { label: 'Move to tab inbox', action: 'moveToBoard' },
+        { label: 'Delete application', action: 'deleteEssential' }
+      ]
+    : item ? [
         { label: 'Edit bookmark',    action: 'editEssential' },
         { label: 'Add to Set...',    action: '', submenu: _buildAddToSetSubmenu() },
         { label: 'Duplicate',        action: 'duplicateBookmark' },
@@ -1087,7 +1110,10 @@ function handleEssentialContextMenu(event, slot, item) {
         { label: 'Move to tab inbox', action: 'moveToBoard' },
         { label: 'Delete bookmark',  action: 'deleteEssential' }
       ]
-    : [{ label: 'Add bookmark', action: 'addEssential' }];
+    : [
+        { label: 'Add bookmark', action: 'addEssential' },
+        { label: 'Add application', action: 'addApplication' }
+      ]);
   showContextMenu(event.clientX, event.clientY, options);
 }
 
@@ -1107,14 +1133,34 @@ function handleSpeedDialContextMenu(event, item, slot = findSpeedDialSlot(getAct
   contextTarget = { area: 'speed-dial-item', itemId: item.id, slot, item };
   const boards = state.boards.filter(b => !b.locked);
   const canMove = boards.some(board => (board.tabs || []).length > 0);
-  const options = [
-    { label: 'Edit bookmark',   action: 'editSpeedDial' },
-    { label: 'Add to Set...',   action: '', submenu: _buildAddToSetSubmenu() },
-    { label: 'Duplicate',       action: 'duplicateBookmark' },
-    { label: 'Refresh favicon', action: 'refreshFavicon' },
-  ];
+  const options = item.type === 'game'
+    ? [
+        { label: 'Launch game', action: 'launchGame' },
+        { label: 'Open in Cyrune Arcade', action: 'openGameInArcade' },
+        { label: 'Reveal game file', action: 'revealGame' },
+        { label: 'Rebind in Cyrune Arcade…', action: 'rebindGame' },
+        { label: 'Edit game shortcut', action: 'editGame' },
+        ...(getGameStatus(item).state === 'ready' ? [{ label: 'Forget device binding', action: 'forgetGame' }] : []),
+        { label: 'Duplicate', action: 'duplicateGame' }
+      ]
+    : item.type === 'application'
+    ? [
+        { label: 'Launch application', action: 'launchApplication' },
+        ...(item.applicationKind !== 'protocol-link' ? [{ label: 'Reveal application', action: 'revealApplication' }] : []),
+        { label: 'Edit application', action: 'editApplication' },
+        { label: 'Set up on this device…', action: 'rebindApplication' },
+        ...(getApplicationStatus(item).state === 'ready' ? [{ label: 'Forget device binding', action: 'forgetApplication' }] : []),
+        { label: 'Duplicate', action: 'duplicateApplication' }
+      ]
+    : [
+        { label: 'Edit bookmark',   action: 'editSpeedDial' },
+        { label: 'Add to Set...',   action: '', submenu: _buildAddToSetSubmenu() },
+        { label: 'Duplicate',       action: 'duplicateBookmark' },
+        { label: 'Refresh favicon', action: 'refreshFavicon' }
+      ];
   if (canMove) options.push({ label: 'Move to tab inbox', action: 'moveToBoard' });
-  options.push({ label: 'Delete bookmark', action: 'deleteSpeedDial' });
+  const deleteLabel = item.type === 'application' ? 'Delete application' : item.type === 'game' ? 'Delete game' : 'Delete bookmark';
+  options.push({ label: deleteLabel, action: 'deleteSpeedDial' });
   showContextMenu(event.clientX, event.clientY, options);
 }
 

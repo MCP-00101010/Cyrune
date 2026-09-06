@@ -38,6 +38,40 @@ function renderTagsInto(container, tagIds, boardContext = false) {
   (tagIds || []).forEach(id => container.appendChild(makeTagChip(id, boardContext)));
 }
 
+function appendCompactLauncherArtwork(container, item, faviconSize = 64) {
+  if (!container || !item) return null;
+  let artwork = null;
+  const gameThumbnail = item.type === 'game' ? getGameTooltipDetails(item).thumbnail : '';
+  if (item.type === 'application' && item.iconCache) {
+    artwork = document.createElement('img');
+    artwork.src = item.iconCache;
+    artwork.alt = item.title || 'Application';
+  } else if (item.type === 'application') {
+    artwork = icon('icon-application');
+    artwork.classList.add('compact-application-icon');
+  } else if (gameThumbnail) {
+    artwork = document.createElement('img');
+    artwork.className = 'compact-game-thumbnail';
+    artwork.src = gameThumbnail;
+    artwork.alt = item.title || 'Game';
+  } else if (item.type === 'game') {
+    artwork = document.createElement('span');
+    artwork.className = 'compact-game-icon';
+    renderGameSystemIcon(artwork, item);
+  } else if (item.url) {
+    artwork = document.createElement('img');
+    setFavicon(artwork, item, faviconSize);
+    artwork.alt = item.title || '';
+  } else {
+    artwork = document.createElement('span');
+    artwork.className = container.classList?.contains('speed-link') ? 'speed-link-fallback' : 'essential-slot-fallback';
+    artwork.textContent = item.title ? item.title[0].toUpperCase() : '?';
+  }
+  artwork.draggable = false;
+  container.appendChild(artwork);
+  return artwork;
+}
+
 // --- Board item element ---
 
 function createBoardItemElement(item, columnId, depth = 1, parentFolder = null, inheritedLock = false) {

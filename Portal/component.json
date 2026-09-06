@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "portal",
   "name": "Portal",
-  "version": "0.12.2",
+  "version": "0.12.4",
   "kind": "page",
   "entrypoint": "index.html",
   "icon": "assets/brand/portal.svg",

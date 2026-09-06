@@ -1,7 +1,48 @@
+import json
+import re
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_arcade_status_displays_the_authoritative_component_version():
+    manifest = json.loads((ROOT / "component.json").read_text(encoding="utf-8"))
+    html = (ROOT / "web" / "index.html").read_text(encoding="utf-8")
+    source = (ROOT / "web" / "app.js").read_text(encoding="utf-8")
+    match = re.search(r"ARCADE_VERSION\s*=\s*'([^']+)'", source)
+    assert match
+    assert match.group(1) == manifest["version"]
+    assert f'id="arcade-version"' in html
+    assert f'v{manifest["version"]}' in html
+    assert "Cyrune Arcade version ${ARCADE_VERSION}" in source
+
+
+def test_metadata_country_and_language_quick_actions_focus_the_existing_editor():
+    source = (ROOT / "web" / "app.js").read_text(encoding="utf-8")
+    assert 'data-action="set-country">Set Country</button>' in source
+    assert 'data-action="set-language">Set Language</button>' in source
+    assert 'action === "set-country" ? "countries" : "languages"' in source
+    assert 'function focusMetadataQuickAction(overlay, field, isBulk)' in source
+    assert 'apply.checked = true' in source
+    assert 'combo.classList.add("open")' in source
+
+
+def test_game_research_action_uses_only_a_bounded_explicit_https_search():
+    source = (ROOT / "web" / "app.js").read_text(encoding="utf-8")
+    start = source.index("function openGameResearchSearch")
+    end = source.index("\nasync function ", start + 20)
+    research = source[start:end]
+    assert 'data-action="research-web">Search the Web</button>' in source
+    assert 'new URL("https://duckduckgo.com/")' in research
+    assert 'game?.title' in research
+    assert 'game?.platform || game?.computer || "ZX Spectrum"' in research
+    assert 'game?.system || game?.memory' in research
+    assert '[title, platform, system]' in research
+    assert '.slice(0, 160)' in research
+    assert 'behaviour?.externalLinks' in research
+    for forbidden in ("game?.path", "file_name", "scraper_id", "fetch(", "requestArcadeRpc"):
+        assert forbidden not in research
 
 
 def test_arcade_page_declares_the_extension_boundary_and_legacy_alias():

@@ -635,11 +635,9 @@ function _submitMoveToBoardModal(ensureUndo) {
     capturedItem = cloneData(contextTarget.item);
     if (!capturedItem.tags) capturedItem.tags = [];
     if (area === 'speed-dial-item') {
-      capturedItem.type = 'bookmark';
       const board = getActiveBoard();
       removeSpeedDialItemById(board, contextTarget.itemId);
     } else if (area === 'essential') {
-      capturedItem.type = 'bookmark';
       removeEssential(contextTarget.slot);
       trimEssentialsTail();
     } else {
@@ -751,25 +749,25 @@ async function handleModalSubmit(event) {
       break;
     }
     case 'editApplication': {
-      const board = getBoardForContext(contextTarget);
-      const found = board ? findBoardItemInColumns(board, contextTarget?.itemId) : null;
-      if (!found?.item || found.item.type !== 'application') return;
+      const item = contextTarget?.item;
+      if (!item || item.type !== 'application') return;
       ensureUndo();
-      found.item.title = value1.slice(0, 160);
-      found.item.tags = tags;
-      if (ignoreInheritedTags) found.item.ignoreInheritedTags = true;
-      else delete found.item.ignoreInheritedTags;
+      item.title = value1.slice(0, 160);
+      item.tags = tags;
+      if (ignoreInheritedTags) item.ignoreInheritedTags = true;
+      else delete item.ignoreInheritedTags;
       break;
     }
     case 'editGame': {
       const board = getBoardForContext(contextTarget);
       const found = board ? findBoardItemInColumns(board, contextTarget?.itemId) : null;
-      if (!found?.item || found.item.type !== 'game') return;
+      const item = contextTarget?.item?.type === 'game' ? contextTarget.item : found?.item;
+      if (!item || item.type !== 'game') return;
       ensureUndo();
-      found.item.title = value1.slice(0, 160);
-      found.item.tags = tags.slice(0, 12);
-      if (ignoreInheritedTags) found.item.ignoreInheritedTags = true;
-      else delete found.item.ignoreInheritedTags;
+      item.title = value1.slice(0, 160);
+      item.tags = tags.slice(0, 12);
+      if (ignoreInheritedTags) item.ignoreInheritedTags = true;
+      else delete item.ignoreInheritedTags;
       break;
     }
     case 'addFolder': {

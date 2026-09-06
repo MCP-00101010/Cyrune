@@ -676,6 +676,7 @@ function _globalHazardRender(widget, element, context) {
       attributionControl: { compact: true, customAttribution: '<a href="https://openfreemap.org/" target="_blank" rel="noreferrer">OpenFreeMap</a> · <a href="https://openmaptiles.org/" target="_blank" rel="noreferrer">© OpenMapTiles</a> · Data from <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a>' }
     });
     map.touchZoomRotate.disableRotation(); map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
+    map.addControl(_createWidgetMapStyleControl(widget, context, _globalHazardMapStyle), 'top-right');
   } catch (error) { status.classList.remove('hidden'); status.classList.add('is-error'); status.textContent = error?.message || 'Unable to initialise the hazard map.'; return; }
   const instance = { widgetId: widget.id, widget, runtime, map, resizeObserver: null, widgetCard, attributionButton: null }; _globalHazardInstances.set(widget.id, instance);
   if (typeof ResizeObserver === 'function') { instance.resizeObserver = new ResizeObserver(() => map.resize()); instance.resizeObserver.observe(mapShell); }

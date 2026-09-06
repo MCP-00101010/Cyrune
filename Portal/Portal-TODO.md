@@ -6,6 +6,7 @@ This file owns outstanding dashboard, board, item, launcher-presentation, and Po
 
 - Continue monitoring persistence and Relay startup for false disk-change warnings, delayed popup actions, registration failures, incorrect recovery prompts, transport errors, and regressions during rapid Inbox delivery or Relay reloads.
 - Periodically verify multiple Portal tabs, active-tab routing, and session-token renewal after Portal or Relay reloads.
+- Monitor application and game shortcuts in Speed Dial and Essentials for drag previews, launch/status refreshes, editing, duplication, and binding recovery after reloads.
 
 ## Interface Improvements
 

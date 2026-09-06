@@ -570,6 +570,7 @@ function createFolderRecord(title, options = {}) {
 
 function migrateItems(items) {
   for (const item of (items || [])) {
+    if (!item) continue;
     if (item.ignoreInheritedTags !== true) delete item.ignoreInheritedTags;
     if (item.type === 'divider') { item.type = 'title'; item.title = ''; }
     if (item.type === 'bookmark') {
@@ -1032,6 +1033,7 @@ function normalizeBoardRecord(board, index = 0) {
   delete normalized.inheritTags;
   delete normalized.autoRemoveTags;
   normalizeSpeedDialSlots(normalized);
+  migrateItems(normalized.speedDial);
   for (const item of (normalized.speedDial || [])) {
     if (!item) continue;
     if (!item.type) item.type = 'bookmark';
@@ -1123,7 +1125,7 @@ function migrateToIdTags(parsed) {
   if (parsed.settings) delete parsed.settings.tagColors;
 }
 
-function parseStateJson(saved) {
+function parseStateJson(saved, options = {}) {
   if (!saved) return cloneData(defaultState);
   try {
     const parsed = JSON.parse(saved);
@@ -1169,6 +1171,7 @@ function parseStateJson(saved) {
     // Migrate: strip trailing nulls from old fixed-slot saves; preserve interior gaps
     parsed.essentials = parsed.essentials || [];
     while (parsed.essentials.length > 0 && !parsed.essentials[parsed.essentials.length - 1]) parsed.essentials.pop();
+    migrateItems(parsed.essentials);
     for (const e of parsed.essentials) {
       if (!e) continue;
       if (!e.tags) e.tags = [];
@@ -1192,6 +1195,7 @@ function parseStateJson(saved) {
     stripLegacySharedTagToggleFields(parsed);
     return parsed;
   } catch (error) {
+    if (options.throwOnError === true) throw error;
     console.warn('Failed to parse saved state, resetting', error);
     return cloneData(defaultState);
   }
@@ -2577,7 +2581,7 @@ function editFolder(itemId, title, tags, sharedTags, ct = null, options = {}) {
 // --- Undo snapshot ---
 
 function restoreStateSnapshot(jsonStr) {
-  state = parseStateJson(jsonStr);
+  state = parseStateJson(jsonStr, { throwOnError: true });
   invalidateDerivedCaches();
 }
 

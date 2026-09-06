@@ -1,4 +1,4 @@
-const APP_VERSION = '0.12.2';
+const APP_VERSION = '0.12.4';
 const PORTAL_UI_TEXT = Object.freeze({
   readOnlyCached: 'Read-only: reconnect Cyrune Relay to edit Portal data. The last authoritative cache remains available for viewing and export.',
   readOnlyIncompatible: 'Read-only: Cyrune Relay is incompatible or outdated. Reload the temporary extension from this checkout, then reload Portal.',
@@ -1083,7 +1083,8 @@ function attachEventListeners() {
     if (getActiveBoard()?.locked) return;
     contextTarget = { area: 'speed-dial' };
     showContextMenu(event.clientX, event.clientY, [
-      { label: 'Add bookmark', action: 'addSpeedDialBookmark' }
+      { label: 'Add bookmark', action: 'addSpeedDialBookmark' },
+      { label: 'Add application', action: 'addApplication' }
     ]);
   });
   document.getElementById('confirmOkBtn').addEventListener('click', () => {

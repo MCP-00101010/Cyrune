@@ -835,6 +835,7 @@ WIDGET_REGISTRY['weatherMap'] = {
       map = new maplibregl.Map(mapOptions);
       map.touchZoomRotate.disableRotation();
       map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
+      map.addControl(_createWidgetMapStyleControl(widget, context, _normalizeWeatherMapStyle), 'top-right');
     } catch (error) {
       status.classList.remove('hidden');
       status.classList.add('is-error');

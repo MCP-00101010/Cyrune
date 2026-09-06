@@ -166,6 +166,55 @@ test('application items receive portable normalized fields without a native path
   assert.equal('nativePath' in item, false);
 });
 
+test('state loading preserves shared data with empty compact-launcher slots', () => {
+  const harness = loadStateScript();
+  const saved = JSON.stringify({
+    hubName: 'Shared Portal',
+    activeBoardId: 'board-1',
+    activeTabId: 'tab-1',
+    navItems: [{ id: 'nav-board-1', type: 'board', title: 'Home', boardId: 'board-1' }],
+    boards: [{
+      id: 'board-1',
+      title: 'Home',
+      speedDialSlotCount: 3,
+      speedDial: [
+        null,
+        { id: 'speed-app', type: 'application', title: 'Editor', appKey: 'app_abcdefghijklmnop', tags: [] },
+        null
+      ],
+      tabs: [{
+        id: 'tab-1',
+        title: 'Main',
+        columns: [{ id: 'column-1', title: 'Links', items: [{ id: 'bookmark-1', type: 'bookmark', title: 'Example', url: 'https://example.com/', tags: [] }] }],
+        inbox: { id: 'inbox-1', items: [] }
+      }]
+    }],
+    essentials: [null, { id: 'essential-app', type: 'application', title: 'Terminal', appKey: 'app_qrstuvwxyz123456', tags: [] }],
+    settings: {}
+  });
+
+  const parsed = harness.context.parseStateJson(saved);
+
+  assert.equal(parsed.hubName, 'Shared Portal');
+  assert.equal(parsed.boards.length, 1);
+  assert.equal(parsed.boards[0].tabs[0].columns[0].items[0].title, 'Example');
+  assert.equal(parsed.boards[0].speedDial[0], null);
+  assert.equal(parsed.boards[0].speedDial[1].type, 'application');
+  assert.equal(parsed.essentials[0], null);
+  assert.equal(parsed.essentials[1].type, 'application');
+});
+
+test('authoritative snapshot restore rejects parse failures without replacing live state', () => {
+  const harness = loadStateScript();
+  vm.runInContext("state.hubName = 'Still Loaded'", harness.context);
+
+  assert.throws(
+    () => vm.runInContext("restoreStateSnapshot('{not-json')", harness.context),
+    /Unexpected token|Expected property name/
+  );
+  assert.equal(vm.runInContext('state.hubName', harness.context), 'Still Loaded');
+});
+
 test('widget Inbox moves preserve identity, reject duplicates, and restore through Undo snapshots', () => {
   const harness = loadStateScript();
   const cacheKey = 'morpheus-widget-sdk-cache:v1:clock:widget-column:view';

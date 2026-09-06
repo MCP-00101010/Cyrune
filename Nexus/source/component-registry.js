@@ -11,7 +11,7 @@ globalThis.CyruneComponentRegistry = (() => {
   {
     "id": "portal",
     "name": "Portal",
-    "version": "0.12.2",
+    "version": "0.12.4",
     "kind": "page",
     "accent": "violet",
     "adapter": "portal",
@@ -39,7 +39,7 @@ globalThis.CyruneComponentRegistry = (() => {
   {
     "id": "widgets",
     "name": "Widgets",
-    "version": "0.2.16",
+    "version": "0.2.17",
     "kind": "catalogue",
     "accent": "cyan",
     "adapter": "widgets",
@@ -69,7 +69,7 @@ globalThis.CyruneComponentRegistry = (() => {
   {
     "id": "arcade",
     "name": "Arcade",
-    "version": "0.2.0",
+    "version": "0.2.2",
     "kind": "page",
     "accent": "orange",
     "adapter": "arcade",

@@ -161,6 +161,8 @@ def test_independent_component_versions_are_validated_without_forcing_equality(t
     (repo / "Portal" / "source").mkdir(exist_ok=True)
     (repo / "Portal" / "source" / "app.js").write_text("const APP_VERSION = '2.3.4';\n", encoding="utf-8")
     (repo / "Portal" / "index.html").write_text("<b>v2.3.4</b><i>Version 2.3.4</i>", encoding="utf-8")
+    (repo / "Arcade" / "web" / "app.js").write_text("const ARCADE_VERSION = '4.5.6';\n", encoding="utf-8")
+    (repo / "Arcade" / "web" / "index.html").write_text("<b>v4.5.6</b>", encoding="utf-8")
     (repo / "Relay" / "manifest.json").write_text(json.dumps({"version": "7.8.9"}), encoding="utf-8")
     (repo / "Nexus" / "source").mkdir(exist_ok=True)
     (repo / "Nexus" / "source" / "model.js").write_text("const NEXUS_VERSION = '1.4.2';\n", encoding="utf-8")
@@ -169,7 +171,7 @@ def test_independent_component_versions_are_validated_without_forcing_equality(t
 
 
 def test_current_component_versions_and_changelogs_align():
-    assert VERSIONS.validate(REPO) == {"Portal": "0.12.2", "Widgets": "0.2.16", "Arcade": "0.2.0", "Relay": "1.1.1", "Host": "0.2.0", "Nexus": "0.3.0"}
+    assert VERSIONS.validate(REPO) == {"Portal": "0.12.4", "Widgets": "0.2.17", "Arcade": "0.2.2", "Relay": "1.1.1", "Host": "0.2.0", "Nexus": "0.3.0"}
 
 
 def test_current_relay_source_builds_and_round_trips_exactly(tmp_path):

@@ -39,6 +39,17 @@ def validate(repo: Path) -> dict[str, str]:
     if portal_html.count(f"v{portal_version}") != 1 or portal_html.count(f"Version {portal_version}") != 1:
         raise ValueError("Portal displayed version fallbacks do not align with APP_VERSION")
 
+    arcade_source = (repo / "Arcade" / "web" / "app.js").read_text(encoding="utf-8")
+    arcade_html = (repo / "Arcade" / "web" / "index.html").read_text(encoding="utf-8")
+    arcade_match = re.search(r"ARCADE_VERSION\s*=\s*'([^']+)'", arcade_source)
+    if not arcade_match or not SEMVER.fullmatch(arcade_match.group(1)):
+        raise ValueError("Arcade ARCADE_VERSION is missing or invalid")
+    arcade_version = arcade_match.group(1)
+    if arcade_version != versions["Arcade"]:
+        raise ValueError("Arcade ARCADE_VERSION does not align with its component manifest")
+    if arcade_html.count(f"v{arcade_version}") != 1:
+        raise ValueError("Arcade displayed version fallback does not align with ARCADE_VERSION")
+
     relay = json.loads((repo / "Relay" / "manifest.json").read_text(encoding="utf-8"))
     relay_version = str(relay.get("version", "") or "")
     if not SEMVER.fullmatch(relay_version):

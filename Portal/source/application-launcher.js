@@ -29,6 +29,11 @@ function getApplicationStatus(item) {
   };
 }
 
+function _renderApplicationShortcutSurfaces() {
+  if (typeof renderContentSurfaces === 'function') renderContentSurfaces();
+  if (typeof renderEssentials === 'function') renderEssentials();
+}
+
 async function refreshApplicationStatus(item, options = {}) {
   if (!item?.appKey || typeof bridge === 'undefined' || typeof bridge.getApplicationStatus !== 'function') return getApplicationStatus(item);
   if (applicationStatusRequests.has(item.appKey)) return applicationStatusRequests.get(item.appKey);
@@ -46,7 +51,7 @@ async function refreshApplicationStatus(item, options = {}) {
       item.applicationKind = normalized.kind;
       stateChanged = true;
     }
-    if (options.render !== false && stateChanged && typeof renderContentSurfaces === 'function') renderContentSurfaces();
+    if (options.render !== false && stateChanged) _renderApplicationShortcutSurfaces();
     return normalized;
   }).catch(error => {
     const status = { appKey: item.appKey, state: 'unavailable', label: item.title || 'Application', kind: item.applicationKind || '', iconDataUrl: item.iconCache || '', error: error?.message || '' };
@@ -73,14 +78,35 @@ function _applicationTargetList(context) {
 
 function _storeApprovedApplication(application, context) {
   if (!application) return null;
-  const target = _applicationTargetList(context);
-  if (!target) {
-    showNotice('Select an unlocked board column first.');
-    return null;
-  }
-  pushUndoSnapshot();
   const item = createApplicationItem(application);
-  target.push(item);
+  const area = context?.area || '';
+  if (area === 'speed-dial' || area === 'speed-dial-item') {
+    const board = getBoardForContext(context) || getActiveBoard();
+    const slot = Number.isInteger(context?.slot) ? context.slot : firstEmptySpeedDialSlot(board);
+    if (!board || slot === -1 || board.speedDial?.[slot]) {
+      showNotice('Choose an empty speed dial slot.');
+      return null;
+    }
+    pushUndoSnapshot();
+    if (!setSpeedDialSlot(board, slot, item)) return null;
+  } else if (area === 'essential') {
+    const slot = Number.isInteger(context?.slot) ? context.slot : -1;
+    if (slot < 0 || state.essentials?.[slot]) {
+      showNotice('Choose an empty Essentials slot.');
+      return null;
+    }
+    pushUndoSnapshot();
+    while (state.essentials.length <= slot) state.essentials.push(null);
+    state.essentials[slot] = item;
+  } else {
+    const target = _applicationTargetList(context);
+    if (!target) {
+      showNotice('Select an unlocked board column first.');
+      return null;
+    }
+    pushUndoSnapshot();
+    target.push(item);
+  }
   applicationStatusCache.set(item.appKey, application);
   renderAll();
   void saveState();
@@ -161,7 +187,7 @@ async function rebindApplicationShortcut(item) {
     applicationStatusCache.set(item.appKey, application);
     if (application.iconDataUrl) item.iconCache = application.iconDataUrl;
     if (application.kind) item.applicationKind = application.kind;
-    renderContentSurfaces();
+    _renderApplicationShortcutSurfaces();
     void saveState();
     showNotice(`${item.title || application.label} is ready on this device.`);
     return true;
@@ -179,7 +205,7 @@ async function launchApplicationShortcut(item) {
     return true;
   } catch (error) {
     const status = await refreshApplicationStatus(item, { render: false });
-    renderContentSurfaces();
+    _renderApplicationShortcutSurfaces();
     showNotice(status.state === 'unbound'
       ? `${item.title} needs to be set up on this device.`
       : (error?.message || `${item.title} could not be launched.`));
@@ -209,7 +235,7 @@ async function forgetApplicationShortcut(item) {
       state: 'unbound',
       iconDataUrl: item.iconCache || ''
     });
-    renderContentSurfaces();
+    _renderApplicationShortcutSurfaces();
     showNotice(`${item.title || 'Application'} is no longer bound on this device.`);
     return true;
   } catch (error) {
@@ -219,14 +245,38 @@ async function forgetApplicationShortcut(item) {
 }
 
 function duplicateApplicationShortcut(context = contextTarget) {
-  const board = getBoardForContext(context);
-  const found = board ? findBoardItemInColumns(board, context?.itemId) : null;
-  if (!found?.item || found.item.type !== 'application') return false;
+  const board = getBoardForContext(context) || getActiveBoard();
+  let source = context?.item || null;
+  let target = null;
+  let insertAt = -1;
+  if (context?.area === 'essential') {
+    source = state.essentials?.[context.slot] || source;
+    target = state.essentials;
+    insertAt = target.findIndex((item, index) => index > context.slot && !item);
+    if (insertAt === -1) insertAt = target.length;
+  } else if (context?.area === 'speed-dial-item') {
+    source = board?.speedDial?.[context.slot] || source;
+    insertAt = firstEmptySpeedDialSlot(board);
+    if (insertAt === -1) {
+      showNotice('No empty speed dial slot is available.');
+      return false;
+    }
+  } else {
+    const found = board ? findBoardItemInColumns(board, context?.itemId) : null;
+    if (found?.item) {
+      source = found.item;
+      target = found.list;
+      insertAt = found.list.indexOf(found.item) + 1;
+    }
+  }
+  if (!source || source.type !== 'application') return false;
   pushUndoSnapshot();
-  const copy = cloneData(found.item);
+  const copy = cloneData(source);
   copy.id = `app-item-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
   copy.title = `${copy.title || 'Application'} (copy)`;
-  found.list.splice(found.list.indexOf(found.item) + 1, 0, copy);
+  if (context?.area === 'speed-dial-item') setSpeedDialSlot(board, insertAt, copy);
+  else if (target) target.splice(insertAt, context?.area === 'essential' && insertAt < target.length ? 1 : 0, copy);
+  else return false;
   renderAll();
   void saveState();
   return true;
@@ -235,15 +285,18 @@ function duplicateApplicationShortcut(context = contextTarget) {
 function collectStoredApplications(root = state) {
   const entries = [];
   const walk = (items, metadata, path = [], inheritedLocked = false) => {
-    for (const item of (items || [])) {
+    const { includeSlot = false, ...entryMetadata } = metadata;
+    for (let index = 0; index < (items || []).length; index += 1) {
+      const item = items[index];
       if (!item) continue;
-      const locked = inheritedLocked || item.locked === true || metadata.locked === true;
+      const locked = inheritedLocked || item.locked === true || entryMetadata.locked === true;
       if (item.type === 'application') {
         entries.push({
-          key: [metadata.area, metadata.boardId || '', metadata.tabId || '', metadata.columnId || '', ...path, item.id].join(':'),
+          key: [entryMetadata.area, entryMetadata.boardId || '', entryMetadata.tabId || '', entryMetadata.columnId || '', ...path, item.id].join(':'),
           item,
-          ...metadata,
-          location: [...metadata.locationParts, ...path].join(' / '),
+          ...entryMetadata,
+          ...(includeSlot ? { slot: index } : {}),
+          location: [...entryMetadata.locationParts, ...path].join(' / '),
           locked
         });
       } else if (item.type === 'folder' && !isDynamicFolder(item)) {
@@ -251,7 +304,9 @@ function collectStoredApplications(root = state) {
       }
     }
   };
+  walk(root.essentials || [], { area: 'essential', locationParts: ['Essentials'], locked: false, includeSlot: true });
   for (const board of (root.boards || [])) {
+    walk(board.speedDial || [], { area: 'speed-dial-item', boardId: board.id, locationParts: [board.title || 'Untitled Board', 'Speed Dial'], locked: board.locked === true, includeSlot: true });
     for (const tab of getBoardTabs(board)) {
       for (const column of (tab.columns || [])) {
         walk(column.items || [], { area: 'board', boardId: board.id, tabId: tab.id, columnId: column.id, locationParts: [board.title || 'Untitled Board', tab.title || 'Untitled Tab', column.title || 'Untitled Column'], locked: board.locked === true });

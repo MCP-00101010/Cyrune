@@ -1,9 +1,5 @@
 # Cyrune Arcade TODO
 
-## Versioning Follow-up
-
-- Surface the authoritative Arcade component version in a compact visible About/status view; its manifest, Nexus reporting, changelog enforcement and repository validation are implemented.
-
 ## Portal-Fronted Multisystem Migration
 
 Arcade becomes Cyrune's game-library workshop, catalogue, metadata authority, emulator-profile manager, and exact-entry launch engine. Portal becomes the normal user-facing organiser and launcher for selected games. Coordinate this section with `../Portal/Portal-TODO.md`, `../Relay/Relay-TODO.md`, and `../Host/Host-TODO.md`.
@@ -42,7 +38,6 @@ Arcade becomes Cyrune's game-library workshop, catalogue, metadata authority, em
 
 ## Metadata Editing
 
-- Extend the first-pass metadata editor with dedicated `Set Country` and `Set Language` quick actions.
 - Preserve existing TOSEC-style filename structure where possible.
 - TOSEC casing rule:
   - Lowercase ISO 639-1 tags are languages, for example `(en)`, `(de)`, `(es)`, `(ru)`.
@@ -67,7 +62,7 @@ Arcade becomes Cyrune's game-library workshop, catalogue, metadata authority, em
 
 ## Research Actions
 
-- Add a bounded game context action that searches the web using the game title plus system, with an optional direct TheGamesDB lookup when a stable provider identity is available.
+- Consider an optional direct TheGamesDB lookup only when a stable provider identity and durable HTTPS detail URL are available; the bounded title-plus-platform-plus-system web search is implemented.
 - Keep search URLs explicit, HTTPS-only, and user-triggered; do not treat search results as trusted metadata until the normal preview/apply workflow validates them.
 
 ## Performance / Large Collections

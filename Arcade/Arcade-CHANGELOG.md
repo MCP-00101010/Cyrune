@@ -4,6 +4,28 @@ Historical entries below are preserved from Portal releases whose release notes 
 
 ---
 
+## [0.2.2] — 2026-09-04
+
+### Added
+
+- Added dedicated `Set Country` and `Set Language` actions for individual games and bulk selections. Each action opens the existing metadata editor at the relevant selector, retaining filename preview, rename, warnings, and Undo behaviour.
+- Added a user-triggered game research action that opens a bounded HTTPS search containing only the title, computer/platform, and hardware system, while respecting the shared external-link destination preference. Legacy records without a platform use their known ZX Spectrum catalogue context.
+
+### Validation
+
+- Arcade frontend tests cover both metadata quick actions, their focused selectors, automatic field selection during bulk edits, and the research action's bounded explicit URL construction.
+
+## [0.2.1] — 2026-09-04
+
+### Added
+
+- Added a compact visible Arcade version badge beside the live library status.
+- Added release validation that keeps the displayed fallback and runtime version aligned with Arcade's authoritative component manifest.
+
+### Validation
+
+- Arcade frontend structure and version-alignment tests cover the visible status badge.
+
 ## [0.2.0] — 2026-08-31
 
 ### Added

@@ -494,6 +494,60 @@ function openWidgetSettings(widget, onRefresh, options = {}) {
 
 function _pad2(n) { return String(n).padStart(2, '0'); }
 
+function _nextWidgetMapStyle(value) {
+  return value === 'dark' ? 'liberty' : 'dark';
+}
+
+function _createWidgetMapStyleControl(widget, context, normalizeStyle) {
+  let container = null;
+
+  const currentStyle = () => {
+    const value = widget?.config?.mapStyle;
+    return typeof normalizeStyle === 'function' ? normalizeStyle(value) : (value === 'liberty' ? 'liberty' : 'dark');
+  };
+
+  return {
+    onAdd() {
+      container = document.createElement('div');
+      container.className = 'maplibregl-ctrl maplibregl-ctrl-group';
+
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'widget-map-style-toggle';
+
+      const updateButton = () => {
+        const style = currentStyle();
+        const nextLabel = style === 'dark' ? 'light' : 'dark';
+        button.title = `Switch to ${nextLabel} basemap`;
+        button.setAttribute('aria-label', button.title);
+        button.dataset.mapStyle = style;
+        button.innerHTML = style === 'dark'
+          ? '<span aria-hidden="true">☀</span>'
+          : '<span aria-hidden="true">☾</span>';
+      };
+
+      updateButton();
+      button.addEventListener('click', event => {
+        event.preventDefault();
+        event.stopPropagation();
+        if (!widget?.config) return;
+        if (typeof pushUndoSnapshot === 'function') pushUndoSnapshot();
+        widget.config.mapStyle = _nextWidgetMapStyle(currentStyle());
+        if (typeof saveState === 'function') void saveState();
+        if (typeof refreshRenderedWidget !== 'function' || !refreshRenderedWidget(widget, context)) updateButton();
+      });
+
+      container.appendChild(button);
+      return container;
+    },
+
+    onRemove() {
+      container?.remove();
+      container = null;
+    }
+  };
+}
+
 function _escapeWidgetSettingValue(value) {
   return String(value ?? '')
     .replace(/&/g, '&amp;')

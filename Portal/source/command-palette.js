@@ -202,7 +202,7 @@ function _commandPaletteRunApplicationAction(entry, action = 'launch') {
     if (entry.tabId) state.activeTabId = entry.tabId;
     renderAll();
   }
-  contextTarget = { area: 'board-item', boardId: entry.boardId, tabId: entry.tabId, columnId: entry.columnId, itemId: entry.item.id, item: entry.item };
+  contextTarget = { area: entry.area || 'board-item', boardId: entry.boardId, tabId: entry.tabId, columnId: entry.columnId, slot: entry.slot, itemId: entry.item.id, item: entry.item };
   if (action === 'launch' || action === 'open') void launchApplicationShortcut(entry.item);
   else if (action === 'edit' || action === 'tag') _showEditApplicationModal(contextTarget, action === 'tag' ? { title: 'Edit Application Tags' } : {});
   else if (action === 'move' || action === 'inbox') _showMoveToBoardModal(contextTarget, 'Move application to Tab Inbox');
