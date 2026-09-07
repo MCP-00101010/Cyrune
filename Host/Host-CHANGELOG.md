@@ -4,6 +4,161 @@ Historical entries below are preserved from Portal releases whose release notes 
 
 ---
 
+## [0.2.15] — 2026-09-07
+
+### Fixed
+
+- Open picker-created Spectrum shortcuts in their bound Arcade collection even when another collection is active. Keep exact binding validation and the existing explicit-rebind restrictions.
+
+### Validation
+
+- Native binding regression checks the exact collection/game URL after verified source reattachment and confirms the active collection remains unchanged.
+- Coordinated validation passed: 1,102 tests plus 11 Host subtests; Ruff and Relay lint reported no findings. Isolated Firefox 155.0.1 passed mixed-platform picker/default/scraper persistence and legacy Spectrum board switching/reload with ScummVM active. Native launch tests mock process execution.
+
+
+## [0.2.14] — 2026-09-07
+
+### Fixed
+
+- Keep legacy Spectrum status, language/system badges, version actions and launch working while another collection is active. Scope local artwork to the bound collection. Bring selected Explorer files into view without changing folder sorting.
+
+### Validation
+
+- Coordinated validation passed: 1,072 tests plus 11 Host subtests, with zero Relay lint findings. Firefox verified an existing Spectrum shortcut on its board through switching and reload while ScummVM stayed active, plus the existing ScummVM picker/default workflow. Native mocked-process checks preserve the saved binding and active collection while launching the correct Spectrum target. Real Windows UI Automation confirmed the highlighted file was visible in a 351-file folder.
+
+## [0.2.13] — 2026-09-07
+
+### Fixed
+
+- Use Windows Shell item selection for exact game files and ShellExecute for game folders through a native-only Arcade callback. Handle COM lifetime, Unicode paths and Windows errors without command-line selection parsing.
+
+### Validation
+
+- Coordinated validation passed: 1,069 tests plus 11 Host subtests, with zero Relay lint findings. Firefox 155.0.1 passed startup, shared-database save/reload and the Portal/Arcade workflow. Deterministic tests cover registration overlap, fresh document tokens, stale pings and delayed discovery replies. A real Windows check through Host's Arcade route confirmed file selection and direct directory opening; native tests cover COM cleanup and Windows failures.
+
+## [0.2.12] — 2026-09-07
+
+### Fixed
+
+- Populate exact Spectrum default hardware from catalogue detail even when an older Arcade service lacks the presentation helper. Preserve existing bindings, source metadata and launch policy.
+
+### Validation
+
+- Coordinated validation passed: 1,057 tests plus 11 Host subtests; Relay lint had zero findings. Firefox 155.0.1 verified ScummVM to Spectrum and back selects the proper emulator, and Portal switches English/48K to German/128K badges with the Spectrum logo only as favicon. Screenshots were visually inspected. Targeted launcher checks also cover unset defaults, unavailable emulators, incompatible pins, stale selection and shortcut error reporting.
+
+## [0.2.11] — 2026-09-07
+
+### Changed
+
+- Supply optional defaultVersion.systems presentation and source-scoped Spectrum language labels independently of catalogue revisions. Preserve approved exact targets and portable schema; shared defaults continue to determine the displayed edition.
+
+### Validation
+
+- Coordinated validation passed: 1,056 tests plus 11 Host subtests, syntax, infrastructure, versions and packaging; Relay lint had zero findings. Firefox 155.0.1 verified grouped Spectrum 48K/128K badges, explicit language-label flags, shared Spectrum artwork, English/48K to German/128K default changes and unchanged source metadata. Native regression checks preserve the resolved approval before and after presentation lookup. Final Arcade and Portal screenshots were visually inspected.
+
+## [0.2.10] — 2026-09-07
+
+### Changed
+
+- Add optional bounded defaultVersion language/platform presentation to game status, separately from full-family options. Follow approved shared defaults for catalogue and legacy bindings; retain exact pins until a shared default is chosen. Never expose native targets or persist this presentation in Portal.
+
+### Validation
+
+- Coordinated validation passed: 1,045 tests plus 11 Host subtests, syntax, infrastructure, versions and packaging; Relay lint had zero findings. Firefox 155.0.1 verified default title badges changing from English/DOS to German/Windows, stable Arcade flag order, ScummVM-only emulator choices, shared defaults and Portal delivery. The Portal title layout was visually inspected.
+
+## [0.2.9] — 2026-09-07
+
+### Changed
+
+- Validate fixed game-version list, one-time launch and default-selection actions against an existing approved anchor, exact family membership and current revision. Reuse independently checked native approvals and reject missing/changed defaults without substituting targets. Expose bounded presentation-only family status.
+
+### Validation
+
+- Coordinated validation plus final focused regressions: 1,035 tests and 11 Host subtests passed. Firefox 155.0.1 verified grouped ScummVM selection, shared defaults in both clients, separate remakes, flags, Inbox delivery, and Spectrum search/pagination/save/reload. Relay lint: zero errors, warnings or notices.
+
+## [0.2.8] — 2026-09-07
+
+### Added
+
+- Return bounded explicit language codes through existing game status for catalogue and legacy shortcuts. Configured ScummVM status also supplies the existing emulator/profile display labels without changing original platforms, bindings or native launch plans.
+- Validation: English/German/unknown ScummVM editions, legacy Spectrum status, malformed/duplicate/oversized language metadata and native data exclusion.
+- Completed validation: 1,019 coordinated tests plus 11 Host subtests passed; syntax, infrastructure, version and Relay lint checks passed. Firefox 155.0.1 verified language/icon refresh through the installed native transport in an isolated fixture.
+
+## [0.2.7] — 2026-09-07
+
+### Fixed
+
+- Launch catalogue games with an explicit visible Windows startup state and separate standard IO, preventing inheritance of the hidden native host's window state and Relay's messaging pipes.
+- Validation: native launch policy and process-option regressions passed; a framed Arcade API request opened Elvira II (DOS/German), returned a clean response and allowed Host to exit while the game remained visible.
+- Coordinated validation: 1,012 tests plus 11 Host subtests passed; syntax, infrastructure, version checks and Relay lint passed with zero findings.
+
+## [0.2.6] — 2026-09-07
+
+### Added
+
+- Validate and execute fixed ScummVM configured-target plans for Arcade and Portal. Native approvals retain exact registration/directory/executable identity; the first ScummVM approval atomically upgrades the catalogue binding envelope to schema 2 while preserving Spectrum bindings and receipts.
+- Negotiate optional ScummVM support per native Portal session and retain Spectrum behavior for older participants.
+- Validation: synthetic migration, bind/retry, changed target, missing story selector, forged native authority and mocked process launch integration.
+
+- Completed validation: all coordinated suites passed (1,007 tests plus 11 Host subtests), including mixed-version and joined native workflows; Relay lint reported zero findings. Firefox 155.0.1 passed ScummVM selection/save/reload and Arcade batch Inbox delivery. Live checks validated all 169 ScummVM plans and the existing Spectrum preflight without starting games.
+
+## [0.2.5] — 2026-09-07
+
+### Changed
+
+- Admit selectable `available` library entries without resolving launch plans for every search result. Explicit Add still validates each exact media/emulator/profile plan, rechecks selected targets before persisting, and atomically saves approvals and retry receipts.
+- Retain legacy/prepared binding compatibility, independent role/session authorization and native launch validation. The unprepared 12,933-game benchmark added 100 games in 1.2 seconds and returned identical retries. See the [direct browsing validation](../docs/architecture/portal-arcade-spectrum-migration.md#direct-library-browsing--2026-09-07).
+
+## [0.2.4] — 2026-09-06
+
+### Changed
+
+- Enabled catalogue v1 with independently checked Arcade support and dedicated authenticated Portal sessions. Expanded the synthetic benchmark to record read allocation and full-size relocation.
+- Maximum-selection acceptance exposed a 100-game binding timeout. Binding plan validation and receipt presentation now share one checked read lease, which ends before approval/receipt persistence. Each selected target still receives initial and final independent validation; an external change at lease exit writes no approvals. The full-size 100-game confirmation passed in 2.970 seconds.
+- Verified the registered Firefox native-host workflow, legacy Host configuration writes preserving separate catalogue approvals, and full-size read readiness. The 12,933-game benchmark returned 100 ready entries in 7.254 seconds cold and 1.320 seconds warm; both responses were 42,643 bytes. See the [activation record](../docs/architecture/portal-arcade-spectrum-migration.md#column-picker-activation--2026-09-06).
+
+## [0.2.3] — 2026-09-06
+
+### Added
+
+- Added exact-entry artwork reads with native confinement, signature/revision checks, and newly encoded PNG responses that exclude embedded source metadata.
+- Added a standard-library decoder for noninterlaced 8-bit grayscale/RGB/alpha and 1/2/4/8-bit indexed PNGs, including all five filters and palette transparency. Input is bounded to 4 MiB/one megapixel; output to 256 pixels/128 KiB. Corrupt or unsupported images use the icon fallback.
+- Connected reads to Arcade's checked read lease and added an isolated native benchmark under `Host/tools/benchmark_catalogue.py`.
+
+### Validation
+
+- PNG/integration tests cover corruption, CRCs, decompression limits, filters, palette indices, transparency, resizing, metadata removal, cancellation, exact ownership, changed/missing files, confinement, and external edits during readiness.
+- The opened file descriptor must match the validated identity before and after reading, with a swap-during-open regression. All 161 Host tests and all 819 coordinated tests pass, together with release gates and focused Ruff `F` checks.
+- No live library was prepared and no emulator was launched. Picker/browser activation remains disabled.
+
+## [0.2.2] — 2026-09-06
+
+### Added
+
+- Added staged fixed-purpose catalogue session, search, detail, and selected-entry binding transport. Host independently checks the canonical Portal page, role, protocol, native session, request bounds, and public Arcade response fields.
+- Dedicated catalogue connections monitor native stdin while work runs, revoking the binding lease on disconnect before pending approval commits. Native session handles remain connection-local; raw errors and native targets never enter responses.
+- Search/detail readiness now validates Arcade's exact-source launch plan through Host without launching or copying profiles. Reads enforce deadlines and recheck entry revisions before returning; bind deadlines include the final persistence preflight.
+
+### Validation
+
+- Synthetic transport tests cover canonical-page/role rejection, unavailable negotiation, forged/cross-connection sessions, readiness, strict request/response bounds, retries, redaction, deadlines, and native EOF during binding.
+- Coordinated validation passes all 780 tests: 466 JavaScript and 314 Python, including 126 Host tests and 157 Arcade tests. Syntax, manifests, infrastructure, versions, packaging, and zero-warning Relay lint pass; focused Ruff `F` and documentation links/anchors also pass.
+- The catalogue capability remains unadvertised. Artwork, Portal picker integration, and full-source performance validation remain activation gates; no live emulator was launched.
+
+## [0.2.1] — 2026-09-06
+
+### Added
+
+- Added an unadvertised catalogue binding store with ordered schema-1 initialization, atomic approval/receipt persistence, bounded native session leases, deterministic batch results, equivalent-binding reuse, and safe retry/Forget behaviour.
+- Added exact-source entry-policy launch integration through existing single-key actions. Host validates Arcade's native decision, media proof, executable signature, argument array, working directory, and managed profile copy before process creation; changed executable or profile destinations require new approval.
+- Preserved legacy pinned keys and semantics in the existing configuration. Legacy and new bindings share a native writer lease and the aggregate 512-key limit; Host configuration writes now use atomic replacement.
+
+### Validation
+
+- Synthetic Host/Arcade tests cover request/plan validation, state redaction, stale selections, source relocation, missing resources, live policy edits, profile copying, mocked launches, running-instance choices, concurrency/retries, session expiry/restart/disconnect, receipt exhaustion, Forget, interrupted writes, and legacy/new coexistence.
+- The coordinated validator passes all 100 Host tests (37 new catalogue cases), 157 Arcade tests, 456 JavaScript tests, and 288 Python tests in total, plus syntax, manifest, infrastructure, version, packaging, and zero-warning Relay lint checks. Focused Ruff `F` and documentation link/anchor checks pass.
+- Catalogue registration, binding, and read message routes remain disabled. No live emulator was launched.
+
 ## [0.2.0] — 2026-08-31
 
 ### Added

@@ -1,0 +1,26 @@
+This directory contains the ScummVM logo and icon and related artwork.
+
+The 'original' subdirectory contains the design files in Photoshop and
+SVG versions.
+
+Smaller versions of the icon in .ico, .png and .xpm format are also
+provided for convenience; these can be regenerated from the SVG versions
+with the included Makefile.
+
+The 'beamer' subdirectory contains a template for the LaTeX 'beamer'
+class which can be used to produce cool-looking presentations related to
+ScummVM. Kudos to Kostas Nakos for writing the initial version of this.
+Max Horn tweaked it a bit to allow displaying our logo on every slide.
+
+The 'derivate' subdirectory contains media where the plain logo and icon
+are combined with other elements.
+
+[TODO: Turn the beamer slides into a template, plus an *english* :)
+  example presentation.]
+[TODO: Update the "original" SVGs so we can automatically generate the
+  .png from them]
+
+All the documents under this directory and subdirectories, except where
+otherwise noted, are made available under the terms of the Creative
+Commons Attribution-ShareAlike 3.0 license:
+http://creativecommons.org/licenses/by-sa/3.0/

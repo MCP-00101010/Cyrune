@@ -2,6 +2,40 @@
 
 This log records repository-wide migration, tooling, and coordinated release changes only. Product changes belong in the affected component changelog.
 
+## 2026-09-07 — Direct Arcade library browsing
+
+- Portal 0.12.7, Arcade 0.2.11, Host 0.2.5 and Relay 1.1.5 remove catalogue preparation from the Add Game workflow. Configured managed libraries, including read-only collections, are browsed through a cached native metadata index.
+- Fix selection of games without individual emulator overrides and valid Spectrum metadata variants. Preserve existing identities/bindings and perform exact native checks for selected games on Add and launch.
+- Full-size synthetic searches measured about 63 ms warm, and Firefox saved/reloaded 100 selections without preparation or collection metadata writes. See the [direct browsing validation](docs/architecture/portal-arcade-spectrum-migration.md#direct-library-browsing--2026-09-07).
+- Validation: all 923 coordinated tests passed, plus 11 Host subtests; syntax, versions, registry and packaging passed; Relay lint reported zero errors, warnings or notices. The sanitized Nexus validation receipt was written.
+
+## 2026-09-06 — Coordinated column game-picker activation
+
+- Enabled optional catalogue v1 across Portal 0.12.6, Arcade 0.2.10, Host 0.2.4 and Relay 1.1.4, including content registration and the generated Nexus registry. The first release covers reviewed writable managed Spectrum sources and regular Portal columns.
+- Added reproducible installed-Firefox and actual legacy-writer acceptance tools. Verified a 12,933-game browser/native workflow, bounded reads, peak allocation and full-size relocation. Live source preparation review, artwork fallback and non-launching media/profile preflight passed without migrating the user's collection.
+- Corrected test expectations for the added protocol/component versions and a reproducible notification clock-boundary race discovered by the final validator. Detailed evidence and remaining expansion scope are recorded in the [activation record](docs/architecture/portal-arcade-spectrum-migration.md#column-picker-activation--2026-09-06).
+- Validation: all 911 coordinated tests pass (plus 11 Host subtests), together with syntax, infrastructure, versions and packaging. Relay lint reports zero errors, warnings or notices; the sanitized Nexus validation receipt was written. Maximum 100-game binding and identical replay passed, and installed Firefox saved/reloaded all 100 cards.
+
+## 2026-09-06 — Joined game-picker workflow verification
+
+- Added nine cross-component scenarios joining the Portal controller/bridge/persistence, complete Relay content/background scripts and real native Host/Arcade processes using a prepared synthetic Spectrum collection outside the checkout.
+- Verified paged exact-variant selection, normalized artwork, explicit tags, ordered bindings, one disk save, safe partial failures, locked destinations, competing writes, reconnects, mixed capability support and the closed production gate. A single launch resolves the exact approved tape with OS process creation mocked.
+- Documented the installed-browser and remaining activation checks, including Relay's content-side registration advertisement. Product versions and production capability flags are unchanged.
+- Validation: all 903 coordinated tests pass, including nine new joined-workflow cases; syntax, infrastructure, manifest/version and packaging checks pass, and Relay lint reports zero errors, warnings or notices. Python fixture lint also passes. No browser was attached for installed Firefox/Zen acceptance.
+
+## 2026-09-06 — Long-running test receipts
+
+- Fixed the coordinated validator's pytest summary parser to accept the elapsed-time suffix emitted after a suite exceeds one minute. Successful long-running suites retain their actual test count, including summaries with subtests.
+- Added executable PowerShell regression coverage for short/long summaries and rejection of failed commands or missing counts.
+- Validation: all eight tooling tests and the full 819-test coordinated run pass, with a successful sanitized Nexus receipt.
+
+## 2026-09-06 — Portal–Arcade migration design
+
+- Documented the optional catalogue v1 contract, bounded picker/search/artwork/binding operations, compatibility and retry rules, and the later batch-publication gate.
+- Added a source-grounded Spectrum field/identity mapping, migration and rollback requirements, representative synthetic cases, and acceptance gates across Arcade, Host, Relay, and Portal; linked the remaining work from component TODOs.
+- This is a coordinated documentation milestone. Runtime capabilities, component versions, live data, and existing launcher workflows are unchanged.
+- Validation: the full coordinated validator passed all component and integration suites, syntax/manifest/infrastructure/version checks, and zero-warning Relay lint; all 19 local links and anchors in the design and affected TODOs resolve, and `git diff --check` passes.
+
 ## [Unreleased] — Cyrune active since 2026-08-31
 
 ### Added

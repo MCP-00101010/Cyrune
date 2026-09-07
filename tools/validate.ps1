@@ -37,7 +37,7 @@ function Invoke-TestChecked {
     }
     $text = ($captured | ForEach-Object { $_.ToString() }) -join "`n"
     $nodeMatches = [regex]::Matches($text, '(?m)^.*\btests\s+(\d+)\s*$')
-    $pytestMatches = [regex]::Matches($text, '(?m)(\d+) passed(?:,[^\r\n]*)? in [0-9.]+s\s*$')
+    $pytestMatches = [regex]::Matches($text, '(?m)(\d+) passed(?:,[^\r\n]*)? in [0-9.]+s(?: \([0-9]+:[0-9]{2}:[0-9]{2}\))?\s*$')
     if ($nodeMatches.Count -gt 0) {
         $validationTestCounts[$ReceiptName] = [int]$nodeMatches[$nodeMatches.Count - 1].Groups[1].Value
     } elseif ($pytestMatches.Count -gt 0) {

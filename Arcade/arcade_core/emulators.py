@@ -13,7 +13,7 @@ PLACEHOLDER_PATTERN = re.compile(r"\{([^{}]*)\}")
 ALLOWED_PLACEHOLDERS = frozenset({
     "file", "file_dir", "file_name", "collection_root", "pok_file", "system", "title",
 })
-ALLOWED_ADAPTERS = frozenset({"generic", "eightyone", "spectaculator", "spectaculator_stub", "default"})
+ALLOWED_ADAPTERS = frozenset({"generic", "eightyone", "spectaculator", "spectaculator_stub", "default", "scummvm"})
 
 
 class EmulatorConfigError(ValueError):
@@ -97,7 +97,7 @@ def validate_emulator(
         "path": str(value.get("path") or "").strip(),
         "working_dir": str(value.get("working_dir") or "").strip(),
         "supported_extensions": normalize_extensions(value.get("supported_extensions", [])),
-        "arguments": normalize_template(value.get("arguments", ["{file}"]), "arguments", required_file=adapter != "default"),
+        "arguments": normalize_template(value.get("arguments", [] if adapter == "scummvm" else ["{file}"]), "arguments", required_file=adapter not in {"default", "scummvm"}),
     }
     for field in ("current_arguments", "pok_arguments"):
         template = normalize_template(value.get(field), field)
@@ -110,6 +110,9 @@ def validate_emulator(
         path_value = str(value.get(field) or "").strip()
         if path_value:
             result[field] = path_value
+    if adapter == "scummvm" and any(result.get(field) for field in (
+            "arguments", "current_arguments", "pok_arguments", "pok_helper_path", "eightyone_config_target", "working_dir")):
+        raise EmulatorConfigError("ScummVM uses its registered target and executable directory; custom launch arguments are not supported")
     if built_in:
         result["hidden"] = bool(built_in.get("hidden", False))
     elif value.get("hidden"):

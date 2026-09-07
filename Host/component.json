@@ -2,14 +2,14 @@
   "schemaVersion": 1,
   "id": "host",
   "name": "Host",
-  "version": "0.2.0",
+  "version": "0.2.15",
   "kind": "native-service",
   "entrypoint": null,
   "icon": "assets/host.svg",
   "summary": "Bounded native persistence, filesystem, binding and process authority.",
   "documents": { "todo": "Host-TODO.md", "changelog": "Host-CHANGELOG.md" },
   "capabilities": ["approved-bindings", "credentials", "native-process", "portal-persistence", "sanitized-diagnostics", "settings-history"],
-  "protocols": { "host-native": 2, "arcade-service": 1, "component-settings": 2 },
+  "protocols": { "host-native": 2, "arcade-service": 1, "component-settings": 2, "arcade-catalogue": 1, "arcade-scummvm": 1 },
   "schemas": { "hostConfig": 1, "nexusSettings": 2, "statusSnapshot": 2 },
   "nexus": { "accent": "green", "adapter": "host" }
 }

@@ -4,6 +4,89 @@ Historical entries below are preserved from Portal releases whose release notes 
 
 ---
 
+## [1.1.9] — 2026-09-07
+
+### Fixed
+
+- Do not announce a new Portal connection when discovery renews the same authenticated session. This avoids replaying pending database requests and cancelling catalogue reads during ordinary rediscovery.
+
+### Validation
+
+- Coordinated validation passed: 1,072 tests plus 11 Host subtests, with zero Relay lint findings. Firefox verified an existing Spectrum shortcut on its board through switching and reload while ScummVM stayed active, plus the existing ScummVM picker/default workflow. Native mocked-process checks preserve the saved binding and active collection while launching the correct Spectrum target. Real Windows UI Automation confirmed the highlighted file was visible in a 351-file folder.
+
+## [1.1.8] — 2026-09-07
+
+### Fixed
+
+- Preserve authenticated Portal sessions during background discovery, wait for pending registration before forwarding startup requests, and prevent delayed discovery replies or stale pings from replacing a newer session. Reloaded documents still receive fresh tokens; stale requests remain rejected.
+
+### Validation
+
+- Coordinated validation passed: 1,069 tests plus 11 Host subtests, with zero Relay lint findings. Firefox 155.0.1 passed startup, shared-database save/reload and the Portal/Arcade workflow. Deterministic tests cover registration overlap, fresh document tokens, stale pings and delayed discovery replies. A real Windows check through Host's Arcade route confirmed file selection and direct directory opening; native tests cover COM cleanup and Windows failures.
+
+## [1.1.7] — 2026-09-07
+
+### Changed
+
+- Route authenticated Portal game-version actions through the persistent native connection with bounded, strictly validated presentation-only replies. Accept the optional grouped catalogue search projection while retaining exact-entry compatibility.
+
+### Validation
+
+- Coordinated validation plus final focused regressions: 1,035 tests and 11 Host subtests passed. Firefox 155.0.1 verified grouped ScummVM selection, shared defaults in both clients, separate remakes, flags, Inbox delivery, and Spectrum search/pagination/save/reload. Relay lint: zero errors, warnings or notices.
+
+## [1.1.6] — 2026-09-07
+
+### Added
+
+- Retain a new Portal registration’s intake-drain request while delivery to its previous document is pending. Accepted games are retried after that request settles, preserving delivery IDs and acknowledgements.
+
+- Negotiate optional arcade-scummvm v1 between compatible Portal and native sessions. Validate bounded original-platform entries and compact game deliveries; older Host/Arcade versions keep Spectrum browsing available.
+- Validation: optional negotiation, mixed versions, response/platform validation and existing authenticated routing tests.
+
+- Completed validation: all coordinated suites passed (1,007 tests plus 11 Host subtests), including mixed-version and joined native workflows; Relay lint reported zero findings. Firefox 155.0.1 passed ScummVM selection/save/reload and Arcade batch Inbox delivery. Live checks validated all 169 ScummVM plans and the existing Spectrum preflight without starting games.
+
+## [1.1.5] — 2026-09-07
+
+### Changed
+
+- Accept the bounded `available` catalogue state for direct Arcade library browsing. Page roles, native session ownership, message limits and explicit binding operations retain their existing restrictions.
+- Joined native and isolated Firefox workflows cover browsing without preparation, selecting multiple editions, saving and reloading Portal cards. See the [direct browsing validation](../docs/architecture/portal-arcade-spectrum-migration.md#direct-library-browsing--2026-09-07).
+
+## [1.1.4] — 2026-09-06
+
+### Changed
+
+- Enabled optional catalogue v1 in Relay's background and Portal/Arcade content registrations together. Existing core protocol requirements remain compatible with older pages; unsupported catalogue participants still fail closed.
+- Fixed a clock-boundary race found by the final validator: overdue notification jobs are compared with the current time after normalization, so they fire during restart recovery even if the clock advances between checks. The regression now uses an advancing clock.
+- Verified temporary Relay installation, Firefox 155's local-file permission, actual registration/native messaging, bounded artwork, binding and Portal saves with a 12,933-game synthetic source. See the [activation record](../docs/architecture/portal-arcade-spectrum-migration.md#column-picker-activation--2026-09-06) for coordinated validation.
+
+## [1.1.3] — 2026-09-06
+
+### Added
+
+- Added entry-owned PNG transport with strict identity, envelope, dimension, base64, and byte validation. Relay independently verifies normalized PNG chunks/CRCs and bounds decompression before page delivery.
+- Preserved navigation/deadline checks after asynchronous artwork validation. Unsupported formats, metadata-bearing responses, corrupt content, and foreign references fail with fixed codes; images never enter extension storage or intake.
+
+### Validation
+
+- Executable artwork tests cover valid images, foreign identities/references, malformed base64, native metadata, corrupt PNGs, mismatched dimensions, unsupported types, invalid filters, and decompression overflow.
+- All 27 Relay tests and all 819 coordinated tests pass; packaging, syntax, manifest/version/infrastructure checks, and `web-ext lint` pass with zero errors, notices, or warnings.
+- The capability remains unadvertised pending preparation/picker interfaces and direct Firefox/Zen acceptance.
+
+## [1.1.2] — 2026-09-06
+
+### Added
+
+- Added staged Portal catalogue search/detail/artwork/bind routes behind optional four-participant v1 negotiation. Authenticated top-level page, tab, URL, token, and current browser URL are checked before dispatch and response delivery.
+- Each catalogue registration owns a dedicated persistent native connection and private Host session handle. Navigation, reload, registration replacement, disconnect, lease expiry, and deadlines discard queued work and late responses without affecting the shared native connection.
+- Enforced two outstanding reads and one mutation per session, deadlines including queue time, fixed request/response fields and byte limits, ordered partial binding results, and content-free error codes. Catalogue payloads are never stored in extension storage or intake.
+
+### Validation
+
+- Ten executable browser/native-port tests cover disabled negotiation, forged and stale sessions, malformed payloads, native context ownership, concurrency/deadlines, navigation, replacement-connection races, response redaction, and shared/ordered retry outcomes.
+- All 25 Relay tests and the coordinated 780-test repository validation pass, including packaging, manifest/version alignment, syntax, infrastructure, and `web-ext lint` with zero errors, notices, or warnings.
+- The optional protocol remains unadvertised until artwork, picker, and remaining acceptance gates pass.
+
 ## [1.1.1] — 2026-08-31
 
 ### Changed

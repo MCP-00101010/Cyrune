@@ -1,30 +1,34 @@
 # Cyrune Arcade TODO
 
+- Monitor review fixes for strict saved profiles, media compatibility, simultaneous version refresh and scraper preview response ordering.
+
 ## Portal-Fronted Multisystem Migration
+
+- Monitor Arcade 0.2.28 ScummVM metadata/artwork override saving, game-aware TheGamesDB searches and legacy Spectrum shortcuts with inactive collections, Explorer opening for game files and ScummVM folders, collection/platform emulator resets, compatible launch selection and Spectrum language/system badges, ScummVM publisher/series coverage, separate platform/collection selection, per-platform column layouts, stable language-flag order, compatible context-menu emulators, platform badges, explicit Steam edition detection, unknown-platform fallback, grouped game versions, remakes staying separate, shared default selection, exact alternative launches, missing-default recovery and older-client fallback.
 
 Arcade becomes Cyrune's game-library workshop, catalogue, metadata authority, emulator-profile manager, and exact-entry launch engine. Portal becomes the normal user-facing organiser and launcher for selected games. Coordinate this section with `../Portal/Portal-TODO.md`, `../Relay/Relay-TODO.md`, and `../Host/Host-TODO.md`.
 
 ### Contract and catalogue model gate
 
-- Update the Portal–Arcade architecture contract before implementation. Expose only bounded read-only catalogue search/detail plus explicit bind/launch operations to Portal; keep collection mutation, deduplication, filesystem maintenance, scraping, credentials, and emulator/profile editing Arcade-only.
-- Define a versioned launchable-entry model with stable public catalogue IDs. Model platform, hardware/system label, edition/release metadata, source identity, media or launch-target kind, artwork references, and compatible launch profile independently instead of continuing to use Spectrum memory values as the general meaning of `system`.
-- Treat every meaningful platform or edition as an independently launchable entry. Do not introduce preferred cross-platform versions or automatic substitution: `Elite — Spectrum 48K`, `Elite — Atari ST`, and `Elite — DOS` bind and launch separately.
-- Deduplicate only records that match the configured same-release policy. Preserve materially different hardware versions, enhanced releases, translations, platform ports, and editions as separate entries; optional related-title metadata may assist search but must not alter launch selection.
+- Monitor Arcade 0.2.11 direct library browsing for configured managed Spectrum collections, including read-only sources, under the [direct browsing record](../docs/architecture/portal-arcade-spectrum-migration.md#direct-library-browsing--2026-09-07). Preparation is optional relocation maintenance. Keep scraping, credentials and emulator/profile editing Arcade-only.
+- Extend browsing to scanned/report-only sources through their native adapters. Continue direct-file administration-dialog and native folder-picker checks on Firefox/Zen. Full-size native relocation and settled-runtime legacy-writer compatibility passed; older binaries must not share a runtime with pending recovery.
+- Keep every platform/edition independently launchable underneath grouped title rows. Preserve explicit defaults and exact version selection; never substitute a missing saved default.
+- Deduplicate only records that match the configured same-release policy. Preserve materially different hardware versions, enhanced releases, translations, platform ports, and editions as separate entries; title grouping is presentation-only; changing the shared launch default requires an explicit choice.
 - Preserve existing stable IDs and compatibility identifiers where possible. Document and test any versioned migration needed for current Spectrum records, Portal bindings, favourites, recent history, metadata, or profiles.
 
 ### Bounded Portal catalogue projection
 
-- Add transport-independent paged search, filter, and detail operations that return only sanitized presentation fields and stable catalogue IDs. Never return collection roots, game/media paths, emulator/helper/profile paths, arguments, working directories, credentials, or complete internal records.
+- Monitor whole-source sampling on slower devices. The 12,933-entry native benchmark passed in 7.254 seconds cold / 1.320 seconds warm, with 48,330,761 bytes peak warm-read allocation; installed Firefox also passed the full-size picker workflow.
 - Support filters useful to the Portal picker, initially title and platform/system, with bounded optional metadata such as edition, year, publisher, genre/tags, artwork, and local availability. Define deterministic ordering and continuation/page semantics.
-- Keep artwork bounded and served through the existing authenticated asset path. Do not let Portal render arbitrary local paths or unvalidated remote image URLs.
-- Add a batch publish action to Arcade's administration UI so selected games can be delivered to Portal's active Inbox with delivery-ID deduplication. Arcade must not read Portal structure or choose a Portal board, tab, folder, Essentials slot, or speed-dial destination.
+- Keep exact-entry PNG handling bounded. The current live corpus has 21 JPEG references; all 12,933 metadata rows safely use the text fallback. Add other formats and remote acquisition only with separate decoder/provider coverage.
+- Monitor Arcade 0.2.12 **Send selected games to Portal** for per-game launch pins, partial failures, Stop/resume, unchanged retry identities and closed-Portal queue delivery. The bounded client sequence uses existing single-game sends; a future catalogue-policy publication protocol remains separately gated. Arcade must not read Portal structure or choose a Portal board, tab, folder, Essentials slot, or speed-dial destination.
 - Retain the current single-game delivery and bindings during rollout; add compatibility tests for old Portal/Relay/Host combinations and retry-safe mixed-version behaviour.
 
 ### Multisystem library workshop
 
-- Define a versioned import manifest that system-specific tools and adapters can produce without granting them launch authority. Include stable source identity, launchable entries, meaningful editions, metadata provenance, artwork references, and local launch-target descriptors that remain confined to Arcade/Host.
+- Monitor Arcade 0.2.13's [native import manifest schema 1 and Spectrum adapter](../docs/architecture/arcade-import-manifest.md): bounded source/entry identity, exact editions, provenance, local/remote artwork references and explicit POK links, with no launch authority. Discovery/review and the running Spectrum catalogue share normalization; a manifest is not a replacement metadata database.
 - Separate discovery/parsing from review/apply. Use a staged, previewable, recoverable pipeline for scan, metadata extraction, duplicate grouping, meaningful-version retention, merge/sort decisions, artwork acquisition, and catalogue publication.
-- Migrate the existing ZX Spectrum/TOSEC collection as the first adapter and regression baseline, preserving distinct 48K/128K releases and POK behaviour. Prioritize Atari ST/STe/Falcon and ScummVM next; keep later adapters for DOSBox, MAME, Atari consoles, SNES, Game Boy, and other systems independent.
+- Monitor Arcade 0.2.16's [configured ScummVM integration](../docs/architecture/arcade-scummvm-adapter.md): source selection, mixed-platform Portal browsing, exact registered-target launch and single/batch Send. The supplied library has 169 registrations, including 27 without an explicit original platform. Native API launch verified with Elvira II (DOS/German), including visible startup and survival after Host exits; continue monitoring other engines. Add unregistered-directory discovery and richer metadata/artwork separately. Defer Atari ST/STe/Falcon until that collection is ready for validation.
 - Define launch-target kinds rather than forcing every game into a single-file model: confined media file, multi-file/disc manifest, ScummVM game ID/configuration, DOSBox configuration/working directory, MAME machine/driver, and other explicitly validated adapters.
 - Support multiple installed emulators per platform with device-local defaults and exact-entry overrides, including the existing EightyOne/Spectaculator path and future Fuse, STEem SSE, Hatari, and ScummVM profiles. Portal bindings identify an exact Arcade entry, while Arcade remains free to change its emulator/profile configuration without rewriting Portal cards.
 - Keep system-specific cleanup scripts small and replaceable by having them emit the common manifest. Do not accumulate unrelated platform parsing, filesystem reorganisation, or emulator quirks in the Portal client or Relay.
@@ -37,6 +41,8 @@ Arcade becomes Cyrune's game-library workshop, catalogue, metadata authority, em
 - Retire legacy launcher-oriented Arcade UI only after the Portal picker, exact-entry launch, batch Inbox delivery, and Arcade administration replacements are proven with the existing Spectrum library.
 
 ## Metadata Editing
+
+- Monitor ScummVM scraper Apply across reload and platform switches, including exact-version overrides and unchanged Portal launches. Add override editing/reset and offline artwork acquisition separately.
 
 - Preserve existing TOSEC-style filename structure where possible.
 - TOSEC casing rule:
@@ -73,7 +79,7 @@ Arcade becomes Cyrune's game-library workshop, catalogue, metadata authority, em
 ## Reliability Follow-ups
 
 - The 2026-08-25 health pass added atomic persistence, persisted-shape validation, concurrent state protection, failed collection-switch rollback, HTTPS scraper endpoint validation, bounded job history, and regression tests. See `HEALTH-AUDIT.md`.
-- Rename, delete, import, and restore now roll back filesystem and metadata changes on failure. Add a small crash-recovery journal only if real interrupted-process cases show in-memory rollback is insufficient.
+- Prepared catalogue sources now stage rename/delete/import/restore moves before application and journal metadata, identity, and proof updates. Extend that recovery model to unprepared collections and permanent purge only under a separate maintenance change; their existing rollback/destructive-delete behaviour remains the baseline.
 - Establish shared Ruff and type-checking policy after the final Python package layout exists; the current mypy/Python 3.14 combination crashes internally.
 
 ## Portable Remote Sync Adapter

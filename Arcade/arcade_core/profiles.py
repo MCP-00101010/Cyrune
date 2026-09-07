@@ -188,9 +188,7 @@ class EmulatorProfileService:
             return next((profile for profile in candidates if profile.get("id") == profile_id), None)
         pinned_profile = str(getattr(game, "emulator_profile", "") or "")
         if pinned_profile:
-            selected = next((profile for profile in candidates if profile.get("id") == pinned_profile), None)
-            if selected:
-                return selected
+            return next((profile for profile in candidates if profile.get("id") == pinned_profile), None)
         candidates.sort(key=lambda item: int(item.get("priority") or 100))
         fallback = None
         game_system = str(getattr(game, "system", "") or "")

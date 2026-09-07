@@ -4,6 +4,70 @@ const path = require('node:path');
 const test = require('node:test');
 const vm = require('node:vm');
 
+test('Relay reconnection never replays uncertain game actions', async () => {
+  const listeners = [], sent = [];
+  const dispatch = data => listeners.forEach(fn => fn({source: window, data}));
+  const window = {location: {href: 'file:///Portal/index.html'}, addEventListener(type, fn) {
+    if (type === 'message') listeners.push(fn);
+  }, dispatchEvent() {}, postMessage(message) {
+    sent.push(message);
+    if (message.type === 'MW_PING') queueMicrotask(() => dispatch({_mw: true, _res: true, id: message.id,
+      ok: true, nativeAvailable: true, capabilities: ['emuguiService'], protocols: {'portal-relay': 1, 'component-settings': 2}}));
+  }};
+  const context = vm.createContext({window, document: {hidden:false, hasFocus:() => true},
+    setTimeout, clearTimeout, CustomEvent: class {}, TextDecoder, Uint8Array});
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '../source/bridge.js'), 'utf8'), context);
+  await vm.runInContext('bridge.whenReady', context);
+  for (const expression of [
+    "bridge.launchGame('game_abcdefghijklmnop')",
+    "bridge.gameVersions('game_abcdefghijklmnop', 'launch', {catalogueId:'version'})",
+    "bridge.gameVersions('game_abcdefghijklmnop', 'default', {catalogueId:'version'})",
+    "bridge.revealGame('game_abcdefghijklmnop')",
+    "bridge.forgetGame('game_abcdefghijklmnop')",
+  ]) {
+    const action = vm.runInContext(expression, context);
+    const rejected = assert.rejects(action, error => error.code === 'outcome-unknown');
+    const count = sent.length;
+    dispatch({_mw: true, _relayReady: true});
+    assert.equal(sent.length, count);
+    await rejected;
+  }
+  const read = vm.runInContext("bridge.gameVersions('game_abcdefghijklmnop')", context);
+  const original = sent.at(-1);
+  dispatch({_mw: true, _relayReady: true});
+  assert.equal(sent.at(-1), original);
+  dispatch({_mw:true, _res:true, id:original.id, ok:true, result:{versions:[]}});
+  assert.equal((await read).versions.length, 0);
+});
+
+test('early game deliveries wait for the app listener with a bounded startup buffer', () => {
+  const listeners = [], dispatched = [], posted = [];
+  const window = {
+    location: { href: 'file:///Portal/index.html' },
+    addEventListener(type, listener) { if (type === 'message') listeners.push(listener); },
+    dispatchEvent: event => dispatched.push(event), postMessage: message => posted.push(message),
+  };
+  const context = vm.createContext({ window, document: { hidden: false, hasFocus: () => true },
+    setTimeout: () => 1, clearTimeout() {},
+    CustomEvent: class { constructor(type, options) { this.type = type; this.detail = options.detail; } },
+  });
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '../source/bridge.js'), 'utf8'), context);
+  const push = index => listeners.forEach(listener => listener({ source: window,
+    data: { _mw: true, _push: true, type: 'MW_RECEIVE_GAME', pushRequestId: `push${index}`, deliveryId: `game${index}`, game: { title: 'Game' } } }));
+  for (let index = 0; index < 129; index++) push(index);
+  assert.equal(dispatched.length, 0);
+  assert.equal(posted.at(-1)._pushResponse, true);
+  assert.equal(posted.at(-1).ok, false);
+  vm.runInContext('bridge.startGameIntake()', context);
+  assert.equal(dispatched.length, 128);
+  assert.equal(dispatched[0].detail.deliveryId, 'game0');
+  assert.equal(dispatched.at(-1).detail.deliveryId, 'game127');
+  vm.runInContext('bridge.startGameIntake()', context);
+  assert.equal(dispatched.length, 128);
+  push(130);
+  assert.equal(dispatched.length, 129);
+});
+
 test('Portal remains unavailable when Relay does not advertise required protocols', async () => {
   const listeners = new Map();
   const window = {

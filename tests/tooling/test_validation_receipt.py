@@ -1,5 +1,7 @@
 import importlib.util
 import json
+import shutil
+import subprocess
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -49,3 +51,33 @@ def test_receipt_write_is_atomic_and_cannot_target_the_repository():
         assert json.loads(output.read_text(encoding="utf-8")) == receipt
     with pytest.raises(ValueError, match="outside the repository"):
         RECEIPT.atomic_write_receipt(REPO / "validation.json", receipt, REPO)
+
+
+def test_coordinated_validator_counts_short_and_long_suites_and_rejects_failure(tmp_path):
+    powershell = shutil.which("pwsh")
+    if not powershell:
+        pytest.skip("PowerShell is required for the coordinated validator")
+    source = (REPO / "tools" / "validate.ps1").read_text(encoding="utf-8")
+    function = source[source.index("function Invoke-TestChecked"):source.index("Push-Location $repoRoot")]
+    script = tmp_path / "test-counts.ps1"
+    script.write_text("$ErrorActionPreference = 'Stop'\n$validationTestCounts = @{}\n" + function + r'''
+foreach ($summary in @('160 passed in 12.34s', '160 passed, 11 subtests passed in 64.62s (0:01:04)', '160 passed in 3664.62s (1:01:04)')) {
+    Invoke-TestChecked 'Fixture' 'Host' { $global:LASTEXITCODE = 0; $summary }
+    if ($validationTestCounts['Host'] -ne 160) { throw 'Incorrect test count' }
+}
+try {
+    Invoke-TestChecked 'Fixture' 'Host' { $global:LASTEXITCODE = 1; '160 passed in 12.34s' }
+    throw 'Accepted failed command'
+} catch {
+    if (-not $_.Exception.Message.Contains('failed with exit code 1')) { throw }
+}
+try {
+    Invoke-TestChecked 'Fixture' 'Host' { $global:LASTEXITCODE = 0; 'No summary' }
+    throw 'Accepted missing summary'
+} catch {
+    if (-not $_.Exception.Message.Contains('without a recognizable bounded test count')) { throw }
+}
+exit 0
+''', encoding="utf-8")
+    completed = subprocess.run([powershell, "-NoLogo", "-NoProfile", "-File", str(script)], capture_output=True, text=True, timeout=30)
+    assert completed.returncode == 0, completed.stdout + completed.stderr

@@ -4,6 +4,42 @@ const path = require('node:path');
 const test = require('node:test');
 const vm = require('node:vm');
 
+test('Spectrum uses the shared platform icon and distinct default hardware badges', () => {
+  const context = vm.createContext({document:{createElement:()=>({})}});
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'source', 'game-launcher.js'), 'utf8'), context);
+  const item={gameKey:'game_abcdefghijklmnop',systemId:'zx-spectrum',systemName:'ZX Spectrum'};
+  vm.runInContext("gameStatusCache.set('game_abcdefghijklmnop', {state:'ready', defaultVersion:{languages:['en'], platforms:['ZX Spectrum'], systems:['48K-128K']}})",context);
+  assert.deepEqual(Array.from(context.getGameDefaultIcons(item), row => [row.label,row.kind]), [['English','language'],['48K','system'],['128K','system']]);
+  const container={classList:{add:()=>{}},dataset:{},children:[],appendChild(value){this.children.push(value);}};
+  context.renderGameSystemIcon(container,item);
+  assert.equal(container.children[0].src,'assets/platforms/zx-spectrum.png');
+  assert.deepEqual(fs.readFileSync(path.join(__dirname,'../assets/platforms/zx-spectrum.png')),fs.readFileSync(path.join(__dirname,'../../Arcade/web/assets/platforms/zx-spectrum.png')));
+  vm.runInContext("gameStatusCache.set('game_abcdefghijklmnop', {state:'ready', defaultVersion:{languages:['en'], platforms:['ZX Spectrum']}})",context);
+  assert.deepEqual(Array.from(context.getGameDefaultIcons(item), row => [row.label,row.kind]), [['English','language']], 'Older Host metadata must not repeat the library favicon as a system badge');
+});
+
+test('title icons follow the exact default, stay transient and refresh after a language-only change', async () => {
+  let language = 'en'; let renders = 0;
+  const item = {gameKey:'game_abcdefghijklmnop', title:'Adventure'};
+  const context = vm.createContext({bridge:{getGameStatus: async () => ({state:'ready', languages:['en','de'],
+    defaultVersion:{languages:[language], platforms:['DOS']}})},
+    renderContentSurfaces: () => renders++, saveState: async () => { throw new Error('Default metadata must not persist'); }});
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'source', 'game-launcher.js'), 'utf8'), context);
+  assert.equal(context.getGameDefaultIcons(item).length, 0);
+  await context.refreshGameStatus(item);
+  assert.deepEqual(Array.from(context.getGameDefaultIcons(item), value => value.label), ['English','DOS']);
+  language = 'de';
+  await context.refreshGameStatus(item);
+  assert.deepEqual(Array.from(context.getGameDefaultIcons(item), value => value.label), ['German','DOS']);
+  assert.equal(renders, 2);
+  assert.equal(Object.hasOwn(item, 'defaultVersion'), false);
+  for (const value of context.getGameDefaultIcons(item)) assert.ok(fs.existsSync(path.join(__dirname, '..', value.src)));
+  vm.runInContext("gameStatusCache.set('game_abcdefghijklmnop', {state:'ready', defaultVersion:{languages:[], platforms:['../../secret']}})", context);
+  assert.equal(context.getGameDefaultIcons(item)[0].src, 'assets/platforms/unknown.svg');
+  vm.runInContext("gameStatusCache.set('game_abcdefghijklmnop', {state:'unavailable', defaultVersion:{languages:['en'], platforms:['DOS']}})", context);
+  assert.equal(context.getGameDefaultIcons(item).length, 0);
+});
+
 test('game shortcuts launch through opaque bindings and retain no native paths', async () => {
   let launched = '';
   let forgotten = '';
@@ -166,9 +202,62 @@ test('game tooltip details expose safe display labels rather than binding IDs', 
     thumbnailCache: 'data:image/png;base64,aQ==', emulatorId: 'hidden-emulator-id', profileId: 'hidden-profile-id'
   });
   assert.deepEqual(JSON.parse(JSON.stringify(details)), {
-    title: 'Jetpac', system: 'ZX Spectrum', emulator: 'EightyOne', profile: 'Spectrum 48K', thumbnail: 'data:image/png;base64,aQ=='
+    title: 'Jetpac', system: 'ZX Spectrum', emulator: 'EightyOne', profile: 'Spectrum 48K', languages: [], thumbnail: 'data:image/png;base64,aQ=='
   });
   assert.doesNotMatch(JSON.stringify(details), /hidden-/);
+});
+
+test('existing shortcuts obtain language flags and the official ScummVM icon from status', async () => {
+  const element = tag => ({ tag, children: [], dataset: {}, classList: { add() {} },
+    appendChild(child) { this.children.push(child); }, append(...children) { this.children.push(...children); },
+    replaceChildren() { this.children = []; } });
+  const context = vm.createContext({ console, Map, WeakMap, Promise, Date, Math,
+    document: { createElement: element }, icon: id => ({ id }), saveState: async () => ({ ok: true }),
+    bridge: { getGameStatus: async () => ({ state: 'ready', emulatorName: 'ScummVM', profileName: 'ScummVM settings', languages: ['en', 'de'] }) }
+  });
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'source', 'game-launcher.js'), 'utf8'), context);
+  const item = { title: 'Adventure', gameKey: 'game_abcdefghijklmnop', systemId: 'dos', systemName: 'DOS' };
+  assert.equal(context.getGameTooltipDetails(item).languages.length, 0);
+  await context.refreshGameStatus(item, { render: false });
+  assert.equal(Object.hasOwn(item, 'languages'), false, 'languages remain transient status metadata');
+  const details = context.getGameTooltipDetails(item);
+  assert.equal(details.system, 'DOS');
+  assert.deepEqual(Array.from(details.languages, value => value.flag), ['de', 'gb']);
+  const target = element('a');
+  context.registerGameTooltipTarget(target, item);
+  const tooltip = element('div');
+  context.renderGameTooltip(tooltip, target);
+  const title = tooltip.children[0].children[0];
+  assert.equal(title.textContent, 'Adventure');
+  assert.deepEqual(title.children.map(value => [value.src, value.alt]), [
+    ['assets/language-flags/de.svg', 'German'], ['assets/language-flags/gb.svg', 'English']
+  ]);
+  const favicon = element('div');
+  context.renderGameSystemIcon(favicon, item);
+  assert.equal(favicon.children[0].src, 'assets/scummvm/scummvm-icon.png');
+  assert.equal(favicon.children[0].alt, 'ScummVM');
+  assert.equal(favicon.dataset.system, 'scummvm');
+  assert.equal(item.systemId, 'dos');
+});
+
+test('language flags are bounded, accessible and backed by local licensed assets', () => {
+  const context = vm.createContext({ console, Map, WeakMap, Promise, Date, Math });
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'source', 'game-launcher.js'), 'utf8'), context);
+  const descriptors = context.getGameLanguageDescriptors(['EN', 'en', 'de', 'fr-ca', '../gb', '<svg>', null, { language: 'en' }]);
+  assert.deepEqual(Array.from(descriptors, value => [value.flag, value.label]), [
+    ['de', 'German'], ['gb', 'English'], ['ca', 'French (Canada)']
+  ]);
+  assert.equal(context.getGameLanguageDescriptors('de').length, 0);
+  assert.equal(context.getGameLanguageDescriptors(Array(12).fill('en').concat('de')).length, 1);
+  assert.equal(context.getGameLanguageDescriptors(['zz'])[0].flag, '');
+  const countriesOnly = { countries: ['DE'], systemId: 'dos', title: 'German adventure' };
+  assert.equal(context.getGameTooltipDetails(countriesOnly).languages.length, 0);
+  for (const [flag] of Object.values(vm.runInContext('GAME_LANGUAGE_FLAGS', context))) {
+    const svg = fs.readFileSync(path.join(__dirname, '..', 'assets', 'language-flags', `${flag}.svg`), 'utf8');
+    assert.match(svg, /<svg/);
+    assert.doesNotMatch(svg, /<script|<foreignObject|\son\w+=|(?:href|src)=["'](?:https?:|data:|\/\/)/i);
+  }
+  assert.match(fs.readFileSync(path.join(__dirname, '..', 'assets', 'scummvm', 'NOTICE.md'), 'utf8'), /CC BY-SA 3\.0/);
 });
 
 test('stored games are indexed across compact launchers, columns, folders, and Inboxes for the command palette', () => {
@@ -248,4 +337,30 @@ test('game shortcuts duplicate within Essentials and Speed Dial without changing
   assert.equal(state.essentials[1].gameKey, essential.gameKey);
   assert.equal(board.speedDial[1].gameKey, speed.gameKey);
   assert.equal(undoCount, 2);
+});
+test('game families collapse within a container without removing portable records', async () => {
+  const context = vm.createContext({ console, Map, Promise, Date, Math,
+    bridge: { getGameStatus: async key => ({ gameKey: key, state: 'ready', versionGroup: key === 'remake' ? 'deluxe' : 'original' }) } });
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'source', 'game-launcher.js'), 'utf8'), context);
+  const items = [{ type: 'game', gameKey: 'english' }, { type: 'game', gameKey: 'german' },
+    { type: 'game', gameKey: 'remake' }, { type: 'bookmark', title: 'Unrelated' }];
+  assert.equal(context.groupGameShortcutItems(items).length, 4, 'No guessing before native family identity is known');
+  for (const item of items.slice(0, 3)) await context.refreshGameStatus(item, { render: false });
+  assert.deepEqual(Array.from(context.groupGameShortcutItems(items)), [items[0], items[2], items[3]]);
+  assert.equal(items.length, 4);
+  assert.deepEqual(context.groupGameShortcutItems([items[1]])[0], items[1], 'A separate container keeps its own placement');
+  assert.equal(JSON.stringify(items).includes('versionGroup'), false);
+});
+test('startup status refresh stays transient until Portal storage authority is ready', async () => {
+  let saves = 0;
+  const context = vm.createContext({ console, Map, Promise, Date, Math, portalReadOnlyMode: true,
+    bridge: { storageIsAvailable: () => true, getGameStatus: async () => ({ state: 'ready', emulatorName: 'ScummVM', versionGroup: 'family' }) },
+    saveState: () => { saves++; }, renderContentSurfaces() {}, renderEssentials() {} });
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'source', 'game-launcher.js'), 'utf8'), context);
+  const item = { type: 'game', title: 'Adventure', gameKey: 'game_approved' };
+  await context.refreshGameStatus(item);
+  assert.equal(saves, 0); assert.equal(item.emulatorName, undefined);
+  context.portalReadOnlyMode = false;
+  await context.refreshGameStatus(item);
+  assert.equal(saves, 1); assert.equal(item.emulatorName, 'ScummVM');
 });

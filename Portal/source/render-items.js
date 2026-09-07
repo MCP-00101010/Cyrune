@@ -166,6 +166,11 @@ function createBoardItemElement(item, columnId, depth = 1, parentFolder = null, 
         : (item.title || item.url || 'Untitled Bookmark');
     header.appendChild(name);
 
+    if (item.type === 'game') {
+      name.classList.add('game-title-label');
+      renderGameDefaultIcons(header, item);
+    }
+
     if (item.type === 'application') {
       const status = getApplicationStatus(item);
       if (status.state !== 'ready') {
@@ -353,7 +358,7 @@ function createBoardItemElement(item, columnId, depth = 1, parentFolder = null, 
         }
         itemEl.appendChild(childrenContainer);
         const children = resolveFolderChildren(item, board);
-        children.forEach(child => childrenContainer.appendChild(createBoardItemElement(child, columnId, depth + 1, item, effectiveLocked)));
+        groupGameShortcutItems(children).forEach(child => childrenContainer.appendChild(createBoardItemElement(child, columnId, depth + 1, item, effectiveLocked)));
       }
     }
   } else if (item.type === 'title') {

@@ -15,6 +15,7 @@ import tkinter as tk
 import webbrowser
 from copy import deepcopy
 from dataclasses import asdict
+from functools import wraps
 from pathlib import Path
 from tkinter import filedialog
 from urllib.error import HTTPError, URLError
@@ -94,7 +95,7 @@ DEFAULT_EMULATORS = load_emulator_defaults(LAUNCHER / "defaults" / "emulators.js
 
 JOB_SERVICE = BackgroundJobService()
 METADATA_SERVICE: MetadataService | None = None
-COLLECTION_JOB_LOCK = threading.Lock()
+COLLECTION_JOB_LOCK = threading.RLock()
 TGDB_LOOKUP_CACHE: dict[tuple[str, str], dict[str, str]] = {}
 STATE_LOCK = threading.RLock()
 DEFAULT_SCRAPERS = {
@@ -136,6 +137,316 @@ SCRAPER_SECRET_SERVICE = ScraperSecretService()
 EMULATOR_CONFIG_SERVICE: EmulatorConfigService | None = None
 OPTIONAL_NETWORK_ALLOWED = lambda: True
 
+CATALOGUE_LIFECYCLE = None
+CATALOGUE_RUNTIME_KEY = None
+LIBRARY_CATALOGUE = None
+LIBRARY_CATALOGUE_KEY = None
+
+
+def get_library_catalogue():
+    """Native metadata index shared by Portal browsing and entry-policy launch."""
+    global LIBRARY_CATALOGUE, LIBRARY_CATALOGUE_KEY
+    key = (DATA.resolve(), CONFIG_FILE.resolve())
+    if LIBRARY_CATALOGUE is None or LIBRARY_CATALOGUE_KEY != key:
+        from arcade_core.catalogue_library import LibraryCatalogue
+        LIBRARY_CATALOGUE = LibraryCatalogue(*key)
+        LIBRARY_CATALOGUE_KEY = key
+    return LIBRARY_CATALOGUE
+
+
+def get_catalogue_lifecycle(*, create=False):
+    """Load native lifecycle support only for explicitly prepared runtime data."""
+    global CATALOGUE_LIFECYCLE, CATALOGUE_RUNTIME_KEY
+    key = (DATA.resolve(), CONFIG_FILE.resolve())
+    if not create and not any((DATA / name).exists() for name in ("catalogue-proofs.json", "catalogue-transaction.json")):
+        return None
+    if CATALOGUE_LIFECYCLE is None or CATALOGUE_RUNTIME_KEY != key:
+        from arcade_core.catalogue_lifecycle import CatalogueLifecycle
+        CATALOGUE_LIFECYCLE = CatalogueLifecycle(*key)
+        CATALOGUE_RUNTIME_KEY = key
+    return CATALOGUE_LIFECYCLE
+
+
+def invalidate_catalogue():
+    lifecycle = get_catalogue_lifecycle()
+    if lifecycle is not None:
+        lifecycle.invalidate()
+
+
+def _catalogue_serialized(function):
+    @wraps(function)
+    def invoke(*args, **kwargs):
+        with COLLECTION_JOB_LOCK:
+            lifecycle = get_catalogue_lifecycle()
+            if lifecycle is not None:
+                with lifecycle.mutation(COLLECTION):
+                    return function(*args, **kwargs)
+            return function(*args, **kwargs)
+    return invoke
+
+
+def before_catalogue_move(source, destination):
+    lifecycle = get_catalogue_lifecycle()
+    if lifecycle is not None:
+        lifecycle.stage_move(COLLECTION, source, destination)
+
+
+def _maintenance_serialized(function):
+    @wraps(function)
+    def invoke(*args, **kwargs):
+        with COLLECTION_JOB_LOCK:
+            return function(*args, **kwargs)
+    return invoke
+
+
+@_maintenance_serialized
+def prepare_catalogue_source(collection_id, *, dry_run=True):
+    """Native maintenance only; deliberately absent from all API dispatchers."""
+    result = get_catalogue_lifecycle(create=True).prepare_source(collection_id, dry_run=dry_run)
+    if not dry_run and LIBRARY is not None:
+        LIBRARY.rebuild()
+    return result
+
+
+@_maintenance_serialized
+def catalogue_preparation_request(data, *, confirm=False):
+    """Fixed Arcade-only review/apply surface; never accepts a root or policy."""
+    from arcade_core.catalogue_identity import CatalogueError, valid_id
+
+    expected = {"collection_id", "review_token"} if confirm else {"collection_id"}
+    if set(data) != expected or not valid_id(data.get("collection_id"), legacy=True):
+        return {"ok": False, "code": "invalid-request", "error": "Invalid catalogue preparation request."}
+    try:
+        lifecycle = get_catalogue_lifecycle(create=True)
+        if confirm:
+            result = lifecycle.confirm_preparation(data["collection_id"], data["review_token"])
+            if LIBRARY is not None:
+                LIBRARY.rebuild()
+            return {"ok": True, "status": result["status"], "entries": result["entries"]}
+        return {"ok": True, **lifecycle.review_preparation(data["collection_id"])}
+    except (CatalogueError, OSError, ValueError) as error:
+        code = error.code if isinstance(error, CatalogueError) else "source-unavailable"
+        messages = {
+            "busy": "Preparation is busy or a transaction needs recovery. Try again after it is resolved.",
+            "entry-changed": "The collection changed. Review preparation again before confirming.",
+            "review-required": "A fresh review is required. Check writable access, metadata and retained media if review fails.",
+            "media-missing": "A game file is missing. Restore the file before preparing this collection.",
+            "unsupported-target": "This preparation supports managed Spectrum tape and snapshot files only.",
+            "persistence-failed": "Preparation could not finish. Review the collection again to check its state.",
+        }
+        return {"ok": False, "code": code, "error": messages.get(code, "The collection cannot be prepared. Check its availability and metadata.")}
+
+
+@_maintenance_serialized
+def reattach_catalogue_source(collection_id, root, *, dry_run=True):
+    result = get_catalogue_lifecycle(create=True).reattach_source(collection_id, root, dry_run=dry_run)
+    if not dry_run and LIBRARY is not None:
+        LIBRARY.rebuild()
+    return result
+
+
+@_maintenance_serialized
+def recover_catalogue_transaction(*, direction="forward", dry_run=True):
+    result = get_catalogue_lifecycle(create=True).recover(direction=direction, dry_run=dry_run)
+    if not dry_run and LIBRARY is not None:
+        LIBRARY.rebuild()
+    return result
+
+
+@_maintenance_serialized
+def catalogue_recovery_request(action, data):
+    from arcade_core.catalogue_identity import CatalogueError
+
+    expected = {"status": set(), "preview": {"direction"}, "confirm": {"review_token"}}[action]
+    if set(data) != expected:
+        return {"ok": False, "code": "invalid-request", "error": "Invalid catalogue recovery request."}
+    try:
+        review = get_catalogue_lifecycle(create=True).recovery_review
+        if action == "status":
+            result = review.status()
+        elif action == "preview":
+            result = review.preview(data["direction"])
+        else:
+            result = review.confirm(data["review_token"])
+            # The page explicitly reloads the library after repair; a library or
+            # credential failure must not disguise a successfully persisted repair.
+            invalidate_catalogue()
+            reset_catalogue_library()
+        return {"ok": True, **result}
+    except (CatalogueError, OSError, ValueError) as error:
+        code = error.code if isinstance(error, CatalogueError) else "persistence-failed"
+        message = {
+            "entry-changed": "Recovery inputs changed or conflict with the saved transaction. Preserve your files and review again after resolving the conflict.",
+            "review-required": "Review recovery again. If review fails, check writable access and inspect the saved transaction and recovery record.",
+            "busy": "Collection maintenance is busy. Try recovery again when it finishes.",
+            "persistence-failed": "Recovery could not finish. Review again to resume the same recovery choice.",
+            "source-unavailable": "The collection is unavailable. Restore access to its configured location before reviewing recovery.",
+        }.get(code, "Recovery is unavailable. Check the collection and saved transaction before trying again.")
+        return {"ok": False, "code": code, "error": message}
+
+
+def reset_catalogue_library(old_root=None, new_root=None):
+    global LIBRARY, METADATA_SERVICE, COLLECTION, REPORTS, METADATA_FILE
+    LIBRARY = None
+    METADATA_SERVICE = None
+    if old_root is not None and COLLECTION.resolve() == old_root:
+        COLLECTION = new_root
+        REPORTS = COLLECTION / "_reports"
+        METADATA_FILE = COLLECTION / "collection-metadata.json"
+
+
+def catalogue_reattachment_request(action, data):
+    from arcade_core.catalogue_identity import CatalogueError, valid_id
+    expected = {"sources": set(), "select": {"kind", "collection_id"},
+                "preview": {"selection_token"}, "confirm": {"review_token"}}[action]
+    if set(data) != expected or (action == "select" and not valid_id(data.get("collection_id"), legacy=True)):
+        return {"ok": False, "code": "invalid-request", "error": "Invalid collection reconnect request."}
+    try:
+        review = get_catalogue_lifecycle(create=True).reattachment_review
+        if action == "select":
+            def choose_folder():
+                selected = pick_path("folder", "Select the relocated collection folder")
+                if selected.get("cancelled"):
+                    return None
+                if selected.get("ok") is not True:
+                    raise CatalogueError("unavailable")
+                if not isinstance(selected.get("path"), str) or not selected["path"]:
+                    raise CatalogueError("unavailable")
+                return selected["path"]
+            # Uses the existing long-lived native picker route. No page path,
+            # title or initial directory is accepted by this fixed purpose.
+            result = review.select(data["collection_id"], choose_folder)
+        else:
+            with COLLECTION_JOB_LOCK:
+                if action == "sources":
+                    result = review.sources()
+                elif action == "preview":
+                    result = review.preview(data["selection_token"])
+                else:
+                    result = review.confirm(data["review_token"])
+                    reset_catalogue_library(result.pop("_oldRoot"), result.pop("_root"))
+                    invalidate_catalogue()
+        return {"ok": True, **result}
+    except (CatalogueError, OSError, ValueError) as error:
+        code = error.code if isinstance(error, CatalogueError) else "source-unavailable"
+        message = {
+            "entry-changed": "The source or selected folder changed. Choose the folder again and review it.",
+            "review-required": "Choose and review the folder again. It must retain the prepared game IDs and original file contents, with writable access enabled.",
+            "media-missing": "The selected folder is missing a retained game file. Restore it before reconnecting.",
+            "busy": "Collection maintenance or another folder selection is in progress. Try again when it finishes.",
+            "persistence-failed": "Reconnection could not finish. Open Catalogue Recovery to check interrupted work before trying again.",
+        }.get(code, "The selected collection cannot be reconnected. Check its folder and managed metadata.")
+        return {"ok": False, "code": code, "error": message}
+
+
+def catalogue_read_snapshot():
+    """Private Host read/plan lease; exit and validate before approval or launch writes."""
+    from contextlib import contextmanager
+
+    @contextmanager
+    def scope():
+        with COLLECTION_JOB_LOCK:
+            lifecycle = get_library_catalogue()
+            with lifecycle.read_snapshot():
+                yield
+    return scope()
+
+
+def get_catalogue_service():
+    return get_library_catalogue().service()
+
+
+ARCADE_SCUMMVM_VERSION = 1
+SCUMMVM_LAUNCH = None  # Host injects native process authority when loading this service.
+VERSION_APPROVE = None  # Explicit default selection only; Host owns approvals.
+
+
+def catalogue_game_entry(collection_id, game_id):
+    service = get_catalogue_service()
+    service.search({"includeScummvm": True, "pageSize": 1})
+    entry = next((entry for entry in service._entries
+                  if entry.collection_id == collection_id and entry.legacy_id == game_id), None)
+    if entry is None:
+        from arcade_core.catalogue_identity import CatalogueError
+        raise CatalogueError("entry-missing")
+    return entry
+
+
+def set_game_version_default(anchor_id, catalogue_id, entry_revision):
+    from arcade_core.catalogue_identity import CatalogueError, valid_id
+    if not all(valid_id(value) for value in (anchor_id, catalogue_id, entry_revision)):
+        raise CatalogueError("invalid-request")
+    with COLLECTION_JOB_LOCK:
+        with catalogue_read_snapshot():
+            group, members, _default, _saved = get_catalogue_service().family(anchor_id)
+            if catalogue_id not in {entry.base["catalogueId"] for entry in members}:
+                raise CatalogueError("invalid-request")
+            plan = resolve_catalogue_launch_plan(catalogue_id, entry_revision)
+        if not callable(VERSION_APPROVE):
+            raise CatalogueError("unavailable")
+        key = VERSION_APPROVE(plan)
+        # Recheck membership and the immutable plan after native approval.
+        with catalogue_read_snapshot():
+            current_group, _members, _default, _saved = get_catalogue_service().family(catalogue_id)
+            if current_group != group or resolve_catalogue_launch_plan(catalogue_id, entry_revision) != plan:
+                raise CatalogueError("entry-changed")
+        get_library_catalogue().version_defaults.save(group, catalogue_id, key)
+        return {"ok": True}
+
+
+def game_version_summaries(games):
+    service = get_catalogue_service()
+    service.search({"includeScummvm": True, "pageSize": 1})
+    collection_id = active_collection()["id"]
+    indexed = {entry.legacy_id: entry for entry in service._entries if entry.collection_id == collection_id}
+    defaults = service.version_defaults()
+    for game in games:
+        entry = indexed.get(game["id"])
+        if not entry or game.get("view") in {"incoming", "trash"}:
+            continue
+        group = service._entry_families[entry.base["catalogueId"]]
+        members = service._families[group]
+        default_id = defaults.get(group, {}).get("catalogueId", members[0].base["catalogueId"])
+        default = next((row for row in members if row.base["catalogueId"] == default_id), None)
+        game.update(version_group=group, version_count=len(members),
+                    default_version=default.legacy_id if default else "",
+                    catalogue_id=entry.base["catalogueId"], entry_revision=entry.base["entryRevision"])
+    return games
+
+
+def resolve_scummvm_game_plan(collection_id, game_id, emulator_id="", profile_id=""):
+    from arcade_core.catalogue_identity import CatalogueError
+    with catalogue_read_snapshot():
+        service = get_catalogue_service()
+        service.search({"includeScummvm": True, "pageSize": 1})
+        entry = next((entry for entry in service._entries
+                      if entry.collection_id == collection_id and entry.legacy_id == game_id
+                      and entry.base["targetKind"] == "scummvm-game"), None)
+        if entry is None:
+            raise CatalogueError("entry-missing")
+        plan = resolve_catalogue_launch_plan(entry.base["catalogueId"])
+        if profile_id or emulator_id and emulator_id != plan["emulatorId"]:
+            raise CatalogueError("configuration-required")
+        return plan
+
+
+def resolve_catalogue_launch_plan(catalogue_id, entry_revision=None):
+    """Private Host adapter, never exposed through Arcade API dispatchers."""
+    from arcade_core.catalogue_identity import CatalogueError
+    from arcade_core.catalogue_launch import resolve_plan
+    lifecycle = get_library_catalogue()
+    try:
+        return resolve_plan(lifecycle, catalogue_id, entry_revision)
+    except CatalogueError:
+        raise
+    except Exception:
+        raise CatalogueError("configuration-required") from None
+
+
+def launch_catalogue_plan(plan, *, launch_process, copy_profile):
+    from arcade_core.catalogue_launch import launch_plan
+    return launch_plan(sys.modules[__name__], plan, launch_process=launch_process, copy_profile=copy_profile)
+
 
 class Library(GameLibrary):
     def __init__(self) -> None:
@@ -148,6 +459,11 @@ class Library(GameLibrary):
             mark_import_matches=mark_import_view_matches,
             load_metadata=load_metadata,
         )
+
+    def rebuild(self, progress=None):
+        with COLLECTION_JOB_LOCK:
+            invalidate_catalogue()
+            return super().rebuild(progress)
 
 
 def init_state() -> None:
@@ -247,6 +563,9 @@ def init_config() -> None:
 
 
 def load_config() -> dict:
+    lifecycle = get_catalogue_lifecycle()
+    if lifecycle is not None:
+        lifecycle.ensure_settled()
     fallback = {
         "collections": discover_collections(),
         "default_collection": "desasteron",
@@ -279,7 +598,11 @@ def load_config() -> dict:
 
 
 def save_config(config: dict) -> None:
+    lifecycle = get_catalogue_lifecycle()
+    if lifecycle is not None:
+        lifecycle.ensure_settled()
     atomic_write_json(CONFIG_FILE, config)
+    invalidate_catalogue()
 
 
 def expand_config_path(value: object) -> Path | None:
@@ -318,9 +641,28 @@ def configure_native_secret_service(*, get_secret, set_secret, delete_secret, st
         delete_secret=delete_secret,
         status=status,
     )
+    global SCRAPER_SECRET_MIGRATION_PENDING
+    SCRAPER_SECRET_MIGRATION_PENDING = True
+    from arcade_core.catalogue_identity import CatalogueError
+    try:
+        migrate_native_scraper_secrets()
+    except CatalogueError:
+        # Recovery routes must stay reachable while a pending/corrupt transaction
+        # blocks configuration reads. Retry migration before ordinary API work.
+        pass
+
+
+SCRAPER_SECRET_MIGRATION_PENDING = False
+
+
+def migrate_native_scraper_secrets():
+    global SCRAPER_SECRET_MIGRATION_PENDING
+    if not SCRAPER_SECRET_MIGRATION_PENDING:
+        return
     config = load_config()
     if SCRAPER_SECRET_SERVICE.migrate(config):
         save_config(config)
+    SCRAPER_SECRET_MIGRATION_PENDING = False
 
 
 def configure_optional_network_policy(check) -> None:
@@ -357,7 +699,7 @@ def scraper_configured(scraper: dict[str, object]) -> bool:
     if scraper.get("type") == "screenscraper":
         return all(str(scraper.get(key, "")).strip() for key in ("username", "password", "system_id"))
     if scraper.get("type") == "thegamesdb":
-        return all(str(scraper.get(key, "")).strip() for key in ("api_key", "platform_id"))
+        return bool(str(scraper.get("api_key", "")).strip())
     return bool(scraper.get("configured", False))
 
 
@@ -631,12 +973,13 @@ def activate_collection(collection_id: str) -> dict:
 
 
 def current_collection_writable() -> bool:
-    return bool(active_collection().get("writable", False))
+    active = active_collection()
+    return active.get("adapter") != "scummvm-config-v1" and bool(active.get("writable", False))
 
 
 def current_collection_auto_metadata() -> bool:
     active = active_collection()
-    return bool(active.get("writable", False) or active.get("auto_metadata", False))
+    return active.get("adapter") != "scummvm-config-v1" and bool(active.get("writable", False) or active.get("auto_metadata", False))
 
 
 def start_index_job(title: str, work) -> str:
@@ -691,6 +1034,8 @@ def load_favourites() -> set[str]:
 
 
 def load_poks() -> dict[tuple[str, str], list[dict[str, str]]]:
+    if active_collection().get("adapter") == "scummvm-config-v1":
+        return {}
     if METADATA_FILE.exists():
         return load_metadata_poks()
 
@@ -720,6 +1065,11 @@ def load_poks() -> dict[tuple[str, str], list[dict[str, str]]]:
 
 
 def load_metadata() -> dict:
+    if active_collection().get("adapter") == "scummvm-config-v1":
+        return {"version": 1, "games": [], "poks": []}
+    lifecycle = get_catalogue_lifecycle()
+    if lifecycle is not None:
+        lifecycle.ensure_settled()
     metadata = read_json_object(METADATA_FILE, {"version": 1, "games": [], "poks": []})
     if not isinstance(metadata.get("games"), list):
         metadata["games"] = []
@@ -730,7 +1080,11 @@ def load_metadata() -> dict:
 
 def save_metadata(metadata: dict) -> None:
     metadata["updated_at"] = dt.datetime.now(dt.UTC).isoformat(timespec="seconds")
+    lifecycle = get_catalogue_lifecycle()
+    if lifecycle is not None and lifecycle.save_metadata(COLLECTION, metadata):
+        return
     atomic_write_json(METADATA_FILE, metadata)
+    invalidate_catalogue()
 
 
 def collection_relative(path: Path) -> str:
@@ -818,6 +1172,30 @@ def parse_pok_file(path: Path) -> list[dict[str, object]]:
 
 
 def load_games(poks: dict[tuple[str, str], list[dict[str, str]]], favourites: set[str], progress=None) -> list[Game]:
+    collection = active_collection()
+    if collection.get("adapter") == "scummvm-config-v1":
+        from arcade_core.import_scummvm import scummvm_manifest, platform_presentation, PLATFORMS
+        from arcade_core.scummvm_metadata import game_metadata
+        from arcade_core.scummvm_overrides import ScummvmOverrides
+        manifest = scummvm_manifest(collection["id"], COLLECTION, Path(collection["scummvm_config"]))
+        overrides = ScummvmOverrides(DATA, collection).load()
+        games = []
+        for row in manifest["entries"]:
+            metadata, target = row["metadata"], row["target"]
+            values = ScummvmOverrides.values(overrides, row["id"], target)
+            title = values.get("title", metadata["title"])
+            platform, label = PLATFORMS[target["platform"]]
+            platform_options = platform_presentation(target)
+            games.append(Game(id=row["id"], title=title, title_key=normalize_title(title),
+                sort_title=article_sort_title(title), tosec_title=title, memory=label, system=platform_options[0],
+                section="ScummVM", category="", type="ScummVM", language=format_languages(metadata["languages"]),
+                extension="", path=str(COLLECTION / target["directory"]), file_name=target["targetId"],
+                letter=folder_letter(title), platform=platform, platform_options=platform_options, version=metadata["editionLabel"],
+                languages=tuple(metadata["languages"]),
+                **{**game_metadata(target['engineId'], target['gameId']),
+                   **{key: value for key, value in values.items() if key != "title"}},
+                default_emulator=collection.get("default_emulator", ""), favourite=row["id"] in favourites))
+        return games
     loader = CollectionLoader(
         metadata_path=lambda: METADATA_FILE,
         load_metadata_games=load_metadata_games,
@@ -841,10 +1219,11 @@ def import_match_summary(game: Game) -> dict[str, object]:
     return core_import_match_summary(game)
 
 
-def load_metadata_games(poks: dict[tuple[str, str], list[dict[str, str]]], favourites: set[str]) -> list[Game]:
+def load_metadata_games(poks: dict[tuple[str, str], list[dict[str, str]]], favourites: set[str], *, root=None, items=None) -> list[Game]:
+    from arcade_core.game_presentation import language_codes
     games: list[Game] = []
-    collection_paths = ConfinedRoot(COLLECTION)
-    for item in load_metadata().get("games", []):
+    collection_paths = ConfinedRoot(COLLECTION if root is None else root)
+    for item in (load_metadata().get("games", []) if items is None else items):
         status = item.get("status", "Main")
         if status in {"Deleted", "Hidden"}:
             continue
@@ -864,7 +1243,7 @@ def load_metadata_games(poks: dict[tuple[str, str], list[dict[str, str]]], favou
         collection_type = item.get("type", "Official")
         section = item.get("section") or ("Official" if collection_type == "Official" else "Homebrew & Scene")
         category = "" if collection_type == "Official" else collection_type
-        languages = tuple(item.get("languages", ()))
+        languages = tuple(code.upper() for code in language_codes(item.get('languages'), item.get('language', '')))
         countries = tuple(item.get("countries", ()))
         linked_poks = [path for path in item.get("poks", []) if path]
         related_poks = linked_poks or poks.get((title_key, memory), [])
@@ -891,6 +1270,7 @@ def load_metadata_games(poks: dict[tuple[str, str], list[dict[str, str]]], favou
                 view="collection",
                 year=item.get("year") or item.get("date", ""),
                 publisher=item.get("publisher", ""),
+                series=item.get("series", ""),
                 version=item.get("version", ""),
                 demo=item.get("demo", ""),
                 video=item.get("video", ""),
@@ -1609,7 +1989,8 @@ def get_library() -> Library:
     """Build the collection index only when a runtime transport needs it."""
     global LIBRARY
     if LIBRARY is None:
-        with LIBRARY_LOCK:
+        # Match mutation/rebuild lock order, including first-use construction.
+        with COLLECTION_JOB_LOCK, LIBRARY_LOCK:
             if LIBRARY is None:
                 LIBRARY = Library()
     return LIBRARY
@@ -1646,6 +2027,23 @@ def dispatch_arcade_api(method: object, path: object, query: object = None, data
     query = query if isinstance(query, dict) else {}
     data = data if isinstance(data, dict) else {}
 
+    recovery_routes = {f"/api/catalogue-recovery/{action}": action for action in ("status", "preview", "confirm")}
+    if verb == "POST" and route in recovery_routes:
+        return catalogue_recovery_request(recovery_routes[route], data)
+    reattachment_routes = {f"/api/catalogue-reattachment/{action}": action for action in ("sources", "preview", "confirm")}
+    if verb == "POST" and route in reattachment_routes:
+        return catalogue_reattachment_request(reattachment_routes[route], data)
+    if verb == "POST" and route == "/api/pick-path" and data.get("kind") == "catalogue-reattachment":
+        return catalogue_reattachment_request("select", data)
+    from arcade_core.catalogue_identity import CatalogueError
+    try:
+        lifecycle = get_catalogue_lifecycle()
+        if lifecycle is not None:
+            lifecycle.ensure_settled()
+        migrate_native_scraper_secrets()
+    except CatalogueError:
+        return {"ok": False, "code": "review-required", "error": "Catalogue recovery needs review. Open Catalogue Recovery before loading or changing the library."}
+
     if verb == "GET":
         if route == "/api/games":
             view = _api_query_value(query, "view", "collection")
@@ -1654,7 +2052,16 @@ def dispatch_arcade_api(method: object, path: object, query: object = None, data
                 if _api_query_value(query, "shape") == "summary"
                 else get_library().list_games(view)
             )
+            if _api_query_value(query, "groupVersions") == "true":
+                try:
+                    game_version_summaries(games)
+                except CatalogueError as error:
+                    if error.code != "unavailable":
+                        return {"ok": False, "error": "Game versions could not be loaded.", "code": error.code}
             return {"games": games}
+        if route == "/api/game-versions":
+            entry = catalogue_game_entry(active_collection()["id"], _api_query_value(query, "game_id"))
+            return get_catalogue_service().versions(entry.base["catalogueId"])
         if route == "/api/game":
             game = get_library().get_game(_api_query_value(query, "game_id"))
             return {"game": asdict(game) if game else None}
@@ -1675,6 +2082,13 @@ def dispatch_arcade_api(method: object, path: object, query: object = None, data
             return {"recent": load_recent()}
 
     if verb == "POST":
+        if route == "/api/game-version-default":
+            entry = catalogue_game_entry(active_collection()["id"], data.get("game_id", ""))
+            return set_game_version_default(entry.base["catalogueId"], data.get("catalogueId"), data.get("entryRevision"))
+        if route == "/api/catalogue-preparation/preview":
+            return catalogue_preparation_request(data)
+        if route == "/api/catalogue-preparation/confirm":
+            return catalogue_preparation_request(data, confirm=True)
         if route == "/api/favourite":
             game_id = str(data.get("game_id", ""))
             favourite = bool(data.get("favourite", False))
@@ -1727,7 +2141,8 @@ def dispatch_arcade_api(method: object, path: object, query: object = None, data
             "/api/delete", "/api/import-incoming", "/api/import-incoming-bulk", "/api/restore-trash",
             "/api/purge-trash", "/api/move-language",
         }
-        if route in writable_routes and not current_collection_writable():
+        scummvm_scrape = route == "/api/apply-scrape" and active_collection().get("adapter") == "scummvm-config-v1"
+        if route in writable_routes and not current_collection_writable() and not scummvm_scrape:
             return _read_only_error()
         if route == "/api/rename":
             return rename_game(str(data.get("game_id", "")), str(data.get("name", "")))
@@ -1921,11 +2336,11 @@ def prepare_emulator_profile(emulator: dict[str, object], game: Game, profile_id
     )
 
 
-def get_launch_service() -> GameLaunchService:
+def get_launch_service(*, bound_game=None, bound_root=None) -> GameLaunchService:
     """Build a launch service around the current configuration and library."""
 
     return GameLaunchService(
-        get_game=lambda game_id: get_library().get_game(game_id),
+        get_game=lambda game_id: (bound_game if game_id == bound_game.id else None) if bound_game is not None else get_library().get_game(game_id),
         get_pok=lambda pok_id: get_library().get_pok(pok_id),
         emulator_provider=lambda: configured_emulators(include_hidden=True),
         expand_path=expand_config_path,
@@ -1936,12 +2351,57 @@ def get_launch_service() -> GameLaunchService:
         find_running_window=find_running_emulator_window,
         focus_emulator=focus_launched_emulator,
         bring_to_front=bring_window_to_front,
-        collection_root=lambda: COLLECTION,
+        collection_root=lambda: COLLECTION if bound_root is None else bound_root,
         check_immediate_exit=should_check_immediate_exit,
     )
 
 
+def _bound_spectrum_game(collection_id, game_id):
+    """Resolve a legacy native binding without changing Arcade's active library."""
+    service = get_catalogue_service()
+    entry = catalogue_game_entry(collection_id, game_id)
+    if entry.base['platformId'] != 'zx-spectrum':
+        raise ValueError('The saved game is not a Spectrum target')
+    source = next(source for source in service._sources if source.collection_id == collection_id)
+    item = source._row_index().get(game_id)
+    games = load_metadata_games({}, set(), root=source.root, items=[item] if item else [])
+    if not games:
+        raise FileNotFoundError('The bound game file is missing from its collection')
+    return games[0], source.root
+
+
+def bound_game_source(collection_id, game_id):
+    with COLLECTION_JOB_LOCK:
+        game, root = _bound_spectrum_game(collection_id, game_id)
+        return {'game': {**asdict(game), '_collectionRoot': str(root)},
+                'active': {'id': collection_id, 'root': str(root)},
+                'emulators': emulator_payload(), 'profiles': emulator_profiles_payload()}
+
+
+def launch_bound_game(collection_id, game_id, emulator_id, profile_id=''):
+    with COLLECTION_JOB_LOCK:
+        game, root = _bound_spectrum_game(collection_id, game_id)
+        return get_launch_service(bound_game=game, bound_root=root).launch_game(game_id, emulator_id, profile_id=profile_id)
+
+
 def launch_game(game_id: str, emulator_id: str, launch_action: str = "", force_new: bool = False, profile_id: str = "") -> dict:
+    collection = active_collection()
+    if collection.get("adapter") == "scummvm-config-v1":
+        if not callable(SCUMMVM_LAUNCH):
+            return {"ok": False, "error": "ScummVM launch requires Cyrune Host"}
+        if launch_action:
+            return {"ok": False, "error": "ScummVM launches its registered target directly"}
+        plan = resolve_scummvm_game_plan(collection["id"], game_id, emulator_id, profile_id)
+        from arcade_core.catalogue_identity import CatalogueError
+        try:
+            launched = bool(SCUMMVM_LAUNCH(plan))
+        except (OSError, CatalogueError) as exc:
+            if isinstance(exc, CatalogueError) and exc.code != "unavailable":
+                raise
+            launched = False
+        if not launched:
+            return {"ok": False, "error": "ScummVM could not start the game. Open it in ScummVM to check its startup message."}
+        return {"ok": True, "title": plan["public"]["title"]}
     return get_launch_service().launch_game(game_id, emulator_id, launch_action, force_new, profile_id)
 
 
@@ -1964,13 +2424,21 @@ def open_in_explorer(game_id: str) -> dict:
     path = Path(game.path)
     if not path.exists():
         return {"ok": False, "error": f"Missing game file: {path}"}
+    native_reveal = globals().get('NATIVE_REVEAL_GAME')
+    if callable(native_reveal):
+        native_reveal(path)
+        return {"ok": True}
     if os.name == "nt":
-        subprocess.Popen(["explorer.exe", f"/select,{path}"])
+        # Keep the switch separate: subprocess quotes arguments containing spaces,
+        # and Explorer does not parse a quoted "/select,<path>" as a selection.
+        subprocess.Popen(["explorer.exe", str(path)] if path.is_dir()
+                         else ["explorer.exe", "/select,", str(path)])
     else:
-        webbrowser.open(str(path.parent))
+        webbrowser.open(str(path if path.is_dir() else path.parent))
     return {"ok": True}
 
 
+@_catalogue_serialized
 def rename_game(game_id: str, name: str) -> dict:
     return get_metadata_service().rename_game(game_id, name)
 
@@ -1997,11 +2465,42 @@ def get_metadata_service() -> MetadataService:
         clean_metadata_text=clean_metadata_text,
         clean_asset_path=clean_asset_path,
         dedupe=dedupe,
+        before_move=before_catalogue_move,
     )
     return METADATA_SERVICE
 
 
+@_catalogue_serialized
 def apply_scrape_metadata(game_id: str, candidate: object, assets: object | None = None, remote_assets: object | None = None) -> dict:
+    global LIBRARY
+    collection = active_collection()
+    if collection.get("adapter") == "scummvm-config-v1":
+        from arcade_core.import_scummvm import scummvm_manifest
+        from arcade_core.scummvm_overrides import ScummvmOverrides, TEXT_FIELDS, ART_FIELDS
+        if not isinstance(candidate, dict):
+            return {"ok": False, "error": "Missing scrape candidate"}
+        if any(key in candidate and not isinstance(candidate[key], str) for key in TEXT_FIELDS):
+            return {"ok": False, "error": "Scraped metadata fields must be text"}
+        game = get_library().get_game(game_id)
+        manifest = scummvm_manifest(collection["id"], COLLECTION, Path(collection["scummvm_config"]))
+        row = next((row for row in manifest["entries"] if row["id"] == game_id), None)
+        if not game or not row:
+            return {"ok": False, "error": "Unknown game"}
+        values = {key: clean_metadata_text(candidate[key], max_len=limit)
+                  for key, limit in TEXT_FIELDS.items() if candidate.get(key)}
+        values = {key: value for key, value in values.items() if value}
+        images = remote_assets if isinstance(remote_assets, dict) else {}
+        for key in ART_FIELDS:
+            value = images.get(key) or candidate.get(key)
+            if value:
+                values[key] = value
+        if not values:
+            return {"ok": False, "error": "Scrape candidate has no usable metadata"}
+        values = ScummvmOverrides(DATA, collection).save(game_id, row["target"], values)
+        updated = {**asdict(game), **values}
+        updated.update(title_key=normalize_title(updated["title"]), sort_title=article_sort_title(updated["title"]))
+        LIBRARY = None
+        return {"ok": True, "game": updated}
     return get_metadata_service().apply_scrape(game_id, candidate, remote_assets)
 
 
@@ -2009,6 +2508,7 @@ def scrape_candidate_changes(candidate: dict, assets: dict, remote_assets: dict)
     return get_metadata_service().scrape_candidate_changes(candidate, remote_assets)
 
 
+@_catalogue_serialized
 def update_game_metadata(game_ids: object, changes: object, rename_files: bool = False) -> dict:
     return get_metadata_service().update(game_ids, changes, rename_files)
 
@@ -2017,6 +2517,7 @@ def preview_game_metadata(game_ids: object, changes: object, rename_files: bool 
     return get_metadata_service().preview(game_ids, changes, rename_files)
 
 
+@_catalogue_serialized
 def undo_game_metadata() -> dict:
     return get_metadata_service().undo_last()
 
@@ -2072,6 +2573,7 @@ def screenscraper_scrape_preview(game: Game, provider: dict[str, object]) -> dic
 
 
 def thegamesdb_scrape_preview(game: Game, provider: dict[str, object]) -> dict:
+    platform_id = thegamesdb_platform_id(game, provider)
     data = thegamesdb_request(game, provider, game.title)
     games = (((data.get("data") or {}).get("games")) if isinstance(data.get("data"), dict) else []) or []
     query_title = game.title
@@ -2107,7 +2609,8 @@ def thegamesdb_scrape_preview(game: Game, provider: dict[str, object]) -> dict:
             {
                 "match_id": candidate["scraper_id"] or stable_id(candidate.get("title", "")),
                 "confidence": screenscraper_confidence(game, candidate),
-                "reason": "TheGamesDB title lookup filtered by configured Spectrum platform id.",
+                "reason": (f"TheGamesDB title lookup filtered by platform {platform_id}." if platform_id
+                           else "TheGamesDB title lookup across platforms; original system is unspecified or unsupported."),
                 "candidate": candidate,
                 "assets": scrape_asset_targets(game),
                 "remote_assets": remote_assets,
@@ -2124,6 +2627,18 @@ def thegamesdb_scrape_preview(game: Game, provider: dict[str, object]) -> dict:
     }
 
 
+def thegamesdb_platform_id(game: Game, provider: dict[str, object]) -> str:
+    if game.type != "ScummVM":
+        # Retain the existing Spectrum setting, including user overrides.
+        return str(provider.get("platform_id", "")).strip()
+    # Native adapter platform IDs, not display badges (Steam is not an OS).
+    # Provider IDs: https://thegamesdb.net/browse.php (2026-09-07).
+    return {
+        "dos": "1", "windows": "1", "amiga": "4911", "atari-st": "4937",
+        "macintosh": "37", "fm-towns": "4932",
+    }.get(game.platform, "")
+
+
 def thegamesdb_request(game: Game, provider: dict[str, object], title: str) -> dict:
     base_url = normalize_scraper_base_url(provider.get("base_url"), "https://api.thegamesdb.net/v1")
     params = {
@@ -2132,7 +2647,7 @@ def thegamesdb_request(game: Game, provider: dict[str, object], title: str) -> d
         "fields": "players,publishers,genres,overview,rating,platform,release_date,developers,coop,youtube",
         "include": "boxart,genres,publishers,platform",
     }
-    platform_id = str(provider.get("platform_id", "")).strip()
+    platform_id = thegamesdb_platform_id(game, provider)
     if platform_id:
         params["filter[platform]"] = platform_id
     url = f"{base_url}/Games/ByGameName?{urlencode(params)}"
@@ -2681,6 +3196,7 @@ def apply_metadata_changes(game: Game, item: dict, changes: dict, rename_files: 
         if target.resolve() != source.resolve():
             target.parent.mkdir(parents=True, exist_ok=True)
             target = unique_path(target)
+            before_catalogue_move(source, target)
             source.replace(target)
             item["file"] = collection_relative(target)
             item["format"] = target.suffix.lower()
@@ -2929,6 +3445,7 @@ def delete_game(game_id: str) -> dict:
     return {"ok": True, "path": deleted[0]["path"] if deleted else ""}
 
 
+@_catalogue_serialized
 def delete_games(game_ids: object) -> dict[str, object]:
     ids = list(dict.fromkeys(selected_game_ids(game_ids)))
     if not ids:
@@ -2970,6 +3487,7 @@ def delete_games(game_ids: object) -> dict[str, object]:
     try:
         for game, source, target in plan:
             target.parent.mkdir(parents=True, exist_ok=True)
+            before_catalogue_move(source, target)
             source.replace(target)
             moved.append((source, target))
             if game.view != "incoming" and game.id in by_id:
@@ -3009,6 +3527,7 @@ def import_incoming_game(game_id: str) -> dict:
     return {"ok": True, "name": "", "path": "", "imported": []}
 
 
+@_catalogue_serialized
 def import_incoming_games(game_ids: object) -> dict:
     ids = list(dict.fromkeys(selected_game_ids(game_ids)))
     if not ids:
@@ -3053,6 +3572,7 @@ def import_incoming_game_item(game_id: str, metadata: dict) -> dict:
     if target.exists():
         raise FileExistsError(f"Import target already exists: {target.name}")
     target.parent.mkdir(parents=True, exist_ok=True)
+    before_catalogue_move(source, target)
     shutil.move(str(source), str(target))
     item["file"] = collection_relative(target)
     item["format"] = target.suffix.lower()
@@ -3066,6 +3586,7 @@ def import_incoming_game_item(game_id: str, metadata: dict) -> dict:
     }
 
 
+@_catalogue_serialized
 def restore_trash_games(game_ids: object) -> dict:
     ids = list(dict.fromkeys(selected_game_ids(game_ids)))
     if not ids:
@@ -3105,10 +3626,12 @@ def restore_trash_game_item(game_id: str, metadata: dict) -> dict:
     if target.exists():
         raise FileExistsError(f"Restore target already exists: {target.name}")
     target.parent.mkdir(parents=True, exist_ok=True)
+    before_catalogue_move(source, target)
     shutil.move(str(source), str(target))
     item["file"] = collection_relative(target)
     item["format"] = target.suffix.lower()
-    item["id"] = stable_id(item["file"])
+    # Prepared metadata identities survive a restore to a different managed path.
+    item["id"] = item.get("id") or stable_id(item["file"])
     get_library().remove_game(game_id)
     return {
         "id": item["id"], "name": target.name, "path": str(target),
@@ -3165,6 +3688,7 @@ def transfer_games_transaction(game_ids: list[str], metadata: dict, transfer_ite
     return {"ok": True, "transfers": transfers, "transactional": True}
 
 
+@_catalogue_serialized
 def purge_trash_games(game_ids: object) -> dict:
     ids = selected_game_ids(game_ids)
     if not ids:

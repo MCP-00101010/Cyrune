@@ -57,3 +57,20 @@ The frontend already virtualises rendered rows and the summary contract nearly h
 - Give configuration and metadata services transaction-level update APIs, not only atomic individual writes, if the unified runtime permits multiple simultaneous writers.
 - Establish one Ruff configuration and a Python-version-compatible type-checking baseline for the monorepo.
 - Replace boundary-wide exception catches with a shared error taxonomy where doing so improves user-facing diagnostics without letting worker or native integration errors escape.
+
+## Multisystem launch review — 2026-09-07
+
+Reviewed Arcade library/catalogue indexing, family and default selection, profiles, native launch plans, scraper preview/application, picker and delivery flows, Portal game actions, Relay registration/routing and Host source-scoped bindings.
+
+Fixed six concrete issue groups:
+
+- Portal could replay a pending game action when Relay reconnected, potentially launching twice.
+- Opening a picker-created Spectrum shortcut in Arcade unnecessarily required its collection to be active.
+- Missing saved profiles could fall back to automatic rules; custom EightyOne IDs and missing profile destinations were mishandled.
+- Native direct/catalogue launches did not consistently enforce emulator media compatibility.
+- Version listing refreshed while holding the index lock, reversing catalogue refresh lock order.
+- Stale scraper responses could replace newer previews, with Apply still enabled during a new lookup.
+
+Regression tests use synthetic sources and mocked process execution. Browser acceptance uses isolated Firefox profiles and synthetic registrations; no live emulator matrix is run. This pass does not replace future stress testing of multiple Arcade tabs changing the same active collection simultaneously or crash-recovery testing of native writes.
+
+Validation: 1,102 coordinated tests plus 11 Host subtests passed, with clean Ruff, whitespace, registry/version and Relay lint checks. Both isolated Firefox 155.0.1 workflows passed. The optional live-data Spectrum preflight stopped because the active collection had no 48K game; no collection was switched and no live emulator was launched.

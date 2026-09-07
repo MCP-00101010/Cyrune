@@ -1,6 +1,157 @@
 const gameStatusCache = new Map();
 const gameStatusRequests = new Map();
 const gameTooltipItems = new WeakMap();
+let gameVersionsDialog = null;
+
+function groupGameShortcutItems(items) {
+  const seen = new Set();
+  return items.filter(item => {
+    const group = item?.type === 'game' ? gameStatusCache.get(item.gameKey)?.versionGroup : '';
+    if (!group) return true;
+    if (seen.has(group)) return false;
+    seen.add(group); return true;
+  });
+}
+
+async function showGameVersionsModal(item) {
+  if (!item?.gameKey || gameVersionsDialog) return;
+  const previousFocus = document.activeElement;
+  const overlay = document.createElement('div'); overlay.className = 'modal-overlay';
+  overlay.innerHTML = `<section class="modal-card game-versions-modal" role="dialog" aria-modal="true" aria-labelledby="portal-game-versions-title">
+    <header><h2 id="portal-game-versions-title">Launch Version…</h2><p data-version-title></p></header>
+    <p>Opening this game launches its default version. Choose another below, or save a new default for Portal and Arcade.</p>
+    <div data-version-list class="game-version-list"></div><p data-version-status role="status">Loading versions…</p>
+    <footer class="utility-panel-footer"><button data-version-close class="secondary-btn">Close</button></footer></section>`;
+  overlay.querySelector('[data-version-title]').textContent = item.title || 'Game';
+  const list = overlay.querySelector('[data-version-list]');
+  const status = overlay.querySelector('[data-version-status]');
+  const close = overlay.querySelector('[data-version-close]');
+  let busy = false;
+  const dismiss = () => { if (!busy) { overlay.remove(); gameVersionsDialog = null; previousFocus?.focus(); } };
+  close.addEventListener('click', dismiss);
+  overlay.addEventListener('click', event => { if (event.target === overlay) dismiss(); });
+  overlay.addEventListener('keydown', event => {
+    if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); dismiss(); }
+    if (event.key === 'Tab') {
+      const buttons = [...overlay.querySelectorAll('button:not(:disabled)')];
+      if (!buttons.length) { event.preventDefault(); return; }
+      if (event.shiftKey && document.activeElement === buttons[0] || !event.shiftKey && document.activeElement === buttons.at(-1)) {
+        event.preventDefault(); buttons[event.shiftKey ? buttons.length - 1 : 0].focus();
+      }
+    }
+  });
+  document.body.appendChild(overlay); gameVersionsDialog = overlay; close.focus();
+  const load = async () => {
+    const result = await bridge.gameVersions(item.gameKey);
+    if (!overlay.isConnected) return;
+    if (!result || !Array.isArray(result.versions) || result.versions.length > 1000
+        || result.versions.some(row => !row || typeof row.label !== 'string' || row.label.length > 520
+          || ![row.catalogueId, row.entryRevision].every(value => typeof value === 'string' && /^[A-Za-z0-9_-]{1,80}$/.test(value))
+          || typeof row.isDefault !== 'boolean')) throw new Error('Game versions could not be read.');
+    list.replaceChildren();
+    for (const version of result.versions) {
+      const row = document.createElement('div'); row.className = 'game-version-row';
+      const label = document.createElement('span'); label.className = 'game-version-label'; label.textContent = version.label;
+      const marker = document.createElement('strong'); marker.textContent = version.isDefault ? 'Default' : '';
+      const launch = document.createElement('button'); launch.className = 'primary-btn'; launch.textContent = 'Launch';
+      const makeDefault = document.createElement('button'); makeDefault.className = 'secondary-btn';
+      makeDefault.textContent = 'Use as default';
+      const run = async action => {
+        busy = true; overlay.querySelectorAll('button').forEach(button => { button.disabled = true; }); status.textContent = '';
+        try {
+          await bridge.gameVersions(item.gameKey, action, version);
+          if (action === 'launch') { busy = false; dismiss(); return; }
+          // Keep family metadata transient; existing shortcut keys and custom
+          // presentation remain in the portable database.
+          for (const { item: game } of collectStoredGames()) {
+            if (game.gameKey === item.gameKey || gameStatusCache.get(game.gameKey)?.versionGroup === result.groupId) {
+              await refreshGameStatus(game, { render: false });
+            }
+          }
+          _renderGameShortcutSurfaces(); await load(); status.textContent = 'Default saved.';
+        } catch (error) { status.textContent = error.message || 'That version could not be used.'; }
+        finally { busy = false; close.disabled = false;
+          list.querySelectorAll('button').forEach(button => { button.disabled = false; }); }
+      };
+      launch.addEventListener('click', () => void run('launch'));
+      makeDefault.addEventListener('click', () => void run('default'));
+      row.append(label, marker, launch, makeDefault); list.appendChild(row);
+    }
+    status.textContent = result.versions.some(row => row.isDefault) ? '' : 'The saved default is missing. Choose an available version as default.';
+  };
+  try { await load(); } catch (error) { status.textContent = error.message || 'Game versions are unavailable.'; }
+}
+
+const GAME_LANGUAGE_FLAGS = Object.freeze({
+  ar: ['sa', 'Arabic'], be: ['by', 'Belarusian'], bg: ['bg', 'Bulgarian'], br: ['fr', 'Breton'],
+  ca: ['es-ct', 'Catalan'], cs: ['cz', 'Czech'], da: ['dk', 'Danish'], de: ['de', 'German'],
+  el: ['gr', 'Greek'], en: ['gb', 'English'], es: ['es', 'Spanish'], et: ['ee', 'Estonian'],
+  eu: ['es-pv', 'Basque'], fa: ['ir', 'Persian'], fi: ['fi', 'Finnish'], fr: ['fr', 'French'],
+  he: ['il', 'Hebrew'], hr: ['hr', 'Croatian'], hu: ['hu', 'Hungarian'], it: ['it', 'Italian'],
+  ja: ['jp', 'Japanese'], ko: ['kr', 'Korean'], lt: ['lt', 'Lithuanian'], lv: ['lv', 'Latvian'],
+  nb: ['no', 'Norwegian Bokmål'], nl: ['nl', 'Dutch'], no: ['no', 'Norwegian'], pl: ['pl', 'Polish'],
+  pt: ['pt', 'Portuguese'], ro: ['ro', 'Romanian'], ru: ['ru', 'Russian'], sk: ['sk', 'Slovak'],
+  sr: ['rs', 'Serbian'], sv: ['se', 'Swedish'], tr: ['tr', 'Turkish'], uk: ['ua', 'Ukrainian'],
+  zh: ['cn', 'Chinese'], 'en-us': ['us', 'English (US)'], 'en-gb': ['gb', 'English (UK)'],
+  'fr-ca': ['ca', 'French (Canada)'], 'pt-br': ['br', 'Portuguese (Brazil)'],
+  'zh-tw': ['tw', 'Chinese (Taiwan)'], 'zh-cn': ['cn', 'Chinese (China)']
+});
+
+function getGameLanguageDescriptors(values) {
+  if (!Array.isArray(values)) return [];
+  const codes = [...new Set(values.slice(0, 12).filter(value => typeof value === 'string'
+    && /^[a-z]{2,3}(?:-[a-z]{2})?$/i.test(value)).map(value => value.toLowerCase()))].sort();
+  return codes.map(code => {
+    const known = GAME_LANGUAGE_FLAGS[code] || GAME_LANGUAGE_FLAGS[code.split('-')[0]];
+    return { code, flag: known?.[0] || '', label: known?.[1] || code.toUpperCase() };
+  });
+}
+
+const GAME_PLATFORM_BADGES = Object.freeze({
+  dos: ['dos.png', 'DOS'], windows: ['windows.png', 'Windows'], amiga: ['amiga.png', 'Amiga'],
+  'fm towns': ['fm-towns.png', 'FM Towns'], 'atari st': ['atari-st.png', 'Atari ST'],
+  macintosh: ['macintosh.png', 'Macintosh'], 'zx spectrum': ['zx-spectrum.png', 'ZX Spectrum'],
+  steam: ['steam.svg', 'Steam edition'], 'unspecified platform': ['unknown.svg', 'Unspecified platform']
+});
+
+function getGameDefaultIcons(item) {
+  const status = gameStatusCache.get(item?.gameKey);
+  const version = status?.state === 'ready' ? status.defaultVersion : null;
+  if (!version) return [];
+  const result = getGameLanguageDescriptors(version.languages).map(language => ({
+    src: language.flag ? `assets/language-flags/${language.flag}.svg` : '',
+    label: language.label, kind: 'language'
+  }));
+  const systems = version.systems ?? version.platforms;
+  const platforms = Array.isArray(systems) ? systems.slice(0, 12) : [];
+  const hardware = [...new Set(platforms.flatMap(value => /^(?:16|48|128)K(?:-(?:16|48|128)K)?$/i.test(String(value))
+    ? String(value).toUpperCase().split('-') : []))].sort((a, b) => parseInt(a) - parseInt(b));
+  if (hardware.length) return [...result, ...hardware.map(label => ({src:'', label, kind:'system'}))];
+  for (const platform of [...new Set(platforms.filter(value => typeof value === 'string'))]) {
+    const key = platform.trim().toLowerCase().replaceAll('-', ' ');
+    // Older Host versions supplied the library platform here, not the hardware.
+    // Keep its logo as the favicon; never present it as the default system.
+    if (key === 'zx spectrum') continue;
+    const [file, label] = GAME_PLATFORM_BADGES[key] || GAME_PLATFORM_BADGES['unspecified platform'];
+    result.push({ src: `assets/platforms/${file}`, label, kind: key === 'steam' ? 'steam' : 'platform' });
+  }
+  return result;
+}
+
+function renderGameDefaultIcons(container, item) {
+  const descriptors = getGameDefaultIcons(item);
+  if (!descriptors.length) return;
+  const badges = document.createElement('span'); badges.className = 'game-default-icons';
+  for (const descriptor of descriptors) {
+    const badge = document.createElement(descriptor.src ? 'img' : 'span');
+    badge.className = `game-default-icon game-default-${descriptor.kind}`;
+    badge.title = `Default version: ${descriptor.label}`;
+    if (descriptor.src) { badge.src = descriptor.src; badge.alt = descriptor.label; }
+    else badge.textContent = descriptor.label;
+    badges.appendChild(badge);
+  }
+  container.appendChild(badges);
+}
 
 function _renderGameShortcutSurfaces() {
   if (typeof renderContentSurfaces === 'function') renderContentSurfaces();
@@ -39,10 +190,22 @@ function getGameSystemDescriptor(item = {}) {
 
 function renderGameSystemIcon(container, item) {
   const system = getGameSystemDescriptor(item);
+  const status = gameStatusCache.get(item?.gameKey);
+  const scummvm = system?.id === 'scummvm' || /^scumm\s?vm$/i.test(status?.emulatorName || item?.emulatorName || '');
   container.classList.add('game-system-icon');
-  container.dataset.system = system?.id || 'generic';
-  container.title = system?.label || 'Game';
-  container.appendChild(icon(system?.iconId || 'icon-system-generic'));
+  container.dataset.system = scummvm ? 'scummvm' : system?.id || 'generic';
+  container.title = scummvm ? 'ScummVM' : system?.label || 'Game';
+  if (scummvm) {
+    const image = document.createElement('img');
+    image.src = 'assets/scummvm/scummvm-icon.png';
+    image.alt = 'ScummVM';
+    image.className = 'game-scummvm-icon';
+    container.appendChild(image);
+  } else if (system?.id === 'zx-spectrum') {
+    const image = document.createElement('img');
+    image.src = 'assets/platforms/zx-spectrum.png'; image.alt = 'ZX Spectrum';
+    image.className = 'game-spectrum-icon'; container.appendChild(image);
+  } else container.appendChild(icon(system?.iconId || 'icon-system-generic'));
   return container;
 }
 
@@ -54,11 +217,13 @@ function registerGameTooltipTarget(target, item) {
 
 function getGameTooltipDetails(item = {}) {
   const system = getGameSystemDescriptor(item);
+  const status = gameStatusCache.get(item.gameKey) || {};
   return {
     title: String(item.title || 'Game'),
-    system: system?.label || String(item.systemName || 'Game system'),
-    emulator: String(item.emulatorName || 'Unknown emulator'),
-    profile: String(item.profileName || 'Automatic'),
+    system: status.platforms?.join(' / ') || system?.label || String(item.systemName || 'Game system'),
+    emulator: String(status.emulatorName || item.emulatorName || 'Unknown emulator'),
+    profile: String(status.profileName || item.profileName || 'Automatic'),
+    languages: getGameLanguageDescriptors(status.languages),
     thumbnail: /^data:image\/(?:png|jpe?g|gif|webp|avif);base64,/i.test(String(item.thumbnailCache || '')) ? item.thumbnailCache : ''
   };
 }
@@ -78,6 +243,18 @@ function renderGameTooltip(container, target) {
   const title = document.createElement('strong');
   title.className = 'game-tooltip-title';
   title.textContent = details.title;
+  for (const language of details.languages) {
+    const flag = document.createElement(language.flag ? 'img' : 'span');
+    flag.className = 'game-tooltip-language';
+    flag.title = language.label;
+    if (language.flag) {
+      flag.src = `assets/language-flags/${language.flag}.svg`;
+      flag.alt = language.label;
+      flag.width = 16;
+      flag.height = 12;
+    } else flag.textContent = language.label;
+    title.appendChild(flag);
+  }
   body.appendChild(title);
   const system = document.createElement('span');
   system.className = 'game-tooltip-system';
@@ -144,16 +321,20 @@ async function refreshGameStatus(item, options = {}) {
   const request = bridge.getGameStatus(item.gameKey, { includeThumbnail: !item.thumbnailCache }).then(status => {
     const normalized = status || { gameKey: item.gameKey, state: 'unbound', title: item.title || 'Game', thumbnailCache: '' };
     gameStatusCache.set(item.gameKey, normalized);
-    let changed = previous?.state !== normalized.state;
+    let changed = previous?.state !== normalized.state || previous?.versionGroup !== normalized.versionGroup
+      || JSON.stringify(previous?.defaultVersion) !== JSON.stringify(normalized.defaultVersion)
+      || JSON.stringify(getGameLanguageDescriptors(previous?.languages)) !== JSON.stringify(getGameLanguageDescriptors(normalized.languages));
     let portableMetadataChanged = false;
-    if (normalized.thumbnailCache && normalized.thumbnailCache !== item.thumbnailCache) {
+    const canPersistMetadata = (typeof portalReadOnlyMode === 'undefined' || !portalReadOnlyMode)
+      && (typeof bridge.storageIsAvailable !== 'function' || bridge.storageIsAvailable());
+    if (canPersistMetadata && normalized.thumbnailCache && normalized.thumbnailCache !== item.thumbnailCache) {
       item.thumbnailCache = normalized.thumbnailCache;
       changed = true;
       portableMetadataChanged = true;
     }
     for (const field of ['systemId', 'systemName', 'emulatorName', 'profileName']) {
       const value = String(normalized[field] || '');
-      if (value && value !== item[field]) {
+      if (canPersistMetadata && value && value !== item[field]) {
         item[field] = value;
         changed = true;
         portableMetadataChanged = true;

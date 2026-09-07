@@ -14,10 +14,34 @@ const bridge = (() => {
   let _extensionVersion = '';
   let _capabilities = new Set();
   let _protocols = {};
-  const CLIENT_PROTOCOLS = Object.freeze({ 'portal-relay': 1, 'component-settings': 2 });
+  const CLIENT_PROTOCOLS = Object.freeze({ 'portal-relay': 1, 'component-settings': 2, 'arcade-catalogue': 1, 'arcade-scummvm': 1 });
+  let _catalogueEpoch = 0;
+  const CATALOGUE_MESSAGES = new Set(['MW_SEARCH_ARCADE_CATALOGUE', 'MW_GET_ARCADE_CATALOGUE_ENTRY',
+    'MW_GET_ARCADE_CATALOGUE_ARTWORK', 'MW_BIND_ARCADE_CATALOGUE_ENTRIES']);
+
+  function _catalogueEnabled() {
+    // Activation requires the coordinated protocol advertisement. Native session
+    // opening additionally checks the configured Host and Arcade advertisements.
+    return CLIENT_PROTOCOLS['arcade-catalogue'] === 1 && _protocols['arcade-catalogue'] === 1
+      && _available && _nativeAvailable && _capabilities.has('emuguiService');
+  }
+
+  async function _catalogueRequest(type, payload) {
+    if (!_catalogueEnabled()) throw Object.assign(new Error('Catalogue access is not enabled for this installation.'), { code: 'unsupported-protocol' });
+    try {
+      const { _mw, _res, id, ...response } = await _send(type, { protocol: 1, payload },
+        { timeoutMs: type === 'MW_BIND_ARCADE_CATALOGUE_ENTRIES' ? 31000 : 16000 });
+      return response;
+    } catch (error) {
+      if (['timeout', 'unauthorized', 'unavailable', 'unsupported-protocol'].includes(error.code)) _catalogueEpoch++;
+      throw error;
+    }
+  }
 
   let _seq = 0;
   const _pending = new Map();
+  const _pendingGameDeliveries = [];
+  let _gameIntakeReady = false;
   const DEFAULT_TIMEOUT_MS = 5000;
   const LARGE_PAYLOAD_TIMEOUT_MS = 60000;
   const SHARED_READ_CHUNK_BYTES = 256 * 1024;
@@ -35,7 +59,7 @@ const bridge = (() => {
       const request = { _mw: true, _req: true, id, type, ...payload };
       const timer = setTimeout(() => {
         _pending.delete(id);
-        reject(new Error('timeout'));
+        reject(Object.assign(new Error('timeout'), CATALOGUE_MESSAGES.has(type) ? { code: 'timeout' } : {}));
       }, options.timeoutMs || DEFAULT_TIMEOUT_MS);
       _pending.set(id, { resolve, reject, timer, request });
       window.postMessage(request, '*');
@@ -49,7 +73,8 @@ const bridge = (() => {
   function _validateRelayProtocols(protocols) {
     const advertised = protocols && typeof protocols === 'object' ? protocols : {};
     const missing = Object.entries(CLIENT_PROTOCOLS)
-      .filter(([name, minimumVersion]) => Number(advertised[name] || 0) < minimumVersion)
+      // The staged catalogue is optional; older Relay must retain core Portal use.
+      .filter(([name, minimumVersion]) => !['arcade-catalogue', 'arcade-scummvm'].includes(name) && Number(advertised[name] || 0) < minimumVersion)
       .map(([name, minimumVersion]) => `${name} v${minimumVersion}+`);
     if (missing.length) {
       const error = new Error(`Cyrune Relay is incompatible or outdated. Required: ${missing.join(', ')}. Reload Relay from this Cyrune checkout.`);
@@ -162,6 +187,7 @@ const bridge = (() => {
             protocols: CLIENT_PROTOCOLS
           }, { timeoutMs: pingTimeoutMs });
           _validateRelayProtocols(res.protocols);
+          _catalogueEpoch++;
           const recoveredAfterStartup = _readyResolved && !_available;
           _available = true;
           _nativeAvailable = res.nativeAvailable === true;
@@ -203,7 +229,19 @@ const bridge = (() => {
     // A document_idle content relay may attach after the page's first ping.
     // Replay pending requests immediately instead of waiting for their timeout.
     if (e.data._relayReady) {
-      for (const pending of _pending.values()) window.postMessage(pending.request, '*');
+      _catalogueEpoch++;
+      for (const [id, pending] of _pending) {
+        if (CATALOGUE_MESSAGES.has(pending.request.type)) {
+          clearTimeout(pending.timer);
+          _pending.delete(id);
+          pending.reject(Object.assign(new Error('Catalogue session ended.'), { code: 'unauthorized' }));
+        } else if (['MW_LAUNCH_GAME', 'MW_REVEAL_GAME', 'MW_OPEN_GAME_IN_EMUGUI', 'MW_FORGET_GAME'].includes(pending.request.type)
+            || pending.request.type === 'MW_GAME_VERSIONS' && pending.request.action !== 'list') {
+          clearTimeout(pending.timer);
+          _pending.delete(id);
+          pending.reject(Object.assign(new Error('Relay reconnected. The game action may already have completed; check before trying again.'), { code: 'outcome-unknown' }));
+        } else window.postMessage(pending.request, '*');
+      }
       if (!_available && !_connectPromise) {
         void _connect({ retries: 1, delayMs: 200, pingTimeoutMs: 750 });
       }
@@ -256,7 +294,7 @@ const bridge = (() => {
       return;
     }
     if (e.data._push && e.data.type === 'MW_RECEIVE_GAME') {
-      window.dispatchEvent(new CustomEvent('morpheus:receive-game', {
+      const event = new CustomEvent('morpheus:receive-game', {
         detail: {
           pushRequestId: e.data.pushRequestId || '',
           deliveryId: e.data.deliveryId || '',
@@ -264,7 +302,11 @@ const bridge = (() => {
           targetTabId: e.data.targetTabId || '',
           game: e.data.game || null
         }
-      }));
+      });
+      if (_gameIntakeReady) window.dispatchEvent(event);
+      else if (_pendingGameDeliveries.length < 128) _pendingGameDeliveries.push(event);
+      else window.postMessage({ _mw: true, _pushResponse: true, pushRequestId: e.data.pushRequestId,
+        ok: false, error: 'Portal is still loading. The delivery remains queued in Relay.' }, '*');
       return;
     }
     if (e.data._push && e.data.type === 'MW_UPDATE_GAME_BINDING') {
@@ -310,8 +352,9 @@ const bridge = (() => {
     _pending.delete(e.data.id);
     if (e.data.ok) handler.resolve(e.data);
     else {
-      const error = new Error(e.data.error || 'bridge error');
-      error.code = e.data.errorCode || '';
+      const catalogue = CATALOGUE_MESSAGES.has(handler.request.type);
+      const error = new Error(catalogue ? 'Catalogue request failed.' : (e.data.error || 'bridge error'));
+      error.code = catalogue ? (typeof e.data.code === 'string' ? e.data.code : 'unavailable') : (e.data.errorCode || '');
       error.requiredProtocols = e.data.requiredProtocols || null;
       error.protocols = e.data.protocols || null;
       handler.reject(error);
@@ -329,10 +372,30 @@ const bridge = (() => {
 
   return {
     whenReady,
+    catalogueIsAvailable: _catalogueEnabled,
+    catalogueSession() { return _catalogueEpoch; },
+    async searchArcadeCatalogue(payload) {
+      // Additive opt-in: an older Relay/Host keeps its exact-entry projection.
+      try { return await _catalogueRequest('MW_SEARCH_ARCADE_CATALOGUE', { groupVersions: true, ...payload }); }
+      catch (error) {
+        if (error.code !== 'invalid-request') throw error;
+        return _catalogueRequest('MW_SEARCH_ARCADE_CATALOGUE', payload);
+      }
+    },
+    getArcadeCatalogueEntry(catalogueId) { return _catalogueRequest('MW_GET_ARCADE_CATALOGUE_ENTRY', { catalogueId }); },
+    getArcadeCatalogueArtwork(catalogueId, artworkRef) { return _catalogueRequest('MW_GET_ARCADE_CATALOGUE_ARTWORK', { catalogueId, artworkRef }); },
+    bindArcadeCatalogueEntries(payload) { return _catalogueRequest('MW_BIND_ARCADE_CATALOGUE_ENTRIES', payload); },
     isAvailable()       { return _available; },
     nativeIsAvailable() { return _nativeAvailable; },
     storageIsAvailable() { return _available && _authoritativeStorageAvailable; },
     storageMode() { return _storageMode; },
+    async resumePendingIntake() {
+      if (!_available || !_authoritativeStorageAvailable) return;
+      // The existing authenticated presence ping also asks Relay to drain its
+      // queue. Send it once authoritative loading/recovery has actually ended.
+      await _send('MW_PING', { morpheusPage: true, pageUrl: window.location.href,
+        active: !document.hidden && document.hasFocus(), protocols: CLIENT_PROTOCOLS });
+    },
     supports(capability) { return _capabilities.has(capability); },
     getDiagnostics() {
       return {
@@ -436,6 +499,11 @@ const bridge = (() => {
         _authoritativeStorageAvailable = false;
         return { ok: false, conflict: false, fileInfo: null, databasePath: null };
       }
+    },
+
+    startGameIntake() {
+      _gameIntakeReady = true;
+      for (const event of _pendingGameDeliveries.splice(0)) window.dispatchEvent(event);
     },
 
     respondToPush(pushRequestId, result = {}) {
@@ -849,6 +917,15 @@ const bridge = (() => {
       const res = await _send('MW_LAUNCH_GAME', { gameKey }, { timeoutMs: ARCADE_REQUEST_TIMEOUT_MS });
       if (res.ok === false) throw new Error(res.error || 'The game could not be launched');
       return true;
+    },
+
+    async gameVersions(gameKey, action = 'list', version = {}) {
+      if (!_available) await _connect({ retries: 1, delayMs: 200 });
+      if (!_available || !_nativeAvailable || !_capabilities.has('emuguiService')) throw new Error('Game launcher is unavailable');
+      const response = await _send('MW_GAME_VERSIONS', { gameKey, action,
+        catalogueId: version.catalogueId || '', entryRevision: version.entryRevision || '' }, { timeoutMs: ARCADE_REQUEST_TIMEOUT_MS });
+      if (response.ok === false) throw new Error(response.error || 'Game versions are unavailable. Reload Relay and try again.');
+      return response.result;
     },
 
     openGameInArcade: _openGameInArcade,

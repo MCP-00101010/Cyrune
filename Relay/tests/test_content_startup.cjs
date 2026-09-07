@@ -4,6 +4,31 @@ const path = require('node:path');
 const test = require('node:test');
 const vm = require('node:vm');
 
+test('startup requests wait for an in-flight discovery registration', async () => {
+  let finishRenewal;
+  const runtimeListeners=[],pageListeners=[],messages=[];
+  const window={location:{href:'file:///hub.html'},addEventListener:(_type,fn)=>pageListeners.push(fn),postMessage:()=>{}};
+  const document={hidden:false,hasFocus:()=>true,documentElement:{dataset:{}},querySelector:selector=>selector==='meta[name="morpheus-webhub"]'?{}:null};
+  const browser={runtime:{onMessage:{addListener:fn=>runtimeListeners.push(fn)},sendMessage:async message=>{
+    messages.push(message);
+    if(message.type==='MW_REGISTER') {
+      if(messages.length===1)return {ok:true,hubSessionToken:'current'};
+      assert.equal(message.hubSessionToken,'current');
+      return new Promise(resolve=>{finishRenewal=resolve;});
+    }
+    return {ok:true};
+  }}};
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../content.js'),'utf8'),{window,document,browser,setTimeout,clearTimeout});
+  await new Promise(resolve=>setImmediate(resolve));
+  const discovery=runtimeListeners[0]({type:'MW_DISCOVER'});
+  const request=pageListeners[0]({source:window,data:{_mw:true,_req:true,id:'read',type:'MW_GET_STATE'}});
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(messages.length,2,'The state read must wait until registration completes');
+  finishRenewal({ok:true,hubSessionToken:'current'});
+  await Promise.all([discovery,request]);
+  assert.equal(messages[2].hubSessionToken,'current');
+});
+
 test('known-good idle relay registers and catches the page bridge ping', async () => {
   let markerAvailable = true;
   const windowListeners = new Map();
@@ -62,6 +87,7 @@ test('known-good idle relay registers and catches the page bridge ping', async (
   assert.equal(windowListeners.get('message')?.length, 1);
   assert.deepEqual(runtimeMessages.map(message => message.type), ['MW_REGISTER']);
   assert.equal(document.documentElement.dataset.morpheusExtensionRelay, 'background-ready');
+  const readyCount = postedMessages.filter(message => message._relayReady).length;
   assert.deepEqual(JSON.parse(JSON.stringify(await runtimeListeners[0]({ type: 'MW_DISCOVER' }))), {
     ok: true,
     isMorpheus: true,
@@ -70,6 +96,8 @@ test('known-good idle relay registers and catches the page bridge ping', async (
     hubSessionToken: 'session-1',
     error: ''
   });
+  assert.equal(postedMessages.filter(message => message._relayReady).length, readyCount,
+    'Discovery of an unchanged session must not replay database requests or cancel catalogue reads');
 
   const request = {
     _mw: true,
@@ -240,7 +268,7 @@ test('EmuGUI file page registers before requesting bounded game delivery', async
 
   assert.deepEqual(JSON.parse(JSON.stringify(runtimeMessages[0])), {
     type: 'MW_EMUGUI_REGISTER', pageUrl: 'file:///F:/Projects/Coding/Cyrune/Arcade/web/index.html',
-    protocols: { 'arcade-relay': 1, 'arcade-service': 1, 'component-settings': 2 }
+    protocols: { 'arcade-relay': 1, 'arcade-service': 1, 'component-settings': 2, 'arcade-catalogue': 1, 'arcade-scummvm': 1 }
   });
   assert.deepEqual(JSON.parse(JSON.stringify(runtimeMessages[1])), {
     type: 'MW_EMUGUI_SEND_GAME', gameId: 'jetpac', emulatorId: 'eightyone', profileId: 'profile-48k',

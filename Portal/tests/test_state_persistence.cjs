@@ -76,6 +76,53 @@ test('page cache updates only after the authoritative save succeeds', async () =
   assert.equal(JSON.parse(stateWrites[0].value).hubName, 'Second');
 });
 
+test('full optional cache does not warn or delete data after an authoritative save', async () => {
+  const h = loadStateScript(), notices = [];
+  h.context.showNotice = message => notices.push(message);
+  const previous = vm.runInContext('serializeStateSnapshot()', h.context);
+  h.context.persistStateToLocalCache(previous, { source: 'shared' });
+  const previousHash = vm.runInContext('localCacheMeta.snapshotHash', h.context);
+  h.storage.set('morpheus-webhub-trash', 'retained trash');
+  h.storage.set('widget-local-data', 'retained widget data');
+  const write = h.context.localStorage.setItem;
+  h.context.localStorage.setItem = (key, value) => {
+    if (key === 'morpheus-webhub-state') throw Object.assign(new Error('quota'), { name: 'QuotaExceededError' });
+    write(key, value);
+  };
+  const saved = vm.runInContext("state.hubName = 'Saved despite full cache'; saveState()", h.context);
+  const flushing = h.context.flushSharedDiskSaveQueue();
+  h.saves[0].pending.resolve({ ok: true, fileInfo: { version: 'v2', contentHash: 'h2' } });
+  await flushing;
+  assert.equal((await saved).ok, true);
+  assert.deepEqual(notices, []);
+  assert.equal(h.storage.get('morpheus-webhub-state'), previous);
+  assert.equal(h.storage.get('morpheus-webhub-trash'), 'retained trash');
+  assert.equal(h.storage.get('widget-local-data'), 'retained widget data');
+  assert.equal(vm.runInContext('localCacheMeta.snapshotHash', h.context), previousHash);
+  // Losing authority must restore the latest saved view, not the older disk cache.
+  h.context.bridge.storageIsAvailable = () => false;
+  const rejected = await vm.runInContext("state.hubName = 'Unsaved edit'; saveState()", h.context);
+  assert.equal(rejected.ok, false);
+  assert.equal(vm.runInContext('state.hubName', h.context), 'Saved despite full cache');
+});
+
+test('cache quota without authority retains the old copy and reports its limited recovery once', () => {
+  const h = loadStateScript(), notices = [];
+  h.context.showNotice = message => notices.push(message);
+  h.storage.set('morpheus-webhub-state', '{"hubName":"Old recovery"}');
+  h.context.bridge.storageIsAvailable = () => false;
+  const write = h.context.localStorage.setItem;
+  h.context.localStorage.setItem = (key, value) => {
+    if (key === 'morpheus-webhub-state') throw Object.assign(new Error('quota'), { name: 'QuotaExceededError' });
+    write(key, value);
+  };
+  h.context.persistStateToLocalCache('{"hubName":"Current view"}');
+  h.context.persistStateToLocalCache('{"hubName":"Current view"}');
+  assert.equal(notices.length, 1);
+  assert.match(notices[0], /offline recovery cache/i);
+  assert.equal(h.storage.get('morpheus-webhub-state'), '{"hubName":"Old recovery"}');
+});
+
 test('per-item inheritance opt-out stops ancestor tags but still shares folder tags with children', () => {
   const harness = loadStateScript();
   const result = vm.runInContext(`(() => {

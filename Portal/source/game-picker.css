@@ -1,0 +1,28 @@
+.arcade-game-picker { width: min(940px, calc(100vw - 32px)); max-height: calc(100vh - 32px); padding: 0; gap: 10px; overflow: auto; }
+.arcade-game-picker > * { flex-shrink: 0; }
+.arcade-game-picker > header { padding: 16px 18px 0; }
+.arcade-game-picker h2 { margin: 0; padding-bottom: 10px; border-bottom: 1px solid currentColor; }
+.arcade-game-picker > header p { margin: 8px 0 0; }
+.arcade-picker-search { display: flex; align-items: end; flex-wrap: wrap; gap: 10px; padding: 0 18px; }
+.arcade-picker-search label { display: flex; flex-direction: column; gap: 5px; }
+.arcade-picker-search label:first-child { flex: 1; min-width: 180px; }
+.arcade-game-picker input[type="search"], .arcade-game-picker select { min-height: 34px; width: 100%; color: inherit; background: transparent; border: 1px solid var(--border); border-radius: 6px; padding: 5px 8px; }
+.arcade-game-picker input::placeholder { font-style: italic; }
+.arcade-picker-content { display: grid; grid-template-columns: minmax(0, 2fr) minmax(180px, 1fr); gap: 16px; padding: 0 18px; min-height: 150px; }
+.arcade-picker-results { max-height: 42vh; overflow: auto; }
+.arcade-picker-row { display: flex; gap: 8px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--border); }
+.arcade-picker-row label { display: flex; flex: 1; align-items: center; min-width: 0; gap: 8px; }
+.arcade-picker-row label > span { display: flex; flex-direction: column; gap: 3px; overflow-wrap: anywhere; }
+.arcade-picker-row input, .arcade-picker-tags input { width: 26px; height: 26px; flex-shrink: 0; }
+.arcade-picker-row small { color: var(--text-muted); }
+.arcade-picker-detail { max-height: 42vh; overflow: auto; overflow-wrap: anywhere; }
+.arcade-picker-detail img { max-width: 100%; height: auto; object-fit: contain; }
+.arcade-game-picker > details, .arcade-picker-tags, .arcade-game-picker > [role="alert"] { margin: 0 18px; }
+.arcade-game-picker > details { max-height: 130px; overflow: auto; }
+.arcade-picker-selected { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 4px 0; }
+.arcade-picker-tags { display: flex; gap: 8px; align-items: center; }
+.arcade-game-picker > footer { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 14px 18px 18px; }
+.arcade-game-picker > footer [role="status"] { flex: 1; min-width: 180px; }
+.arcade-game-picker > [role="alert"] { color: var(--danger, #e05555); }
+.arcade-game-picker .primary-btn:disabled { opacity: 0.35; cursor: default; }
+@media (max-width: 650px) { .arcade-picker-content { grid-template-columns: 1fr; } .arcade-picker-detail { max-height: 160px; } }

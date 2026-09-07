@@ -2,14 +2,14 @@
   "schemaVersion": 1,
   "id": "relay",
   "name": "Relay",
-  "version": "1.1.1",
+  "version": "1.1.9",
   "kind": "extension",
   "entrypoint": null,
   "icon": "icons/icon-96.svg",
   "summary": "Authenticated browser bridge, exact client roles and durable routing.",
   "documents": { "todo": "Relay-TODO.md", "changelog": "Relay-CHANGELOG.md" },
   "capabilities": ["browser-sessions", "durable-intake", "exact-page-auth", "native-transport", "notifications", "portal-authority"],
-  "protocols": { "portal-relay": 1, "arcade-relay": 1, "nexus-relay": 2, "host-native": 2, "component-settings": 2 },
+  "protocols": { "portal-relay": 1, "arcade-relay": 1, "nexus-relay": 2, "host-native": 2, "component-settings": 2, "arcade-catalogue": 1, "arcade-scummvm": 1 },
   "schemas": { "manifest": 2 },
   "nexus": { "accent": "blue", "adapter": "relay" }
 }

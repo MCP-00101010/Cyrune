@@ -74,7 +74,7 @@ def test_current_relay_matches_the_historic_eight_file_package_boundary():
         "popup/popup.html",
         "popup/popup.js",
     )
-    assert PACKAGE._validate_source(REPO / "Relay")["version"] == "1.1.1"
+    assert PACKAGE._validate_source(REPO / "Relay")["version"] == "1.1.9"
 
 
 def test_unsigned_build_is_deterministic_across_paths_with_spaces_and_unicode(tmp_path):
@@ -171,7 +171,7 @@ def test_independent_component_versions_are_validated_without_forcing_equality(t
 
 
 def test_current_component_versions_and_changelogs_align():
-    assert VERSIONS.validate(REPO) == {"Portal": "0.12.4", "Widgets": "0.2.17", "Arcade": "0.2.2", "Relay": "1.1.1", "Host": "0.2.0", "Nexus": "0.3.0"}
+    assert VERSIONS.validate(REPO) == {"Portal": "0.12.17", "Widgets": "0.2.17", "Arcade": "0.2.28", "Relay": "1.1.9", "Host": "0.2.15", "Nexus": "0.3.0"}
 
 
 def test_current_relay_source_builds_and_round_trips_exactly(tmp_path):
@@ -180,6 +180,6 @@ def test_current_relay_source_builds_and_round_trips_exactly(tmp_path):
         Path(result["path"]),
         kind="unsigned",
         source=REPO / "Relay",
-        expected_version="1.1.1",
+        expected_version="1.1.9",
     )
     assert verified["sha256"] == result["sha256"]

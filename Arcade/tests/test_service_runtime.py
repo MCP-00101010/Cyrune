@@ -4,6 +4,9 @@ import sys
 import threading
 import time
 from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
 
 SERVICE_PATH = Path(__file__).resolve().parents[1] / "arcade_service.py"
 
@@ -22,6 +25,43 @@ def test_import_does_not_index_the_game_library():
     server = load_server()
 
     assert server.LIBRARY is None
+
+
+def test_explorer_uses_host_reveal_callback_and_propagates_failure(tmp_path):
+    server = load_server()
+    target = tmp_path / 'Adventure.tap'
+    target.write_bytes(b'fixture')
+    server.get_library = lambda: SimpleNamespace(get_game=lambda _: SimpleNamespace(path=str(target)))
+    opened = []
+    server.NATIVE_REVEAL_GAME = opened.append
+    assert server.open_in_explorer('game') == {'ok': True}
+    assert opened == [target]
+    def fail(_):
+        raise OSError('Windows could not select the game in Explorer')
+    server.NATIVE_REVEAL_GAME = fail
+    with pytest.raises(OSError, match='could not select'):
+        server.open_in_explorer('game')
+
+
+@pytest.mark.parametrize('directory', [False, True])
+def test_open_in_explorer_handles_game_files_and_scummvm_folders(tmp_path, monkeypatch, directory):
+    server = load_server()
+    target = tmp_path / 'Software Library' / 'Adventure, édition'
+    target.parent.mkdir()
+    if directory:
+        target.mkdir()
+    else:
+        target = target.with_suffix('.tap')
+        target.write_bytes(b'fixture')
+    server.get_library = lambda: SimpleNamespace(get_game=lambda game_id: SimpleNamespace(path=str(target)))
+    opened = []
+    monkeypatch.setattr(server, 'os', SimpleNamespace(name='nt'))
+    monkeypatch.setattr(server.subprocess, 'Popen', lambda args: opened.append(args))
+    assert server.open_in_explorer('game') == {'ok': True}
+    assert opened == [['explorer.exe', str(target)] if directory else ['explorer.exe', '/select,', str(target)]]
+    target.rmdir() if directory else target.unlink()
+    assert server.open_in_explorer('game')['ok'] is False
+    assert len(opened) == 1, 'A missing target must not open Explorer at its default location'
 
 
 def test_native_service_has_no_http_server_lifecycle():
@@ -163,6 +203,7 @@ def test_file_transport_preserves_launch_choices_and_profile_routes():
 
 def test_service_launch_function_remains_a_compatibility_facade():
     server = load_server()
+    server.active_collection = lambda: {"id": "spectrum", "adapter": "spectrum-managed-v1"}
     calls = []
 
     class FakeLaunchService:

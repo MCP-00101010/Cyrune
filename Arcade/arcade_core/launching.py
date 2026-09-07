@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
-from arcade_core.emulators import normalize_template
+from arcade_core.emulators import normalize_template, normalize_extensions
 from arcade_core.persistence import atomic_copy_file
 
 
@@ -111,14 +111,15 @@ def prepare_eightyone_profile(
 
     if emulator_adapter("", emulator).adapter_id != "eightyone":
         return
-    target = expand_path(emulator.get("eightyone_config_target"))
-    if not target:
-        return
-    managed_profile = select_profile("eightyone", game, profile_id)
-    if profile_id and not managed_profile:
-        raise FileNotFoundError(f"The selected managed EightyOne profile is unavailable: {profile_id}")
+    pinned = profile_id or str(getattr(game, "emulator_profile", "") or "")
+    managed_profile = select_profile(str(emulator.get("id") or "eightyone"), game, pinned)
+    if pinned and not managed_profile:
+        raise FileNotFoundError(f"The selected managed EightyOne profile is unavailable: {pinned}")
     if not managed_profile:
         return
+    target = expand_path(emulator.get("eightyone_config_target"))
+    if not target:
+        raise FileNotFoundError("The EightyOne profile destination is not configured")
     source = expand_path(managed_profile.get("managed_path"))
     if not source or not source.exists():
         raise FileNotFoundError(f"Missing managed EightyOne profile: {managed_profile.get('name')}")
@@ -218,6 +219,11 @@ class GameLaunchService:
 
         try:
             emulator = self._emulator(emulator_id)
+            if emulator.get("type") == "scummvm":
+                return {"ok": False, "error": "Select a registered ScummVM collection target"}
+            extensions = normalize_extensions(emulator.get("supported_extensions", []))
+            if extensions and path.suffix.lower() not in extensions:
+                return {"ok": False, "error": "The selected emulator does not support this game file format"}
             adapter = emulator_adapter(emulator_id, emulator)
             emulator_path = self._expand_path(emulator.get("path"))
             if force_new:
@@ -237,7 +243,7 @@ class GameLaunchService:
             else:
                 if not emulator_path.exists():
                     return {"ok": False, "error": f"Missing emulator: {emulator_path}"}
-                self._prepare_profile(emulator, game, profile_id)
+                self._prepare_profile({**emulator, "id": emulator_id}, game, profile_id)
                 working_dir = self._expand_path(emulator.get("working_dir")) or emulator_path.parent
                 arguments = render_arguments(
                     emulator.get("arguments", ["{file}"]), game=game, file_path=path,

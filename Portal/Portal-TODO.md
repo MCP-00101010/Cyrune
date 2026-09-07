@@ -1,16 +1,33 @@
 # Cyrune Portal TODO
 
+- Monitor uncertain game-action outcomes after Relay reconnects; pending launches and game mutations must never be automatically replayed.
+
+- Monitor Portal 0.12.17 Spectrum hardware badges and omission of duplicate platform icons with older Host metadata, exact-default language/platform badges in Portal, including default changes and missing-default handling.
+
 This file owns outstanding dashboard, board, item, launcher-presentation, and Portal persistence-client work. Widget implementations belong in `../Widgets/Widgets-TODO.md`; Relay and Host authority belongs in their named component TODOs.
 
 ## Reliability and Regression Monitoring
 
+- Monitor Portal 0.12.12 grouped game versions, remakes staying separate, shared default selection, exact alternative launches, missing-default recovery and older-client fallback.
+
+- Monitor Portal 0.12.11 ScummVM catalogue selection, exact native binding/launch and mixed-version capability fallback under the [adapter contract](../docs/architecture/arcade-scummvm-adapter.md). Preserve Spectrum approvals and compact Portal records.
+
 - Continue monitoring persistence and Relay startup for false disk-change warnings, delayed popup actions, registration failures, incorrect recovery prompts, transport errors, and regressions during rapid Inbox delivery or Relay reloads.
+- Monitor Portal 0.12.8 for quiet startup/reload with healthy Relay, a single recovery notice after an observed outage, and continued authoritative saves when the optional browser recovery cache is full; retain the previous cache and Trash on quota failure.
 - Periodically verify multiple Portal tabs, active-tab routing, and session-token renewal after Portal or Relay reloads.
+- Monitor Portal 0.12.9 queued game intake during startup and Relay reload, including the bounded early-delivery buffer and acknowledgement only after authoritative saving.
 - Monitor application and game shortcuts in Speed Dial and Essentials for drag previews, launch/status refreshes, editing, duplication, and binding recovery after reloads.
 
 ## Interface Improvements
 
+- Monitor Portal 0.12.11 language flags and official ScummVM shortcut icons across columns, folders, search, Essentials and Speed Dial, including existing-card status refresh and missing language metadata.
+
 - Continue checking the established content-modal and utility-modal patterns on less-used create/edit surfaces, particularly true text-rail alignment and accessible control sizing.
+
+### Unified search modal — after the current Arcade work
+
+- Unify Portal search, the search widget engine and the game picker in one modal for games, bookmarks and applications.
+- Support dragging results into any Portal container that accepts that item type, including eligible columns, folders/subfolders, Essentials and Speed Dial slots. Reuse destination lock/capacity checks, existing item rules and the required binding/save boundaries. Keep games excluded from Sets and bulk-launch workflows.
 
 ## Portal-Fronted Arcade Migration
 
@@ -18,7 +35,7 @@ Portal is the user-facing organiser and launcher for a curated selection of game
 
 ### Contract and item-behaviour gate
 
-- Update the Portal–Arcade architecture contract before implementation: Portal may query a bounded, read-only Arcade catalogue and explicitly bind selected entries, but it must not receive Arcade collection mutation, scraper, profile-management, filesystem, executable, or command authority.
+- Monitor Portal 0.12.8 direct library browsing, second/later result selection and warm search latency under the [direct browsing record](../docs/architecture/portal-arcade-spectrum-migration.md#direct-library-browsing--2026-09-07). No preparation is required. Keep mutation, scraper, profile-management, filesystem, executable, and command authority outside Portal.
 - Keep `type: "game"` as a normal first-class Portal item containing bounded presentation data and an opaque device-local `gameKey`. Do not persist ROM/media paths, emulator/profile paths, launch arguments, working directories, complete Arcade metadata records, or Arcade catalogue snapshots.
 - Make game items participate in the same organisational behaviours as bookmarks: columns, folders/subfolders, board tabs, Essentials, speed dial, Portal tags, search, selection, duplication, locks, drag/drop, Undo/Redo, Trash, portable export/import, and safe unbound placeholders.
 - Explicitly exclude games from Sets, browser-session creation, URL validation, URL-based duplicate checks, folder/open-all commands, and every other multi-activation workflow. Define mixed bookmark/game selection behaviour so a bulk action can never launch several games unexpectedly.
@@ -26,10 +43,8 @@ Portal is the user-facing organiser and launcher for a curated selection of game
 
 ### Catalogue picker and curated placement
 
-- Add an **Add Game** action anywhere a normal item can be created. Open a Portal-owned picker that searches and filters Arcade through bounded paged queries without loading or persisting the complete catalogue.
-- Show only sanitized presentation fields needed to choose an exact launchable entry, including title, platform/system, edition or hardware label, bounded artwork, and availability. Keep each meaningful platform or edition as a separate result; Portal does not choose a preferred version.
-- Support keyboard-accessible single and multi-selection, clear selection counts, and insertion into the location from which the picker was opened, including a column, folder/subfolder, Essentials, or an available speed-dial slot.
-- Treat confirming the picker as explicit approval to create or reuse Host-owned bindings for the selected Arcade entries. Apply the returned compact game items to Portal state as one undoable transaction and report partial binding failures without losing successful additions.
+- Skip separate **Add Game** entry points for folders/subfolders, Essentials and Speed Dial. Placement from search will be handled by drag-and-drop from the planned unified search modal above.
+- Continue browser acceptance on Zen and slower devices, including long metadata, maximum selections, partial failures and uncertain saves. Installed Firefox 155.0.1 passed the complete column workflow with 12,933 synthetic entries; adversarial cases remain covered by automated controller and joined native tests.
 - Keep the existing Arcade-to-Portal direction as a complementary batch workflow. Arcade may deliver several compact game items to the active Portal Inbox, but it must not inspect or mutate Portal boards, tabs, folders, or destinations.
 - Do not add the whole Arcade catalogue to Portal state. Defer dynamic catalogue-backed collections unless real use shows they are valuable beyond the curated picker workflow.
 

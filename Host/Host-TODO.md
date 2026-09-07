@@ -1,8 +1,16 @@
 # Cyrune Host TODO
 
+- Monitor opening picker-created Spectrum shortcuts in inactive collections, including verified source reattachment.
+
+- Monitor Host 0.2.15 inactive Spectrum binding resolution and launch, Explorer selection visibility, Windows API game-file selection and folder opening, exact Spectrum hardware fallback with older Arcade services, and exact-default language/platform badges in Portal, including default changes and missing-default handling.
+
 This file owns outstanding native filesystem, process, credential, binding, and device-integration work. Repository relocation itself remains in the root migration plan.
 
 ## Application Integration
+
+- Monitor Host 0.2.9 grouped game versions, remakes staying separate, shared default selection, exact alternative launches, missing-default recovery and older-client fallback.
+
+- Monitor Host 0.2.8 ScummVM catalogue selection, exact native binding/launch and mixed-version capability fallback under the [adapter contract](../docs/architecture/arcade-scummvm-adapter.md). Preserve Spectrum approvals and compact Portal records.
 
 - Add bounded installed-application discovery after the explicit picker workflow has sufficient real-world coverage: Start Menu entries on Windows, application bundles on macOS, and desktop entries on Linux.
 - Improve native application-icon extraction on macOS and Linux while retaining generic fallbacks and portable unbound placeholders.
@@ -13,12 +21,13 @@ This file owns outstanding native filesystem, process, credential, binding, and 
 
 Host remains the sole owner of local paths, opaque game bindings, and process execution while Arcade owns catalogue and launch-policy decisions. Coordinate this section with `../Portal/Portal-TODO.md`, `../Arcade/Arcade-TODO.md`, and `../Relay/Relay-TODO.md`.
 
-- Add fixed-purpose native operations for bounded Arcade catalogue search/detail and explicit selected-entry binding. Validate the Portal role, negotiated capability, request shape, page/batch limits, and Arcade service response independently of Relay.
-- Route catalogue semantics to Arcade's transport-independent service rather than reimplementing search, platform, edition, metadata, duplicate, or emulator logic in Host.
-- Create or reuse opaque `gameKey` bindings only after an explicit Portal picker confirmation or authenticated Arcade publication. Bind each key to one exact stable Arcade entry; do not select a preferred platform/version or silently substitute a related entry.
-- Add an atomic or recoverable batch-binding operation with deterministic request ordering and per-entry results. Repeated requests for the same approved device-local entry should reuse its binding, and partial failure must not invalidate successful existing bindings.
+The 2026-09-06 [Catalogue capability v1 design](../docs/architecture/portal-arcade-contract.md#catalogue-capability-v1--implementation-target) and [Spectrum mapping/acceptance gates](../docs/architecture/portal-arcade-spectrum-migration.md) are the implementation target. [Host 0.2.1 / Arcade 0.2.5](../docs/architecture/portal-arcade-spectrum-migration.md#implemented-host-bindings--host-021-and-arcade-025) implement private entry-policy bindings, atomic approval/receipt persistence, native session leases, and exact-source launch decisions. Legacy pins/keys remain separate. Catalogue v1 is enabled for the initial managed Spectrum/column scope.
+
+- Monitor Host 0.2.5 / Relay 1.1.5 direct library sessions and selected-game binding validation under the [direct browsing record](../docs/architecture/portal-arcade-spectrum-migration.md#direct-library-browsing--2026-09-07), including unprepared/read-only collections and metadata changes during Add.
+- Keep batch publication separately disabled until its Arcade-role authority and durable queue workflow exist; the current binding primitive accepts only native-registered Portal sessions.
+- Monitor native reads on slower devices. The full-size benchmark passes with two source checks per page (7.254 seconds cold / 1.320 seconds warm). Preserve exact-source checks, deadlines, and revocation in further optimization.
 - Return only compact sanitized presentation and binding state. Never expose collection roots, media/game paths, emulator/helper/profile paths, arguments, working directories, environment values, credentials, or raw Arcade service errors to Portal or Relay.
-- Keep launch resolution in Arcade and process authority in Host. A Portal click supplies one approved `gameKey`; Host validates it, asks Arcade for the current exact-entry launch decision, validates the adapter/executable/argument array again, and starts it through the persistent native process path.
+- Extend new-policy rebind/open-in-Arcade UX and additional profile adapters around the implemented exact-source launch path. Generic/Spectaculator media launches and EightyOne managed profile copies use Host guards; default-app association and non-EightyOne managed profiles remain unsupported in the new path. Legacy actions retain their existing behaviour.
 - Preserve explicit missing, moved, renamed, incompatible, unavailable, forgotten, and unbound states. Stable entry IDs may help repair an existing binding, but Host must never adopt a new local target from a public identity without explicit approval.
 - Extend the device-local binding/configuration model for multiple Arcade library sources, platforms, launch-target kinds, and emulator profiles without placing those details in portable Portal state.
 - Test duplicate Portal cards sharing a binding, batch retries and partial failures, missing or changed Arcade records, collection moves retaining stable IDs, emulator/profile changes without Portal edits, wrong roles, stale sessions, Host restart, long-lived launched processes, path traversal/symlink escapes, invalid argument arrays, and sanitized diagnostics.

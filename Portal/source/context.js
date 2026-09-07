@@ -590,6 +590,9 @@ function handleContextMenuAction(action) {
     case 'addApplication':
       void addApplicationShortcut(contextTarget);
       break;
+    case 'addGame':
+      showArcadeGamePicker(contextTarget);
+      break;
     case 'addTitle':
       showModal('addTitle', { title: 'New Title', placeholder1: 'New Title', contextTarget });
       break;
@@ -674,6 +677,9 @@ function handleContextMenuAction(action) {
       break;
     case 'launchGame':
       void launchGameShortcut(contextTarget.item);
+      break;
+    case 'launchGameVersion':
+      void showGameVersionsModal(contextTarget.item);
       break;
     case 'openGameInArcade':
       void openGameShortcutInArcade(contextTarget.item);
@@ -1012,6 +1018,7 @@ function handleBoardContextMenu(event, item, columnId, parentFolder, depth, effe
     options.push({ label: 'Delete application', action: 'deleteItem' });
   } else if (item.type === 'game') {
     options.push({ label: 'Launch game', action: 'launchGame' });
+    options.push({ label: 'Launch Version…', action: 'launchGameVersion' });
     options.push({ label: 'Open in Cyrune Arcade', action: 'openGameInArcade' });
     options.push({ label: 'Reveal game file', action: 'revealGame' });
     options.push({ label: 'Rebind in Cyrune Arcade…', action: 'rebindGame' });
@@ -1081,6 +1088,7 @@ function handleEssentialContextMenu(event, slot, item) {
   const gameOptions = item?.type === 'game'
     ? [
         { label: 'Launch game', action: 'launchGame' },
+        { label: 'Launch Version…', action: 'launchGameVersion' },
         { label: 'Open in Cyrune Arcade', action: 'openGameInArcade' },
         { label: 'Reveal game file', action: 'revealGame' },
         { label: 'Rebind in Cyrune Arcade…', action: 'rebindGame' },
@@ -1136,6 +1144,7 @@ function handleSpeedDialContextMenu(event, item, slot = findSpeedDialSlot(getAct
   const options = item.type === 'game'
     ? [
         { label: 'Launch game', action: 'launchGame' },
+        { label: 'Launch Version…', action: 'launchGameVersion' },
         { label: 'Open in Cyrune Arcade', action: 'openGameInArcade' },
         { label: 'Reveal game file', action: 'revealGame' },
         { label: 'Rebind in Cyrune Arcade…', action: 'rebindGame' },
@@ -1168,7 +1177,8 @@ function handleBoardColumnContextMenu(event, columnId) {
   if (getActiveBoard()?.locked) return;
   event.preventDefault();
   lastActiveColumnId = columnId;
-  contextTarget = { area: 'board-empty', columnId };
+  contextTarget = { area: 'board-empty', columnId, boardId: getActiveBoard()?.id,
+    tabId: findBoardTabByColumnId(getActiveBoard(), columnId)?.id };
   const widgetSubmenu = _buildWidgetSubmenu('column', 'addWidget');
   const items = [
     { label: 'Add folder', action: 'addFolder' },
@@ -1179,6 +1189,12 @@ function handleBoardColumnContextMenu(event, columnId) {
     { label: 'Add divider', action: 'addDivider' }
   ];
   if (widgetSubmenu.length) items.push({ label: 'Add widget', submenu: widgetSubmenu });
+  if (bridge.catalogueIsAvailable?.()) {
+    try {
+      resolveGamePickerDestination(contextTarget);
+      items.push({ label: 'Add Game', action: 'addGame' });
+    } catch { /* Only writable, regular columns offer the initial picker. */ }
+  }
   showContextMenu(event.clientX, event.clientY, items);
 }
 
@@ -1233,6 +1249,7 @@ function handleSearchResultContextMenu(event, item, meta) {
     options.push({ label: 'Delete application', action: 'deleteItem' });
   } else if (item.type === 'game') {
     options.push({ label: 'Launch game', action: 'launchGame' });
+    options.push({ label: 'Launch Version…', action: 'launchGameVersion' });
     options.push({ label: 'Open in Cyrune Arcade', action: 'openGameInArcade' });
     options.push({ label: 'Reveal game file', action: 'revealGame' });
     options.push({ label: 'Rebind in Cyrune Arcade…', action: 'rebindGame' });

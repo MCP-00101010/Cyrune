@@ -267,7 +267,7 @@ class NativePersistenceTests(unittest.TestCase):
             self.assertEqual(snapshot['data']['arcade']['schema'], {'valid': True, 'version': None})
             self.assertEqual(snapshot['data']['nexus']['health']['code'], 'nexus-settings-defaults')
             self.assertEqual(snapshot['services']['host']['health']['code'], 'host-healthy')
-            self.assertEqual(snapshot['services']['host']['version'], '0.2.0')
+            self.assertEqual(snapshot['services']['host']['version'], '0.2.15')
             self.assertEqual(snapshot['services']['host']['protocols']['host-native'], 2)
             self.assertTrue(all(component['version'] != 'Unversioned' for component in snapshot['components']))
             self.assertTrue(all('protocols' in component for component in snapshot['components']))
@@ -279,7 +279,7 @@ class NativePersistenceTests(unittest.TestCase):
             self.assertNotIn('activeCollection', snapshot['data']['arcade']['service'])
 
     def test_host_version_protocols_and_nexus_dispatch_are_manifest_backed(self):
-        self.assertEqual(HOST.HOST_VERSION, '0.2.0')
+        self.assertEqual(HOST.HOST_VERSION, '0.2.15')
         self.assertEqual(HOST.HOST_PROTOCOLS['host-native'], 2)
         self.assertIn('NEXUS_GET_STATUS', HOST.NEXUS_MESSAGE_TYPES)
         self.assertFalse(HOST.handle_nexus_message('READ_CONFIG', {}))
@@ -994,7 +994,7 @@ class NativePersistenceTests(unittest.TestCase):
                     if method == 'GET_GAME' and params.get('gameId') == 'jetpac':
                         return {'game': {
                             'id': 'jetpac', 'title': 'Jetpac', 'default_emulator': 'eightyone',
-                            'loading_screen': 'cover.png', 'path': str(root / 'Jetpac.tap')
+                            'loading_screen': 'cover.png', 'path': str(root / 'Jetpac.tap'), 'languages': ['EN', 'de']
                         }}
                     raise ValueError('Unknown game')
 
@@ -1028,6 +1028,7 @@ class NativePersistenceTests(unittest.TestCase):
                     self.assertTrue(HOST.launch_emugui_game(first['gameKey']))
                     self.assertEqual(launches, [('jetpac', 'eightyone', 'profile-48k')])
                     self.assertEqual(HOST.emugui_game_status(first['gameKey'])['state'], 'ready')
+                    self.assertEqual(HOST.emugui_game_status(first['gameKey'])['languages'], ['en', 'de'])
                     self.assertTrue(HOST.emugui_game_status(first['gameKey'], True)['thumbnailCache'].startswith('data:image/png;base64,'))
                     link = HOST.emugui_game_link(first['gameKey'], rebind=True)
                     self.assertTrue(link.startswith('file:'))

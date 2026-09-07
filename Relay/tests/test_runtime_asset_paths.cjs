@@ -18,7 +18,7 @@ test('Relay manifest and changelog identify the current component release', () =
   const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'manifest.json'), 'utf8'));
   const popup = fs.readFileSync(path.join(__dirname, '..', 'popup', 'popup.html'), 'utf8');
   const icon = fs.readFileSync(path.join(__dirname, '..', 'icons', 'icon-48.svg'), 'utf8');
-  assert.equal(manifest.version, '1.1.1');
+  assert.equal(manifest.version, '1.1.9');
   assert.match(popup, /rel="icon" type="image\/svg\+xml" href="\.\.\/icons\/icon-48\.svg"/);
   assert.match(icon, /RJ45-style connector/);
 });

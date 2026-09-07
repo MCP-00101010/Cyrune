@@ -1017,6 +1017,24 @@ tbody tr.empty-row:hover {
   overflow: auto;
 }
 
+[data-portal-delivery] .modal {
+  width: min(640px, 100%);
+  max-height: calc(100dvh - 24px);
+  overflow: auto;
+}
+
+.portal-delivery-results {
+  max-height: 40dvh;
+  overflow: auto;
+  overflow-wrap: anywhere;
+  padding-left: 24px;
+  line-height: 1.6;
+}
+
+[data-portal-delivery] [hidden] {
+  display: none;
+}
+
 .scrape-modal {
   display: flex;
   width: min(920px, calc(100vw - 24px));
@@ -1582,3 +1600,17 @@ html[data-cyrune-high-contrast="true"] {
   --muted: #b9c4d9;
   --text: #fff;
 }
+.game-version-flags { display: inline-flex; gap: 4px; align-items: center; }
+.game-version-flags img { display: inline-block; object-fit: contain; flex-shrink: 0; }
+.version-count { border: 1px solid currentColor; border-radius: 8px; font-size: 11px; padding: 0 5px; opacity: .7; }
+.game-versions-modal { width: min(860px, 94vw); max-height: 90vh; overflow: auto; }
+.game-version-list { display: grid; gap: 8px; }
+.game-version-row { display: flex; gap: 10px; align-items: center; padding: 10px 0; border-bottom: 1px solid #ffffff20; }
+.game-version-label { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.game-version-row strong { font-size: 12px; }
+@media (max-width: 650px) { .game-version-row { flex-wrap: wrap; } .game-version-label { flex-basis: 100%; } }
+td.col-cell-system { padding-top: 4px; padding-bottom: 4px; }
+.game-platform-icons { display: flex; width: max-content; max-width: 100%; gap: 4px; align-items: center; }
+.game-platform-icon { display: block; flex-shrink: 1; min-width: 0; width: 26px; height: 26px; object-fit: contain; }
+.game-platform-steam { filter: invert(1); }
+.game-system-badge { display: inline-flex; align-items: center; justify-content: center; min-width: 0; height: 20px; padding: 0 2px; border: 1px solid var(--line); border-radius: 4px; color: var(--text); font-size: 10px; font-weight: 600; }

@@ -130,6 +130,7 @@ class CollectionService:
                 "writable": writable,
                 "auto_metadata": bool(item.get("auto_metadata", False)),
                 "default_emulator": str(item.get("default_emulator", "") or ""),
+                "platform_id": "scummvm" if item.get("adapter") == "scummvm-config-v1" else "zx-spectrum",
                 "incoming_count": file_count_in_tree(root / "incoming", {".tap", ".tzx"}) if writable else 0,
                 "trash_count": file_count_in_tree(root / "_Deleted", {".tap", ".tzx"}) if writable else 0,
                 "active": item.get("id") == active.get("id"),

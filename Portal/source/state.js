@@ -214,6 +214,7 @@ let sharedDiskSaveWaiters = [];
 let localStateMutationSequence = 0;
 let localCacheMeta = loadLocalCacheMeta();
 let localCacheQuotaNoticeShown = false;
+let lastAuthoritativeSnapshot = '';
 let inheritedTagContextCache = new WeakMap();
 let boardNavInheritedTagsCache = new Map();
 let liveBookmarkSourceCache = null;
@@ -304,25 +305,13 @@ function isStorageQuotaError(error) {
 }
 
 function notifyLocalCacheQuota(sharedSaveTarget = false) {
+  // This optional cache is not the authoritative Relay/Host save.
+  if (sharedSaveTarget) return;
   if (localCacheQuotaNoticeShown) return;
   localCacheQuotaNoticeShown = true;
-  const message = sharedSaveTarget
-    ? 'Browser cache is full; continuing to save changes to the shared database.'
-    : 'Browser storage is full. Changes are kept in this tab, but may not survive a reload until storage is freed or shared storage is available.';
+  const message = 'The offline recovery cache could not be updated because browser storage is full. The previous cached copy has been kept. Reconnect Cyrune Relay or export this view before closing Portal.';
   if (typeof showNotice === 'function') showNotice(message);
   else console.warn(`Cyrune Portal: ${message}`);
-}
-
-function clearTrashCacheForQuotaRecovery() {
-  try {
-    localStorage.removeItem('morpheus-webhub-trash');
-    if (Array.isArray(recentlyDeleted)) recentlyDeleted = [];
-    if (typeof updateTrashBadge === 'function') updateTrashBadge();
-  } catch {}
-}
-
-function clearFullLocalCacheSnapshot() {
-  try { localStorage.removeItem(STORAGE_KEY); } catch {}
 }
 
 function persistLocalCacheMeta(metaPatch = {}) {
@@ -1228,6 +1217,7 @@ function persistStateToLocalCache(json = null, options = {}) {
   const snapshot = json ?? serializeStateSnapshot();
   const sharedSaveTarget = options.sharedSaveTarget === true;
   const source = options.source === 'shared' ? 'shared' : 'local';
+  if (source === 'shared') lastAuthoritativeSnapshot = snapshot;
   let stored = false;
 
   try {
@@ -1238,20 +1228,10 @@ function persistStateToLocalCache(json = null, options = {}) {
     if (!isStorageQuotaError(error)) {
       console.warn('Cyrune Portal: local recovery cache is unavailable', error);
     } else {
-      console.warn('Cyrune Portal: local browser cache quota exceeded', error);
-      clearTrashCacheForQuotaRecovery();
-      try {
-        localStorage.setItem(STORAGE_KEY, snapshot);
-        stored = true;
-        localCacheQuotaNoticeShown = false;
-      } catch (retryError) {
-        if (!isStorageQuotaError(retryError)) {
-          console.warn('Cyrune Portal: local recovery cache is unavailable', retryError);
-        } else {
-          clearFullLocalCacheSnapshot();
-          notifyLocalCacheQuota(sharedSaveTarget || source === 'shared');
-        }
-      }
+      // setItem is atomic: a failed optional cache write leaves the old copy
+      // intact. Never delete Trash or user data to make room for this duplicate.
+      notifyLocalCacheQuota(sharedSaveTarget || source === 'shared'
+        || (typeof bridge !== 'undefined' && bridge.storageIsAvailable?.() === true));
     }
   }
 
@@ -1270,10 +1250,6 @@ function persistStateToLocalCache(json = null, options = {}) {
     metaPatch.cachedAt = now;
     metaPatch.source = source;
     metaPatch.snapshotHash = computeSnapshotHash(snapshot);
-  } else {
-    metaPatch.cachedAt = null;
-    metaPatch.source = source;
-    metaPatch.snapshotHash = '';
   }
   persistLocalCacheMeta(metaPatch);
   return snapshot;
@@ -1442,8 +1418,10 @@ function queueSharedDiskSave(snapshot, path = state?.databasePath || sharedDiskB
 }
 
 function discardSharedDiskSaveAfterAuthorityFailure(error = null) {
-  let cachedSnapshot = null;
-  try { cachedSnapshot = localStorage.getItem(STORAGE_KEY); } catch {}
+  let cachedSnapshot = lastAuthoritativeSnapshot;
+  if (!cachedSnapshot) {
+    try { cachedSnapshot = localStorage.getItem(STORAGE_KEY); } catch {}
+  }
   sharedDiskSaveGeneration += 1;
   resolveSharedDiskSaveWaiters(Infinity, {
     ok: false,
@@ -1547,6 +1525,38 @@ function saveState() {
   const json = serializeStateSnapshot();
   isDirty = true;
   return queueSharedDiskSave(json, state.databasePath || sharedDiskBaselinePath);
+}
+
+function resolveGamePickerDestination(destination, count = 0) {
+  if ((typeof portalReadOnlyMode !== 'undefined' && portalReadOnlyMode) || !bridge.storageIsAvailable?.() || sharedDiskSyncIsBlocked()) {
+    throw Object.assign(new Error('Portal storage is unavailable.'), { code: 'storage-unavailable' });
+  }
+  const board = state.boards.find(value => value.id === destination.boardId);
+  const tab = board?.tabs?.find(value => value.id === destination.tabId);
+  const column = tab?.columns?.find(value => value.id === destination.columnId);
+  // This initial picker only targets regular columns, never folders or Inboxes.
+  if (!board || !tab || !column || board.locked || tab.locked || column.locked || isInboxColumnId(column.id)
+      || !Array.isArray(column.items) || !Number.isInteger(count) || count < 0 || count > 100 || column.items.length + count > 10000) {
+    throw Object.assign(new Error('The captured column is unavailable.'), { code: 'destination-unavailable' });
+  }
+  return column;
+}
+
+async function persistGamePickerBatch(destination, games) {
+  const column = resolveGamePickerDestination(destination, games.length);
+  const cards = games.map(game => ({ id: `game-item-${crypto.randomUUID()}`, type: 'game', title: game.title,
+    systemId: game.systemId, systemName: game.systemName, gameKey: game.gameKey, tags: [], thumbnailCache: '' }));
+  pushUndoSnapshot();
+  cards.forEach((card, index) => {
+    card.tags = [...new Set(games[index].suggestedTags.filter(name => name.trim()))].map(name => {
+      const existing = (state.tags || []).find(tag => tag.name === name && !tag.groupId);
+      return existing?.id || createTag(name).id;
+    });
+  });
+  column.items.push(...cards);
+  invalidateDerivedCaches();
+  if (typeof renderContentSurfaces === 'function') renderContentSurfaces();
+  return await saveState();
 }
 
 function getActiveBoard() {

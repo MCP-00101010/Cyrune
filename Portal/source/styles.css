@@ -497,6 +497,7 @@ input::placeholder {
 .bookmark-favicon.game-system-icon[data-system="game-boy"] { color: #8d78d6; background: color-mix(in srgb, #6653a6 16%, var(--panel-strong)); }
 .bookmark-favicon.game-system-icon[data-system="snes"] { color: #ab8ce8; background: color-mix(in srgb, #7651b5 16%, var(--panel-strong)); }
 .bookmark-favicon.game-system-icon[data-system="scummvm"] { color: #e5a942; background: color-mix(in srgb, #c1841d 15%, var(--panel-strong)); }
+.bookmark-favicon.game-system-icon > .game-scummvm-icon { width: 20px; height: 20px; object-fit: contain; }
 .bookmark-favicon.game-system-icon[data-system="dosbox"] { color: #68aee8; background: color-mix(in srgb, #287bb9 15%, var(--panel-strong)); }
 .bookmark-favicon.game-system-icon[data-system="mame"] { color: #47c2c8; background: color-mix(in srgb, #168b91 15%, var(--panel-strong)); }
 
@@ -1581,6 +1582,17 @@ input::placeholder {
   color: var(--text);
   font-size: 0.86rem;
   overflow-wrap: anywhere;
+}
+
+.game-tooltip-language {
+  display: inline-block;
+  width: auto;
+  height: 12px;
+  margin-left: 5px;
+  vertical-align: baseline;
+  object-fit: contain;
+  border-radius: 1px;
+  font-size: 0.65rem;
 }
 
 .game-tooltip-system {
@@ -5563,3 +5575,19 @@ input::placeholder {
 .tag-group-sort-btn.active {
   color: var(--accent);
 }
+.game-versions-modal { width: min(860px, 94vw); max-height: 90vh; overflow: auto; }
+.game-version-list { display: grid; gap: 8px; }
+.game-version-row { display: flex; gap: 10px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--border-color, #ffffff20); }
+.game-version-label { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.game-version-row strong { font-size: 12px; }
+@media (max-width: 650px) { .game-version-row { flex-wrap: wrap; } .game-version-label { flex-basis: 100%; } }
+
+/* Default-version metadata aligns at the right of the row, before its lock control. */
+.item-header .bookmark-label.game-title-label { flex: 1 1 auto; }
+.game-default-icons { display: inline-flex; align-items: center; gap: 4px; flex: 0 0 auto; margin-left: auto; }
+.game-default-icon { display: block; object-fit: contain; width: 18px; height: 18px; }
+.game-default-language { width: 16px; height: 12px; }
+.game-default-steam { filter: invert(1); }
+.game-default-system { display: inline-flex; align-items: center; justify-content: center; width: auto; min-width: 28px; padding: 0 3px; border: 1px solid var(--border-color, #ffffff30); border-radius: 4px; font-size: 10px; font-weight: 600; }
+.bookmark-favicon.game-system-icon > .game-spectrum-icon { width: 20px; height: 20px; object-fit: contain; }
+.compact-game-icon > .game-spectrum-icon { width: 100%; height: 100%; object-fit: contain; }

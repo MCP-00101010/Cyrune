@@ -8,9 +8,13 @@ Portal persistence uses Host's fixed-purpose disk operations when configured and
 
 Authenticated Portal, Arcade, and Nexus registrations must advertise the current minimum role protocols. Relay rejects missing or older clients with an actionable compatibility error, and treats a Host missing the current `host-native` protocol as unavailable without disabling Relay-owned Portal authority.
 
+The optional catalogue transport uses a dedicated persistent Host connection per authenticated Portal session, with bounded transient search/detail/bind requests, independent Host canonical-page authorization, queue deadlines, and revocation on navigation or disconnect. Session handles stay inside Relay; catalogue data never enters extension storage or intake. Catalogue v1 includes selectable `available` entries for direct library browsing; exact launch readiness is checked on Add and launch. See the [direct browsing record](../docs/architecture/portal-arcade-spectrum-migration.md#direct-library-browsing--2026-09-07).
+
 The unpackaged extension root is this directory. Native Python, installers, configuration, and launchers live exclusively in `../Host/` and must not be included in Relay packages.
 
 ## Architecture and Guidance
+
+Catalogue artwork accepts only Host-normalized PNG responses. Relay checks ownership, dimensions, chunk checksums, decompressed size, and scanline shape before page delivery. The [artwork contract](../docs/architecture/portal-arcade-spectrum-migration.md#implemented-local-artwork-and-read-leases--arcade-026-host-023-relay-113) records the supported subset.
 
 - [Relay instructions](AGENTS.md) define authentication, authority, compatibility, storage, packaging, and validation invariants.
 - [Component boundaries](../docs/architecture/component-boundaries.md) define Relay's browser and routing ownership.
@@ -42,3 +46,5 @@ Mozilla signing is a separate workflow. After AMO returns a signed XPI, validate
 ```
 
 Signed imports must contain the same bounded Relay payload plus Mozilla `META-INF` signature records. They are written beneath `artifacts/Relay/<version>/signed/` and are never synthesized or labelled as signed locally.
+
+Configured ScummVM targets are supported through optional `arcade-scummvm: 1`; use compatible Arcade 0.2.15, Host 0.2.6, Relay 1.1.6 and Portal 0.12.10 releases. Older sessions retain Spectrum browsing. See the [exact target and native migration contract](../docs/architecture/arcade-scummvm-adapter.md#optional-transport-and-native-approval-migration).

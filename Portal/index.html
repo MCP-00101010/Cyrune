@@ -8,6 +8,7 @@
   <link rel="icon" type="image/svg+xml" href="assets/brand/portal.svg" />
   <link rel="stylesheet" href="vendor/maplibre-gl/maplibre-gl.css" />
   <link rel="stylesheet" href="source/styles.css" />
+  <link rel="stylesheet" href="source/game-picker.css" />
   <link rel="stylesheet" href="source/background-assets.css" />
   <link rel="stylesheet" href="../Widgets/core/widget-sdk.css" />
   <link rel="stylesheet" href="source/notification-center.css" />
@@ -336,7 +337,7 @@
 
           <div class="sidebar-meta-row">
             <span id="sidebarExtensionStatus" class="sidebar-extension-status">Checking extension…</span>
-            <button type="button" id="aboutBtn" class="sidebar-version-btn" title="Settings">v0.12.4</button>
+            <button type="button" id="aboutBtn" class="sidebar-version-btn" title="Settings">v0.12.17</button>
           </div>
         </section>
 
@@ -1233,7 +1234,7 @@
         </div>
 
         <div class="settings-section span-full" data-tab="about">
-          <div class="about-version" id="aboutVersionLine">Version 0.12.4</div>
+          <div class="about-version" id="aboutVersionLine">Version 0.12.17</div>
           <p>A local-first bookmark manager. Runs entirely in your browser — no dependencies, no server, no telemetry.</p>
           <div class="settings-row">
             <span>Browser extension</span>
@@ -1656,6 +1657,8 @@
   <script src="source/state.js" defer></script>
   <script src="source/application-launcher.js" defer></script>
   <script src="source/game-launcher.js" defer></script>
+  <script src="source/game-picker.js" defer></script>
+  <script src="source/game-picker-ui.js" defer></script>
   <script src="source/render-items.js" defer></script>
   <script src="source/render.js" defer></script>
   <script src="source/sets.js" defer></script>

@@ -1,8 +1,14 @@
 # Cyrune Relay TODO
 
+- Monitor Relay 1.1.9 unchanged-session rediscovery without false reconnect events, Portal startup/discovery overlap, session renewal and stale-token rejection.
+
 This file owns outstanding WebExtension storage authority, authenticated page routing, browser integration, and delivery work.
 
 ## Required-Relay Storage Authority
+
+- Monitor Relay 1.1.9 grouped game versions, remakes staying separate, shared default selection, exact alternative launches, missing-default recovery and older-client fallback.
+
+- Monitor Relay 1.1.6 ScummVM catalogue selection, exact native binding/launch and mixed-version capability fallback under the [adapter contract](../docs/architecture/arcade-scummvm-adapter.md). Preserve Spectrum approvals and compact Portal records.
 
 - Continue hardening reload/reconnect behaviour for active Portal and Arcade pages, interrupted queue writes, delivery acknowledgements, quota exhaustion, and stale session tokens.
 - Keep intentionally browser-local widget caches, view state, histories, notifications, preferences, and IndexedDB assets outside the authoritative Portal snapshot migration.
@@ -17,12 +23,13 @@ This file owns outstanding WebExtension storage authority, authenticated page ro
 
 Relay authenticates and bounds the new Portal catalogue picker and batch-binding workflow without acquiring Arcade business logic or native authority. Coordinate this section with `../Portal/Portal-TODO.md`, `../Arcade/Arcade-TODO.md`, and `../Host/Host-TODO.md`.
 
+The 2026-09-06 [Catalogue capability v1 design](../docs/architecture/portal-arcade-contract.md#catalogue-capability-v1--implementation-target) defines the reserved routes, limits, retries, and optional negotiation. Implement it against the [Spectrum acceptance gates](../docs/architecture/portal-arcade-spectrum-migration.md); catalogue v1 is enabled for the initial managed Spectrum/column scope. Batch publication has a separate enablement gate after the column picker.
+
 - Version the Portal, Arcade, Relay, and Host protocol/capability changes before enabling the migration. Keep older single-game delivery, status, launch, reveal, rebind, and open-in-Arcade operations compatible during the rollout.
-- Add an exact Portal-role allowlist for bounded read-only Arcade catalogue search, filters, paging, sanitized details, and explicit binding of selected catalogue IDs. Do not expose Arcade mutation, scraper, credential, collection-maintenance, profile-management, arbitrary query, filesystem, or command operations to Portal.
-- Bind every catalogue and binding request to the exact authenticated Portal tab, canonical page URL, role, session token, negotiated protocol, and live Host connection. Revalidate role and operation independently on every request and after navigation or reload.
-- Bound query text, filter counts and values, page size, continuation data, metadata strings, artwork bytes, batch selection size, response size, timeouts, retries, and retained errors. Forward only declared fields and reject unknown launch-target kinds or capability versions.
+- Monitor Relay 1.1.5 / Host 0.2.5 direct library transport, including the selectable `available` state, Firefox local-file permissions and content/background advertisement agreement. Keep batch publication separately gated.
+- Verify the implemented entry-owned PNG route in direct-file Firefox/Zen, including decompression support, cancellation, and icon fallback. Other formats and remote acquisition remain separate follow-ups.
 - Keep catalogue pages transient: never cache the full Arcade catalogue, native targets, launch descriptors, or complete metadata in extension storage, durable intake, logs, or diagnostics.
-- Add retry-safe batch binding transport that returns per-entry success or sanitized failure while preserving request order. Duplicate requests must reuse approved bindings rather than create unbounded keys.
+- Connect Portal confirmation/retry UI to the implemented ordered binding transport, retaining the same request UUID and native session for retries. Reconnection requires fresh registration and must not replay an old session automatically.
 - Extend Arcade-to-Portal delivery to accept bounded batches into the existing active-tab Inbox path with one delivery identity per batch/item as required for exact retry deduplication. Arcade must not name or mutate Portal-internal destinations.
 - Preserve one-game-at-a-time launch semantics. Do not add a batch-launch operation; accept one approved `gameKey` per launch request and reject array or batch payloads even if a compromised page constructs them directly.
 - Test stale and cross-tab sessions, wrong roles, navigation, unsupported protocols, Host/Arcade reconnects, pagination tampering, oversized filters/results/artwork/batches, duplicate retries, partial batch failure, Relay reload, Portal closed/open delivery, and absence of native data in extension state.

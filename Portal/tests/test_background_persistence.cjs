@@ -17,6 +17,31 @@ function deferred() {
   return { promise, resolve };
 }
 
+test('Portal discovery renewal preserves its token and stale pings cannot replace a newer session', async () => {
+  const harness = await loadBackground();
+  const pageUrl='file:///hub.html';
+  const sender={tab:{id:10,url:pageUrl},frameId:0};
+  const request=msg=>new Promise(resolve=>harness.listeners.message({pageUrl,...msg},sender,resolve));
+  const protocols={...CLIENT_PROTOCOLS.MW_REGISTER,'arcade-catalogue':1};
+  const first=await request({type:'MW_REGISTER',protocols});
+  const renewed=await request({type:'MW_REGISTER',protocols,hubSessionToken:first.hubSessionToken});
+  assert.equal(renewed.hubSessionToken,first.hubSessionToken);
+  const reloaded=await request({type:'MW_REGISTER',protocols});
+  assert.notEqual(reloaded.hubSessionToken,first.hubSessionToken);
+  await request({type:'MW_PING',morpheusPage:true,hubSessionToken:first.hubSessionToken});
+  const stale=await request({type:'MW_GET_STORAGE_INFO',morpheusPage:true,hubSessionToken:first.hubSessionToken});
+  assert.equal(stale.ok,false);
+  const current=await request({type:'MW_GET_STORAGE_INFO',morpheusPage:true,hubSessionToken:reloaded.hubSessionToken});
+  assert.equal(current.ok,true);
+  const reply=deferred();
+  harness.context.browser.tabs.sendMessage=()=>reply.promise;
+  const discovery=harness.context.discoverMorpheusTab(sender.tab);
+  const newest=await request({type:'MW_REGISTER',protocols});
+  reply.resolve({isMorpheus:true,registered:true,pageUrl,hubSessionToken:reloaded.hubSessionToken});
+  assert.equal(await discovery,false,'An old discovery response cannot restore the previous token');
+  assert.equal((await request({type:'MW_GET_STORAGE_INFO',morpheusPage:true,hubSessionToken:newest.hubSessionToken})).ok,true);
+});
+
 async function loadBackground(options = {}) {
   const listeners = {};
   const nativeWrites = [];
@@ -170,9 +195,10 @@ async function loadBackground(options = {}) {
         sentTabs.push({ tabId, message });
         if (message.type === 'MW_DISCOVER') {
           const tab = (options.tabs || []).find(candidate => candidate.id === tabId);
-          return options.hubTabIds?.includes(tabId) && (options.relayPresent || injectedTabs.has(tabId))
-            ? { ok: true, isMorpheus: true, pageUrl: tab?.url || '' }
-            : null;
+          if (!options.hubTabIds?.includes(tabId) || !(options.relayPresent || injectedTabs.has(tabId))) return null;
+          const registration = await new Promise(resolve => listeners.message(
+            {type:'MW_REGISTER',pageUrl:tab.url}, {tab}, resolve));
+          return {ok:true,isMorpheus:true,registered:true,pageUrl:tab.url,hubSessionToken:registration.hubSessionToken};
         }
         if (message.type === 'MW_GET_INBOX_TARGETS') {
           return { ok: true, boards: [{ id: 'board-1', tabs: [{ id: 'tab-1' }] }] };
@@ -314,6 +340,8 @@ test('extension notification jobs persist, fire once, and enter the Hub notifica
 
 test('extension recreates future alarms and fires missed unexpired jobs after restart', async () => {
   const harness = await loadBackground();
+  let tickingNow = Date.now();
+  harness.context.Date = class extends Date { static now() { return ++tickingNow; } };
   const future = Date.now() + 90000;
   const missed = Date.now() - 1000;
   harness.storageValues.set('morpheusNotificationJobsV1', [
@@ -463,6 +491,26 @@ test('durable intake queues while Portal is closed, deduplicates, and drains aft
   assert.equal(drained.delivered, 1);
   assert.equal(drained.pendingCount, 0);
   assert.equal(harness.sentTabs.at(-1).message.deliveryId, 'queued-tab-1');
+});
+
+test('a new Portal drain request is retained while the old document delivery is pending', async () => {
+  const harness = await loadBackground({ tabs: [] });
+  await harness.context.enqueueDurableDelivery({ type: 'MW_RECEIVE_GAME', deliveryId: 'scummvm-one', game: {} });
+  await harness.context.enqueueDurableDelivery({ type: 'MW_RECEIVE_GAME', deliveryId: 'scummvm-two', game: {} });
+  const oldDocument = deferred();
+  const sent = [];
+  harness.context.sendToMorpheus = async message => {
+    sent.push(message.deliveryId);
+    return sent.length === 1 ? oldDocument.promise : { ok: true };
+  };
+  const first = harness.context.drainDurableIntake();
+  await new Promise(resolve => setImmediate(resolve));
+  const registeredAgain = harness.context.drainDurableIntake();
+  oldDocument.resolve({ ok: false });
+  assert.equal((await first).pendingCount, 0);
+  assert.equal((await registeredAgain).delivered, 2);
+  assert.deepEqual(sent, ['scummvm-one', 'scummvm-one', 'scummvm-two']);
+  assert.equal((await harness.context.readDurableIntake()).length, 0);
 });
 
 test('the active registered hub receives deliveries over a later inactive registration', async () => {

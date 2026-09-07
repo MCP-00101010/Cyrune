@@ -11,7 +11,7 @@ globalThis.CyruneComponentRegistry = (() => {
   {
     "id": "portal",
     "name": "Portal",
-    "version": "0.12.4",
+    "version": "0.12.17",
     "kind": "page",
     "accent": "violet",
     "adapter": "portal",
@@ -30,7 +30,9 @@ globalThis.CyruneComponentRegistry = (() => {
     ],
     "protocols": {
       "portal-relay": 1,
-      "component-settings": 2
+      "component-settings": 2,
+      "arcade-catalogue": 1,
+      "arcade-scummvm": 1
     },
     "schemas": {
       "portableState": 5
@@ -69,7 +71,7 @@ globalThis.CyruneComponentRegistry = (() => {
   {
     "id": "arcade",
     "name": "Arcade",
-    "version": "0.2.2",
+    "version": "0.2.28",
     "kind": "page",
     "accent": "orange",
     "adapter": "arcade",
@@ -90,17 +92,20 @@ globalThis.CyruneComponentRegistry = (() => {
     "protocols": {
       "arcade-relay": 1,
       "arcade-service": 1,
-      "component-settings": 2
+      "component-settings": 2,
+      "arcade-catalogue": 1,
+      "arcade-scummvm": 1
     },
     "schemas": {
       "arcadeState": 1,
-      "collection": 1
+      "collection": 1,
+      "scummvmOverrides": 1
     }
   },
   {
     "id": "relay",
     "name": "Relay",
-    "version": "1.1.1",
+    "version": "1.1.9",
     "kind": "extension",
     "accent": "blue",
     "adapter": "relay",
@@ -122,7 +127,9 @@ globalThis.CyruneComponentRegistry = (() => {
       "arcade-relay": 1,
       "nexus-relay": 2,
       "host-native": 2,
-      "component-settings": 2
+      "component-settings": 2,
+      "arcade-catalogue": 1,
+      "arcade-scummvm": 1
     },
     "schemas": {
       "manifest": 2
@@ -131,7 +138,7 @@ globalThis.CyruneComponentRegistry = (() => {
   {
     "id": "host",
     "name": "Host",
-    "version": "0.2.0",
+    "version": "0.2.15",
     "kind": "native-service",
     "accent": "green",
     "adapter": "host",
@@ -151,7 +158,9 @@ globalThis.CyruneComponentRegistry = (() => {
     "protocols": {
       "host-native": 2,
       "arcade-service": 1,
-      "component-settings": 2
+      "component-settings": 2,
+      "arcade-catalogue": 1,
+      "arcade-scummvm": 1
     },
     "schemas": {
       "hostConfig": 1,

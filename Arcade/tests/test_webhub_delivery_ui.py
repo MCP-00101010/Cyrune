@@ -1,9 +1,16 @@
 import json
 import re
+import subprocess
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_batch_delivery_execution_and_retry_contract():
+    result = subprocess.run(["node", "--test", str(Path(__file__).with_name("portal_delivery.cjs"))],
+                            capture_output=True, text=True, timeout=30)
+    assert result.returncode == 0, result.stdout + result.stderr
 
 
 def test_arcade_status_displays_the_authoritative_component_version():
@@ -13,7 +20,7 @@ def test_arcade_status_displays_the_authoritative_component_version():
     match = re.search(r"ARCADE_VERSION\s*=\s*'([^']+)'", source)
     assert match
     assert match.group(1) == manifest["version"]
-    assert f'id="arcade-version"' in html
+    assert 'id="arcade-version"' in html
     assert f'v{manifest["version"]}' in html
     assert "Cyrune Arcade version ${ARCADE_VERSION}" in source
 

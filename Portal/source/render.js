@@ -449,7 +449,7 @@ function renderInboxPanel(options = {}) {
     body.appendChild(empty);
     return;
   }
-  inbox.items.forEach(item => {
+  groupGameShortcutItems(inbox.items).forEach(item => {
     const reusable = item?.type === 'widget' ? reusableWidgets.get(item.id) : null;
     const canReuse = reusable
       && reusable.dataset.columnId === inbox.id
@@ -957,7 +957,9 @@ function createGameSearchResultItem(item, meta = {}) {
   const name = document.createElement('span');
   name.className = 'bookmark-label';
   name.textContent = item.title || 'Game';
+  name.classList.add('game-title-label');
   header.appendChild(name);
+  renderGameDefaultIcons(header, item);
   const status = getGameStatus(item);
   if (status.state !== 'ready') {
     const presentation = getGameStatusPresentation(status);
@@ -2267,7 +2269,7 @@ function renderColumns(board, activeTab = null) {
     columnEl.addEventListener('drop', event => handleBoardColumnDrop(event, column.id));
     columnEl.addEventListener('contextmenu', event => handleBoardColumnContextMenu(event, column.id));
 
-    column.items.forEach(item => {
+    groupGameShortcutItems(column.items).forEach(item => {
       const reusable = item?.type === 'widget' ? reusableWidgets.get(item.id) : null;
       const canReuse = reusable
         && reusable.dataset.columnId === column.id

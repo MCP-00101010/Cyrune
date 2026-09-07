@@ -1,6 +1,14 @@
 from pathlib import Path
+from types import SimpleNamespace
 
 from arcade_core.profiles import EmulatorProfileService
+
+
+def test_missing_saved_profile_does_not_fall_back_to_automatic_rules(tmp_path):
+    service, state = profile_service(tmp_path)
+    state["config"]["emulator_profiles"] = [{"id": "fallback", "emulator_id": "eightyone", "rule": {}}]
+    game = SimpleNamespace(emulator_profile="missing", system="48K", tags=[])
+    assert service.select("eightyone", game) is None
 
 
 def profile_service(tmp_path: Path):

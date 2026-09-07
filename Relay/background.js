@@ -1,6 +1,8 @@
 'use strict';
 
 const RELAY_PROTOCOLS = Object.freeze({
+  'arcade-catalogue': 1,
+  'arcade-scummvm': 1,
   'portal-relay': 1,
   'arcade-relay': 1,
   'nexus-relay': 2,
@@ -85,6 +87,7 @@ let notificationMutation = Promise.resolve();
 let relaySnapshotMutation = Promise.resolve();
 let durableIntakeMutation = Promise.resolve();
 let durableIntakeDrain = null;
+let durableIntakeDrainRequested = false;
 const TRANSLATOR_ASSET_ROOT = 'https://firefox-settings-attachments.cdn.mozilla.net/';
 const TRANSLATOR_ASSETS = Object.freeze({
   'ende:model:2.1': { location: 'main-workspace/translations-models/23db71e7-b6d9-45eb-a47d-0290d7d8ef63.bin', size: 31561787, hash: '8df29d9494d19f47fd5d97c6a73474c6f657e9f81c1a607c431d02befdf3810f' },
@@ -107,7 +110,7 @@ const HUB_PAGE_REQUEST_TYPES = new Set([
   'MW_GIT_WORKSPACE_STATUS', 'MW_OPEN_APPROVED_DIRECTORY', 'MW_LIST_RECENT_FILES', 'MW_OPEN_APPROVED_FILE',
   'MW_APPROVE_APPLICATION', 'MW_APPROVE_APPLICATION_LINK', 'MW_GET_APPLICATION_STATUS', 'MW_LAUNCH_APPROVED_APPLICATION',
   'MW_REVEAL_APPROVED_APPLICATION', 'MW_FORGET_APPROVED_APPLICATION',
-  'MW_EMUGUI_STATUS', 'MW_GET_GAME_STATUS', 'MW_LAUNCH_GAME', 'MW_OPEN_GAME_IN_EMUGUI',
+  'MW_EMUGUI_STATUS', 'MW_GET_GAME_STATUS', 'MW_LAUNCH_GAME', 'MW_GAME_VERSIONS', 'MW_OPEN_GAME_IN_EMUGUI',
   'MW_REVEAL_GAME', 'MW_FORGET_GAME',
   'MW_FETCH_TRANSLATOR_ASSET_CHUNK', 'MW_NOTIFICATION_SCHEDULE', 'MW_NOTIFICATION_CANCEL',
   'MW_NOTIFICATION_LIST', 'MW_NOTIFICATION_MARK_READ', 'MW_NOTIFICATION_CLEAR',
@@ -121,6 +124,270 @@ const NEXUS_PAGE_REQUEST_TYPES = new Set([
 ]);
 const MAX_NEXUS_SETTINGS_BYTES = 64 * 1024;
 
+// Catalogue transport stays dormant until the four-participant rollout gate.
+const CATALOGUE_ROUTES = Object.freeze({
+  MW_SEARCH_ARCADE_CATALOGUE: 'ARCADE_CATALOGUE_SEARCH',
+  MW_GET_ARCADE_CATALOGUE_ENTRY: 'ARCADE_CATALOGUE_GET_ENTRY',
+  MW_GET_ARCADE_CATALOGUE_ARTWORK: 'ARCADE_CATALOGUE_GET_ARTWORK',
+  MW_BIND_ARCADE_CATALOGUE_ENTRIES: 'ARCADE_CATALOGUE_BIND_ENTRIES'
+});
+const CATALOGUE_CODES = new Set(['invalid-request', 'unsupported-protocol', 'unauthorized', 'unavailable',
+  'busy', 'timeout', 'catalogue-changed', 'entry-changed', 'entry-missing', 'source-unavailable',
+  'media-missing', 'configuration-required', 'unsupported-target', 'review-required', 'binding-limit',
+  'binding-forgotten', 'request-conflict', 'persistence-failed']);
+const CATALOGUE_PLATFORMS = Object.freeze({ 'zx-spectrum': 'ZX Spectrum', dos: 'DOS', windows: 'Windows', 'fm-towns': 'FM Towns', amiga: 'Amiga', 'atari-st': 'Atari ST', macintosh: 'Macintosh', unknown: 'Unspecified platform' });
+const catalogueSessions = new Map();
+const catalogueBytes = value => new TextEncoder().encode(JSON.stringify(value)).length;
+const catalogueObject = value => value !== null && typeof value === 'object' && !Array.isArray(value);
+const catalogueId = value => typeof value === 'string' && /^[A-Za-z0-9_-]{1,80}$/.test(value);
+const catalogueText = (value, limit) => typeof value === 'string' && [...value].length <= limit && !/\p{C}/u.test(value);
+const catalogueKeys = (value, fields) => catalogueObject(value) && Object.keys(value).length === fields.length && fields.every(key => Object.hasOwn(value, key));
+
+function validateCataloguePayload(type, payload) {
+  if (!catalogueObject(payload) || catalogueBytes(payload) > 32 * 1024) return false;
+  if (type === 'MW_SEARCH_ARCADE_CATALOGUE') {
+    const { query = '', platformIds = [], pageSize = 50, cursor = '' } = payload;
+    return Object.keys(payload).every(key => ['query', 'platformIds', 'pageSize', 'cursor', 'groupVersions'].includes(key))
+      && (payload.groupVersions === undefined || typeof payload.groupVersions === 'boolean')
+      && catalogueText(query, 160) && Array.isArray(platformIds) && platformIds.length <= 4
+      && platformIds.every(id => typeof id === 'string' && Object.hasOwn(CATALOGUE_PLATFORMS, id)) && new Set(platformIds).size === platformIds.length
+      && Number.isInteger(pageSize) && pageSize >= 1 && pageSize <= 100
+      && typeof cursor === 'string' && /^[\x20-\x7e]{0,256}$/.test(cursor);
+  }
+  if (type === 'MW_GET_ARCADE_CATALOGUE_ENTRY') return catalogueKeys(payload, ['catalogueId']) && catalogueId(payload.catalogueId);
+  if (type === 'MW_GET_ARCADE_CATALOGUE_ARTWORK') return catalogueKeys(payload, ['catalogueId', 'artworkRef'])
+    && catalogueId(payload.catalogueId) && typeof payload.artworkRef === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(payload.artworkRef);
+  return catalogueKeys(payload, ['requestId', 'entries']) && typeof payload.requestId === 'string'
+    && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(payload.requestId)
+    && Array.isArray(payload.entries) && payload.entries.length >= 1 && payload.entries.length <= 100
+    && payload.entries.every(entry => catalogueKeys(entry, ['catalogueId', 'entryRevision']) && catalogueId(entry.catalogueId) && catalogueId(entry.entryRevision))
+    && new Set(payload.entries.map(entry => entry.catalogueId)).size === payload.entries.length;
+}
+
+function validateCatalogueEntry(entry, detail) {
+  const text = { title: 160, platformLabel: 80, hardwareLabel: 80, editionLabel: 160, year: 16, publisher: 160, artworkRef: 128 };
+  const fields = [...Object.keys(text), 'catalogueId', 'sourceId', 'entryRevision', 'platformId', 'targetKind', 'availability'];
+  if (!catalogueKeys(entry, detail ? [...fields, 'description', 'languages', 'countries', 'suggestedTags'] : fields)) return false;
+  if (!['catalogueId', 'sourceId', 'entryRevision'].every(key => catalogueId(entry[key]))
+    || !Object.entries(text).every(([key, limit]) => catalogueText(entry[key], limit))
+    || typeof entry.platformId !== 'string' || !Object.hasOwn(CATALOGUE_PLATFORMS, entry.platformId) || entry.platformLabel !== CATALOGUE_PLATFORMS[entry.platformId]
+    || entry.targetKind !== (entry.platformId === 'zx-spectrum' ? 'media-file' : 'scummvm-game')
+    || !['ready', 'available', 'source-unavailable', 'media-missing', 'configuration-required', 'unsupported', 'review-required'].includes(entry.availability)
+    || !/^[A-Za-z0-9_-]{0,128}$/.test(entry.artworkRef) || catalogueBytes(Object.fromEntries(fields.map(key => [key, entry[key]]))) > 2048) return false;
+  return !detail || (catalogueText(entry.description, 2000)
+    && Object.entries({ languages: 16, countries: 16, suggestedTags: 80 }).every(([key, limit]) =>
+      Array.isArray(entry[key]) && entry[key].length <= 12 && entry[key].every(value => catalogueText(value, limit))));
+}
+
+function validateCatalogueResponse(type, payload, response) {
+  const limit = type === 'MW_GET_ARCADE_CATALOGUE_ENTRY' ? 16 * 1024 : type === 'MW_GET_ARCADE_CATALOGUE_ARTWORK' ? 192 * 1024 : 256 * 1024;
+  if (!catalogueObject(response) || catalogueBytes(response) > limit) return false;
+  if (response.ok === false) return catalogueKeys(response, ['ok', 'code']) && CATALOGUE_CODES.has(response.code);
+  if (response.ok !== true || response.schemaVersion !== 1) return false;
+  if (type === 'MW_SEARCH_ARCADE_CATALOGUE') return catalogueKeys(response, ['ok', 'schemaVersion', 'catalogueRevision', 'entries', 'nextCursor'])
+    && catalogueId(response.catalogueRevision) && typeof response.nextCursor === 'string' && /^[\x20-\x7e]{0,256}$/.test(response.nextCursor)
+    && Array.isArray(response.entries) && response.entries.length <= (payload.pageSize ?? 50)
+    && response.entries.every(entry => validateCatalogueEntry(entry, false))
+    && new Set(response.entries.map(entry => entry.catalogueId)).size === response.entries.length;
+  if (type === 'MW_GET_ARCADE_CATALOGUE_ENTRY') return catalogueKeys(response, ['ok', 'schemaVersion', 'entry'])
+    && validateCatalogueEntry(response.entry, true) && response.entry.catalogueId === payload.catalogueId;
+  if (type === 'MW_GET_ARCADE_CATALOGUE_ARTWORK') return catalogueKeys(response, ['ok', 'schemaVersion', 'catalogueId', 'artworkRef', 'contentType', 'width', 'height', 'data'])
+    && response.catalogueId === payload.catalogueId && response.artworkRef === payload.artworkRef && response.contentType === 'image/png'
+    && Number.isInteger(response.width) && response.width >= 1 && response.width <= 256
+    && Number.isInteger(response.height) && response.height >= 1 && response.height <= 256
+    && typeof response.data === 'string' && response.data.length <= 4 * Math.ceil(128 * 1024 / 3)
+    && /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(response.data);
+  if (type !== 'MW_BIND_ARCADE_CATALOGUE_ENTRIES') return false;
+  return catalogueKeys(response, ['ok', 'schemaVersion', 'requestId', 'results']) && response.requestId === payload.requestId
+    && Array.isArray(response.results) && response.results.length === payload.entries.length
+    && response.results.every((result, index) => {
+      if (!catalogueObject(result) || result.catalogueId !== payload.entries[index].catalogueId) return false;
+      if (result.ok === false) return catalogueKeys(result, ['catalogueId', 'ok', 'code']) && CATALOGUE_CODES.has(result.code);
+      return result.ok === true && catalogueKeys(result, ['catalogueId', 'ok', 'game'])
+        && catalogueKeys(result.game, ['title', 'systemId', 'systemName', 'gameKey', 'state', 'tags'])
+        && result.game.state === 'ready' && Array.isArray(result.game.tags) && result.game.tags.length === 0
+        && catalogueText(result.game.title, 160) && typeof result.game.systemId === 'string' && Object.hasOwn(CATALOGUE_PLATFORMS, result.game.systemId) && result.game.systemName === CATALOGUE_PLATFORMS[result.game.systemId]
+        && typeof result.game.gameKey === 'string' && /^game_[A-Za-z0-9_-]{12,75}$/.test(result.game.gameKey);
+    });
+}
+
+async function validateCataloguePng(response) {
+  // Host emits exactly IHDR / IDAT / IEND, 8-bit RGBA, and filter-zero rows.
+  const bytes = Uint8Array.from(atob(response.data), c => c.charCodeAt(0));
+  if (bytes.length < 57 || bytes.length > 128 * 1024 || ![137, 80, 78, 71, 13, 10, 26, 10].every((value, i) => bytes[i] === value)) return false;
+  const view = new DataView(bytes.buffer);
+  let offset = 8, compressed;
+  for (const kind of ['IHDR', 'IDAT', 'IEND']) {
+    if (offset + 12 > bytes.length) return false;
+    const length = view.getUint32(offset);
+    if (offset + length + 12 > bytes.length || String.fromCharCode(...bytes.slice(offset + 4, offset + 8)) !== kind) return false;
+    let crc = 0xffffffff;
+    for (let i = offset + 4; i < offset + 8 + length; i++) {
+      crc ^= bytes[i];
+      for (let bit = 0; bit < 8; bit++) crc = (crc >>> 1) ^ ((crc & 1) ? 0xedb88320 : 0);
+    }
+    if (((crc ^ 0xffffffff) >>> 0) !== view.getUint32(offset + length + 8)) return false;
+    if (kind === 'IHDR' && (length !== 13 || view.getUint32(offset + 8) !== response.width || view.getUint32(offset + 12) !== response.height
+      || ![8, 6, 0, 0, 0].every((value, i) => bytes[offset + 16 + i] === value))) return false;
+    if (kind === 'IDAT') compressed = bytes.slice(offset + 8, offset + 8 + length);
+    if (kind === 'IEND' && length !== 0) return false;
+    offset += length + 12;
+  }
+  if (offset !== bytes.length || typeof DecompressionStream !== 'function') return false;
+  const expected = (response.width * 4 + 1) * response.height;
+  const reader = new Blob([compressed]).stream().pipeThrough(new DecompressionStream('deflate')).getReader();
+  let size = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) return size === expected;
+      if (size + value.length > expected) return false;
+      for (let i = 0; i < value.length; i++) if ((size + i) % (response.width * 4 + 1) === 0 && value[i] !== 0) return false;
+      size += value.length;
+    }
+  } finally { await reader.cancel().catch(() => {}); }
+}
+
+function closeCatalogueSession(tabId, code = 'unauthorized') {
+  const state = catalogueSessions.get(tabId);
+  if (!state) return;
+  catalogueSessions.delete(tabId);
+  state.closed = true;
+  clearTimeout(state.leaseTimer);
+  for (const reject of state.pending) reject({ code });
+  state.pending.clear();
+  state.active?.reject({ code });
+  state.active = null;
+  try { state.port.disconnect(); } catch {}
+}
+
+async function cataloguePageCurrent(msg, sender, state = null) {
+  if (!authorizeHubPageRequest(msg, sender) || sender.frameId !== 0 || sender.url !== msg.pageUrl) return false;
+  if (state && (state.closed || state.token !== msg.hubSessionToken || state.url !== msg.pageUrl)) return false;
+  const tab = await browser.tabs.get(sender.tab.id).catch(() => null);
+  return tab?.url === msg.pageUrl && tab.status !== 'loading' && authorizeHubPageRequest(msg, sender) && !state?.closed;
+}
+
+function catalogueExchange(state, message) {
+  return new Promise((resolve, reject) => {
+    if (state.closed) return reject({ code: 'unauthorized' });
+    state.active = { resolve, reject };
+    try { state.port.postMessage(message); } catch { closeCatalogueSession(state.tabId, 'unavailable'); }
+  });
+}
+
+async function routeCatalogueRequest(msg, sender) {
+  try {
+    if (!await cataloguePageCurrent(msg, sender)) return { ok: false, code: 'unauthorized' };
+    const registration = hubRegistrations.get(sender.tab.id);
+    if (msg.protocol !== 1 || RELAY_PROTOCOLS['arcade-catalogue'] !== 1 || registration.protocols?.['arcade-catalogue'] !== 1) {
+      return { ok: false, code: 'unsupported-protocol' };
+    }
+    const fields = ['type', 'payload', 'protocol', 'morpheusPage', 'pageUrl', 'hubSessionToken', '_mw', '_req', 'id'];
+    if (Object.keys(msg).some(key => !fields.includes(key)) || !validateCataloguePayload(msg.type, msg.payload)) return { ok: false, code: 'invalid-request' };
+    if (typeof browser.runtime.connectNative !== 'function') return { ok: false, code: 'unavailable' };
+    let state = catalogueSessions.get(sender.tab.id);
+    if (state && (state.token !== registration.sessionToken || state.url !== registration.url)) {
+      closeCatalogueSession(sender.tab.id);
+      state = null;
+    }
+    if (!state) {
+      if (catalogueSessions.size >= 64) return { ok: false, code: 'busy' };
+      const port = browser.runtime.connectNative('morpheus_webhub');
+      state = { port, tabId: sender.tab.id, token: registration.sessionToken, url: registration.url,
+        reads: 0, mutations: 0, closed: false, pending: new Set(), tail: Promise.resolve(), sessionId: '', scummvm: false };
+      catalogueSessions.set(state.tabId, state);
+      state.leaseTimer = setTimeout(() => closeCatalogueSession(state.tabId), 30 * 60 * 1000);
+      port.onDisconnect.addListener(() => { if (catalogueSessions.get(state.tabId) === state) closeCatalogueSession(state.tabId, 'unavailable'); });
+      port.onMessage.addListener(response => {
+        const active = state.active;
+        state.active = null;
+        if (!state.closed) active?.resolve(response);
+      });
+    }
+    const mutation = msg.type === 'MW_BIND_ARCADE_CATALOGUE_ENTRIES';
+    const counter = mutation ? 'mutations' : 'reads';
+    const selection = mutation ? JSON.stringify(msg.payload.entries.map(entry => [entry.catalogueId, entry.entryRevision])) : '';
+    if (mutation && state.inFlight?.requestId === msg.payload.requestId) {
+      if (state.inFlight.selection !== selection) return { ok: false, code: 'request-conflict' };
+      const shared = state.inFlight;
+      if (shared.waiters >= 64) return { ok: false, code: 'busy' };
+      shared.waiters += 1;
+      try {
+        const response = await shared.promise;
+        return await cataloguePageCurrent(msg, sender, state) ? response : { ok: false, code: 'unauthorized' };
+      } finally { shared.waiters -= 1; }
+    }
+    if (state[counter] >= (mutation ? 1 : 2)) return { ok: false, code: 'busy' };
+    state[counter] += 1;
+    let timer, rejectPending;
+    const work = state.tail.then(async () => {
+      if (!await cataloguePageCurrent(msg, sender, state)) throw { code: 'unauthorized' };
+      if (!state.sessionId) {
+        const opened = await catalogueExchange(state, { type: 'ARCADE_CATALOGUE_OPEN_SESSION', protocol: 1,
+          role: 'portal', tabId: state.tabId, pageUrl: state.url });
+        if (opened?.ok === false && CATALOGUE_CODES.has(opened.code)) throw { code: opened.code };
+        if (!catalogueKeys(opened, ['ok', 'schemaVersion', 'sessionId']) || opened.ok !== true || opened.schemaVersion !== 1 || !catalogueId(opened.sessionId)) throw { code: 'unavailable' };
+        state.sessionId = opened.sessionId;
+        if (RELAY_PROTOCOLS['arcade-scummvm'] === 1 && registration.protocols?.['arcade-scummvm'] === 1) {
+          const enabled = await catalogueExchange(state, { type: 'ARCADE_CATALOGUE_ENABLE_SCUMMVM', protocol: 1,
+            sessionId: state.sessionId, payload: {} });
+          if (catalogueKeys(enabled, ['ok', 'schemaVersion']) && enabled.ok === true && enabled.schemaVersion === 1) state.scummvm = true;
+          else if (!(catalogueKeys(enabled, ['ok', 'code']) && enabled.ok === false
+            && ['unsupported-protocol', 'invalid-request'].includes(enabled.code))) throw { code: 'unavailable' };
+        }
+      }
+      if (!await cataloguePageCurrent(msg, sender, state)) throw { code: 'unauthorized' };
+      if (!state.scummvm && msg.type === 'MW_SEARCH_ARCADE_CATALOGUE' && msg.payload.platformIds?.some(id => id !== 'zx-spectrum')) {
+        return { ok: false, code: 'unsupported-protocol' };
+      }
+      const response = await catalogueExchange(state, { type: CATALOGUE_ROUTES[msg.type], protocol: 1, sessionId: state.sessionId, payload: msg.payload });
+      if (!await cataloguePageCurrent(msg, sender, state)) throw { code: 'unauthorized' };
+      if (!validateCatalogueResponse(msg.type, msg.payload, response)) throw { code: 'unavailable' };
+      if (!state.scummvm && response.ok === true && (response.entries?.some(entry => entry.targetKind !== 'media-file')
+        || response.entry && response.entry.targetKind !== 'media-file'
+        || response.results?.some(result => result.ok && result.game.systemId !== 'zx-spectrum'))) throw { code: 'unavailable' };
+      if (msg.type === 'MW_GET_ARCADE_CATALOGUE_ARTWORK' && response.ok === true && !await validateCataloguePng(response)) throw { code: 'unavailable' };
+      if (!await cataloguePageCurrent(msg, sender, state)) throw { code: 'unauthorized' };
+      return response;
+    });
+    state.tail = work.catch(() => {});
+    const outcome = Promise.race([work, new Promise((resolve, reject) => {
+        rejectPending = reject;
+        state.pending.add(reject);
+        timer = setTimeout(() => closeCatalogueSession(state.tabId, 'timeout'), mutation ? 30000 : 15000);
+      })]);
+    if (mutation) state.inFlight = { requestId: msg.payload.requestId, selection, promise: outcome, waiters: 0 };
+    try {
+      return await outcome;
+    } catch (error) {
+      if (catalogueSessions.get(state.tabId) === state) {
+        closeCatalogueSession(state.tabId, CATALOGUE_CODES.has(error?.code) ? error.code : 'unavailable');
+      }
+      throw error;
+    } finally {
+      clearTimeout(timer);
+      state.pending.delete(rejectPending);
+      state[counter] -= 1;
+      if (mutation) state.inFlight = null;
+    }
+  } catch (error) { return { ok: false, code: CATALOGUE_CODES.has(error?.code) ? error.code : 'unavailable' }; }
+}
+function validateGameVersionReply(response, action) {
+  if (!catalogueKeys(response, ['ok', 'result']) || response.ok !== true || catalogueBytes(response) > 600 * 1024) return false;
+  const result = response.result;
+  if (action !== 'list') return catalogueKeys(result, ['ok']) && result.ok === true;
+  return catalogueKeys(result, ['groupId', 'title', 'defaultId', 'versions'])
+    && catalogueId(result.groupId) && catalogueId(result.defaultId) && catalogueText(result.title, 160)
+    && Array.isArray(result.versions) && result.versions.length >= 1 && result.versions.length <= 1000
+    && new Set(result.versions.map(row => row?.catalogueId)).size === result.versions.length
+    && result.versions.every(row => catalogueKeys(row, ['catalogueId', 'entryRevision', 'label', 'platformLabel', 'languages', 'countries', 'isDefault'])
+      && catalogueId(row.catalogueId) && catalogueId(row.entryRevision) && catalogueText(row.label, 520)
+      && catalogueText(row.platformLabel, 80) && typeof row.isDefault === 'boolean'
+      && ['languages', 'countries'].every(field => Array.isArray(row[field]) && row[field].length <= 12
+        && row[field].every(value => catalogueText(value, 16))));
+}
+// End catalogue transport.
 
 // Keep one native-host process alive for startup and chunked reads. Firefox's
 // sendNativeMessage launches a fresh process per call; doing that for every
@@ -378,7 +645,7 @@ function createHubSessionToken() {
 }
 
 function sanitizeClientProtocols(value) {
-  const allowed = new Set(['portal-relay', 'arcade-relay', 'arcade-service', 'nexus-relay', 'component-settings']);
+  const allowed = new Set(['portal-relay', 'arcade-relay', 'arcade-service', 'nexus-relay', 'component-settings', 'arcade-catalogue', 'arcade-scummvm']);
   const output = {};
   if (!value || typeof value !== 'object' || Array.isArray(value)) return output;
   for (const [name, version] of Object.entries(value)) {
@@ -450,6 +717,7 @@ function rememberMorpheusTab(tab, pageUrl = '', options = {}) {
 }
 
 function forgetMorpheusTab(tabId = morpheusTabId, error = '') {
+  closeCatalogueSession(tabId);
   hubRegistrations.delete(tabId);
   selectRegisteredHub();
   hubRelayError = error || '';
@@ -616,7 +884,9 @@ async function discoverMorpheusTab(tab, { inject = false } = {}) {
   const discover = async () => {
     try {
       const response = await browser.tabs.sendMessage(tab.id, { type: 'MW_DISCOVER' });
-      if (response?.isMorpheus === true && response?.registered !== false) {
+      const current = hubRegistrations.get(tab.id);
+      if (response?.isMorpheus === true && response?.registered !== false
+          && current?.url === response.pageUrl && current?.sessionToken === response.hubSessionToken) {
         rememberMorpheusTab(tab, response.pageUrl || tab.url || '', {
           active: tab.active === true,
           sessionToken: response.hubSessionToken || ''
@@ -813,10 +1083,10 @@ function clearHubNotifications() {
 async function rehydrateNotificationAlarms() {
   if (!browser.alarms?.create) return;
   const jobs = await readNotificationStorage(NOTIFICATION_JOBS_KEY, []);
-  const now = Date.now();
   for (const rawJob of Array.isArray(jobs) ? jobs : []) {
     try {
       const job = sanitizeNotificationJob(rawJob);
+      const now = Date.now();
       if (job.expiresAt < now) { await cancelHubNotification(job.id); continue; }
       if (job.when <= now) await fireHubNotification(job);
       else browser.alarms.create(notificationAlarmName(job.id), { when: job.when });
@@ -1217,21 +1487,30 @@ async function deliverOrQueue(message) {
 }
 
 async function drainDurableIntake() {
+  durableIntakeDrainRequested = true;
   if (durableIntakeDrain) return durableIntakeDrain;
   durableIntakeDrain = (async () => {
-    const items = await readDurableIntake();
     let delivered = 0;
-    for (const item of items) {
-      try {
-        const result = await sendToMorpheus(item.payload);
-        if (result?.ok !== true) break;
-        await removeDurableDelivery(item.deliveryId);
-        delivered += 1;
-      } catch {
-        break;
+    let pendingCount = 0;
+    do {
+      // A fresh Portal registration can arrive while a send to its previous
+      // document is still pending. Revisit the retained queue after that send
+      // settles instead of losing the new registration's drain request.
+      durableIntakeDrainRequested = false;
+      const items = await readDurableIntake();
+      for (const item of items) {
+        try {
+          const result = await sendToMorpheus(item.payload);
+          if (result?.ok !== true) break;
+          await removeDurableDelivery(item.deliveryId);
+          delivered += 1;
+        } catch {
+          break;
+        }
       }
-    }
-    return { delivered, pendingCount: (await readDurableIntake()).length };
+      pendingCount = (await readDurableIntake()).length;
+    } while (durableIntakeDrainRequested);
+    return { delivered, pendingCount };
   })().finally(() => { durableIntakeDrain = null; });
   return durableIntakeDrain;
 }
@@ -2296,6 +2575,10 @@ function handleNexusRuntimeMessage(msg, sender, sendResponse) {
 }
 
 browser.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (Object.hasOwn(CATALOGUE_ROUTES, msg?.type || '')) {
+    routeCatalogueRequest(msg, sender).then(sendResponse);
+    return true;
+  }
   if (HUB_PAGE_REQUEST_TYPES.has(msg?.type) && !authorizeHubPageRequest(msg, sender)) {
     sendResponse({ ok: false, error: 'This request is not authorized for the registered Hub page' });
     return false;
@@ -2314,9 +2597,8 @@ browser.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     case 'MW_PING':
       // Extension presence must not wait for native-host startup. The page asks
       // for authoritative storage info immediately after this handshake.
-      if (sender.tab) rememberMorpheusTab(sender.tab, msg.pageUrl || sender.tab.url || '', {
-        active: msg.active === true,
-        sessionToken: msg.hubSessionToken || ''
+      if (authorizeHubPageRequest(msg, sender)) rememberMorpheusTab(sender.tab, msg.pageUrl || sender.tab.url || '', {
+        active: msg.active === true
       });
       sendResponse({ ok: true, version: browser.runtime.getManifest?.()?.version || '', ...getStorageInfo() });
       break;
@@ -2329,8 +2611,11 @@ browser.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         sendResponse(protocolCheck);
         break;
       }
+      const renewing = authorizeHubPageRequest({ ...msg, morpheusPage: true }, sender);
+      if (!renewing) closeCatalogueSession(sender.tab?.id);
       const registration = rememberMorpheusTab(sender.tab, msg.pageUrl || sender.tab?.url || '', {
         active: msg.active === true,
+        sessionToken: renewing ? msg.hubSessionToken : createHubSessionToken(),
         protocols: protocolCheck.protocols
       });
       if (!registration) {
@@ -2599,6 +2884,23 @@ browser.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       runGameAction('LAUNCH_GAME', msg.gameKey).then(sendResponse).catch(e => sendResponse({ ok: false, error: e.message }));
       return true;
 
+    case 'MW_GAME_VERSIONS': {
+      const { gameKey, action = 'list', catalogueId = '', entryRevision = '' } = msg;
+      if (typeof gameKey !== 'string' || !/^game_[A-Za-z0-9_-]{12,75}$/.test(gameKey)
+          || !['list', 'launch', 'default'].includes(action)
+          || (action === 'list' ? catalogueId !== '' || entryRevision !== ''
+            : ![catalogueId, entryRevision].every(value => typeof value === 'string' && /^[A-Za-z0-9_-]{1,80}$/.test(value)))) {
+        sendResponse({ ok: false, error: 'Invalid game version request' }); return false;
+      }
+      ensureNativeStorageReady().then(() => sendPersistentNativeMessage({ type: 'GAME_VERSIONS', gameKey, action, catalogueId, entryRevision }, EMUGUI_REQUEST_TIMEOUT_MS))
+        .then(response => {
+          if (response?.ok === false) throw new Error('Game versions are unavailable. Refresh the library and try again.');
+          if (!validateGameVersionReply(response, action)) throw new Error('Game versions could not be read. Reload Relay and try again.');
+          sendResponse(response);
+        }).catch(error => sendResponse({ ok: false, error: error.message }));
+      return true;
+    }
+
     case 'MW_OPEN_GAME_IN_EMUGUI':
       openGameInEmuGui(msg.gameKey, msg.rebind === true).then(sendResponse).catch(e => sendResponse({ ok: false, error: e.message }));
       return true;
@@ -2798,6 +3100,7 @@ browser.tabs.onRemoved.addListener(tabId => {
 
 if (browser.tabs.onUpdated) {
   browser.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+    if (changeInfo.status === 'loading' || changeInfo.url) closeCatalogueSession(tabId);
     const registration = hubRegistrations.get(tabId);
     if (registration && changeInfo.url && changeInfo.url !== registration.url) {
       forgetMorpheusTab(tabId, 'The Portal tab navigated away');

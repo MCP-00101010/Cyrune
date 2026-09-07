@@ -1,5 +1,6 @@
 from pathlib import Path
 from types import SimpleNamespace
+import pytest
 
 import arcade_core.launching as launching
 from arcade_core.launching import (
@@ -24,6 +25,28 @@ def test_argument_templates_render_game_and_collection_values(tmp_path):
     )
 
     assert arguments == ["--machine", "48K", "--title=Jetpac", str(game_path)]
+
+
+def test_direct_launch_rejects_unsupported_format_before_process_or_profile_changes(tmp_path):
+    service, calls, *_ = make_service(tmp_path)
+    service._emulator_provider()["eightyone"]["supported_extensions"] = [".tap"]
+    assert not service.launch_game("jetpac", "eightyone")["ok"]
+    assert calls == []
+
+
+def test_saved_profile_requires_a_valid_profile_and_destination_for_custom_eightyone(tmp_path):
+    game = SimpleNamespace(emulator_profile="missing")
+    emulator = {"id": "custom-eightyone", "type": "eightyone"}
+    seen = []
+    def select(emulator_id, _game, profile_id):
+        seen.append((emulator_id, profile_id))
+        return None
+    with pytest.raises(FileNotFoundError, match="unavailable"):
+        prepare_eightyone_profile(emulator, game, "", expand_path=lambda value: Path(value) if value else None, select_profile=select)
+    assert seen == [("custom-eightyone", "missing")]
+    with pytest.raises(FileNotFoundError, match="destination"):
+        prepare_eightyone_profile(emulator, game, "", expand_path=lambda _: None,
+                                 select_profile=lambda *_: {"id": "missing", "managed_path": str(tmp_path / "managed.ini")})
 
 
 class FakeProcess:

@@ -5,6 +5,140 @@ Format: `[version] — date` followed by Added / Changed / Fixed sections.
 
 ---
 
+## [0.12.17] — 2026-09-07
+
+### Fixed
+
+- Do not replay pending game launches or other game mutations when Relay reconnects. Report an uncertain outcome so a lost response cannot silently start a second game or repeat a version/default change. Safe reads retain their reconnect recovery.
+
+### Validation
+
+- Bridge regression simulates Relay reconnection during a pending game launch, verifies only one launch request and checks the uncertain-outcome error.
+- Coordinated validation passed: 1,102 tests plus 11 Host subtests; Ruff and Relay lint reported no findings. Isolated Firefox 155.0.1 passed mixed-platform picker/default/scraper persistence and legacy Spectrum board switching/reload with ScummVM active. Native launch tests mock process execution.
+
+
+## [0.12.16] — 2026-09-07
+
+### Fixed
+
+- Keep the Spectrum rainbow artwork as the favicon only. Omit the repeated platform logo from default-version badges when an older Host supplies no hardware detail; retain the right-aligned language and numeric system badges.
+
+### Validation
+
+- Coordinated validation passed: 1,057 tests plus 11 Host subtests; Relay lint had zero findings. Firefox 155.0.1 verified ScummVM to Spectrum and back selects the proper emulator, and Portal switches English/48K to German/128K badges with the Spectrum logo only as favicon. Screenshots were visually inspected. Targeted launcher checks also cover unset defaults, unavailable emulators, incompatible pins, stale selection and shortcut error reporting.
+
+## [0.12.15] — 2026-09-07
+
+### Changed
+
+- Use Arcade’s Spectrum rainbow icon for game favicons. Display the default edition’s explicit language and 16K/48K/128K system badges at the right edge, retaining ScummVM system icons.
+
+### Validation
+
+- Coordinated validation passed: 1,056 tests plus 11 Host subtests, syntax, infrastructure, versions and packaging; Relay lint had zero findings. Firefox 155.0.1 verified grouped Spectrum 48K/128K badges, explicit language-label flags, shared Spectrum artwork, English/48K to German/128K default changes and unchanged source metadata. Native regression checks preserve the resolved approval before and after presentation lookup. Final Arcade and Portal screenshots were visually inspected.
+
+## [0.12.14] — 2026-09-07
+
+### Changed
+
+- Align default-version language and platform icons to the right edge of game rows, leaving title text its normal flexible space.
+
+### Validation
+
+- Coordinated validation passed: 1,047 tests plus 11 Host subtests, syntax, infrastructure, versions and packaging; Relay lint had zero findings. Firefox 155.0.1 verified publisher/series values, separate selectors, independent platform column widths across switches and reload, shared defaults, Portal delivery and right-aligned badges. Final layouts were visually inspected.
+
+## [0.12.13] — 2026-09-07
+
+### Changed
+
+- Show local language and platform badges immediately after game titles for the actual default version. Refresh them after default changes, retain the existing leading launcher icon and full-family tooltip, and keep default metadata transient. Bundle platform artwork with attribution and sources.
+
+### Validation
+
+- Coordinated validation passed: 1,045 tests plus 11 Host subtests, syntax, infrastructure, versions and packaging; Relay lint had zero findings. Firefox 155.0.1 verified default title badges changing from English/DOS to German/Windows, stable Arcade flag order, ScummVM-only emulator choices, shared defaults and Portal delivery. The Portal title layout was visually inspected.
+
+## [0.12.12] — 2026-09-07
+
+### Changed
+
+- Group the Add Game picker by title and show related platform/language/edition options. Add Launch Version… with exact one-time launch and a shared saved default. Collapse existing sibling version cards using transient native family identity while retaining all portable records. Keep status backfill quiet while Relay authority is reconnecting.
+
+### Validation
+
+- Coordinated validation plus final focused regressions: 1,035 tests and 11 Host subtests passed. Firefox 155.0.1 verified grouped ScummVM selection, shared defaults in both clients, separate remakes, flags, Inbox delivery, and Spectrum search/pagination/save/reload. Relay lint: zero errors, warnings or notices.
+
+## [0.12.11] — 2026-09-07
+
+### Added
+
+- Show local language flag icons beside game tooltip titles, with accessible language labels and automatic status refresh for existing shortcuts. Language metadata remains transient; unknown languages are not inferred from countries or titles.
+- Use ScummVM's unmodified official icon for its game shortcuts while retaining the original platform in tooltips. Bundle CC BY-SA 3.0 attribution for the icon and MIT notices for the flag assets.
+- Validation: focused tooltip, existing-card refresh, local asset, language bounds and native-status regressions.
+- Completed validation: 1,019 coordinated tests plus 11 Host subtests passed; syntax, infrastructure, version and Relay lint checks passed. Firefox 155.0.1 verified English/German flags, official icons, original-platform labels, reload and Inbox delivery at desktop and narrow widths.
+
+## [0.12.10] — 2026-09-07
+
+### Added
+
+- Resume Relay’s pending intake after authoritative startup or recovery finishes, so games queued during a temporary read-only startup are delivered when storage is ready. The existing authenticated presence ping triggers the drain.
+
+- Add configured ScummVM releases to Add Game, with original-platform filters and distinct edition selection. Confirmed results must match the selected platform and still persist presentation plus an opaque game key only.
+- Validation: mixed Spectrum/ScummVM selection, placement order, platform substitution rejection and existing picker/bridge regressions.
+
+- Completed validation: all coordinated suites passed (1,007 tests plus 11 Host subtests), including mixed-version and joined native workflows; Relay lint reported zero findings. Firefox 155.0.1 passed ScummVM selection/save/reload and Arcade batch Inbox delivery. Live checks validated all 169 ScummVM plans and the existing Spectrum preflight without starting games.
+
+## [0.12.9] — 2026-09-07
+
+### Fixed
+
+- Buffer early Arcade game deliveries until the app has attached its Inbox handler, then wait for Portal initialization before inserting or acknowledging them. This preserves deliveries queued while Portal was closed, including across a Relay reload.
+- Added executable tests for ordered startup buffering, its 128-item bound, and initialization-before-acknowledgement. Isolated Firefox acceptance checks native bindings, closed-Portal delivery, Relay reload, saved Inbox cards and Portal reload without duplicates.
+- All 148 Portal tests and the coordinated repository validator pass, including native persistence, integration, packaging, syntax, version checks and Relay lint.
+
+## [0.12.8] — 2026-09-07
+
+### Fixed
+
+- Normal startup and page reload establish the authoritative storage baseline without announcing a Relay recovery, including a delayed first connection. Recovery notices require an established Relay connection to be lost and restored; storage-location changes reload quietly and failed recovery reads remain retryable.
+- A full optional browser recovery cache no longer interrupts successful Relay/Host saves with quota notices or deletes the previous cached snapshot or Trash. Keep the latest authoritative snapshot in memory for rollback if Relay subsequently becomes unavailable.
+
+### Validation
+
+- Regression coverage exercises Host and Relay startup, initialization races, actual outages, failed reads/retries, atomic cache quota failures, retained Trash and rollback to the latest successful save.
+- All 146 Portal tests pass, including the final delayed-connection regression. The coordinated validator passed all component/integration suites, syntax, manifests, versions and Relay lint (zero findings). Isolated Firefox 155.0.1 verified quiet initial loading and reload across recovery polling, alongside game selection, native binding and authoritative save/reload.
+
+## [0.12.7] — 2026-09-07
+
+### Fixed
+
+- Add Game browses Arcade's configured libraries directly, without catalogue preparation. Library entries remain selectable before launch validation, including second and later variants without individual emulator overrides.
+- Preserve result controls, checkbox focus and scrolling when selection or details change, and reduce the search debounce to 150 ms.
+- Verified second-row title clicks, keyboard selection, cancellation, adding distinct editions, authoritative saving and reload in isolated Firefox. See the [direct browsing validation](../docs/architecture/portal-arcade-spectrum-migration.md#direct-library-browsing--2026-09-07).
+
+## [0.12.6] — 2026-09-06
+
+### Changed
+
+- Enabled **Add Game** in unlocked regular columns with the coordinated catalogue v1 release. Fixed narrow dialogs so details and the selection summary retain their height and remain scrollable.
+- Verified the direct-file workflow in installed Firefox 155.0.1 with Relay and the registered native Host against 125 and 12,933 synthetic games: keyboard selection, paging, exact artwork, cancellation, tag opt-in, binding, authoritative saves and reload. The joined regression suite also uses production advertisements and checks incompatible participants.
+- Validation commands and scoped rollout evidence are recorded in the [activation record](../docs/architecture/portal-arcade-spectrum-migration.md#column-picker-activation--2026-09-06).
+
+## [0.12.5] — 2026-09-06
+
+### Added
+
+- Staged a gated **Add Game** picker for unlocked regular board columns, with paged search, platform filtering, exact variant details, bounded artwork and keyboard-accessible selection of up to 100 games.
+- Added explicit suggested-tag copying, ordered binding confirmation, partial-failure reporting and one undoable save of compact game cards into the captured column. Unavailable destinations retain approved results for explicit placement into that same column.
+
+### Fixed
+
+- Catalogue requests no longer participate in Portal's automatic bridge replay after Relay reconnects. A busy request can be explicitly retried within its session; connection changes require fresh selection. Uncertain Portal saves cannot automatically append the same batch again.
+
+### Validation
+
+- All 135 Portal tests pass. The coordinated validator passed all component suites, migration/packaging/tooling checks, syntax, manifests, version consistency and Relay lint (zero errors, warnings or notices); the final optional-protocol/cleanup changes were also covered by the Portal rerun.
+- Synthetic controller, bridge, persistence and executable dialog tests cover bounded paging/selection, stale responses, exact-entry artwork, tag opt-in, duplicate clicks, partial failures, locks, lost destinations, reconnects and failed saves. The optional catalogue capability remains unadvertised; browser visual and live native-stack acceptance remain pending.
+
 ## [0.12.4] — 2026-09-04
 
 ### Fixed

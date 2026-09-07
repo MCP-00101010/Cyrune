@@ -1,4 +1,4 @@
-const APP_VERSION = '0.12.4';
+const APP_VERSION = '0.12.17';
 const PORTAL_UI_TEXT = Object.freeze({
   readOnlyCached: 'Read-only: reconnect Cyrune Relay to edit Portal data. The last authoritative cache remains available for viewing and export.',
   readOnlyIncompatible: 'Read-only: Cyrune Relay is incompatible or outdated. Reload the temporary extension from this checkout, then reload Portal.',
@@ -27,6 +27,8 @@ let sharedDiskDataReloadInProgress = false;
 let sharedRecoveryCheckInProgress = false;
 let lastBridgeNativeReady = false;
 let lastBridgeRecoveryPath = '';
+let relayHasConnected = false;
+let relayWasUnavailable = false;
 let hubInitializationPromise = null;
 let portalReadOnlyMode = false;
 let portalReadOnlySnapshot = '';
@@ -45,6 +47,7 @@ function getPortalReadOnlyMessage() {
 }
 
 function getPortalCachedSnapshot() {
+  if (typeof lastAuthoritativeSnapshot === 'string' && lastAuthoritativeSnapshot) return lastAuthoritativeSnapshot;
   try { return localStorage.getItem(STORAGE_KEY) || ''; } catch { return ''; }
 }
 
@@ -371,6 +374,7 @@ async function reloadHubData(options = {}) {
     if (typeof updateAboutBridgeStatus === 'function') await updateAboutBridgeStatus();
     updateUndoRedoUI();
     document.documentElement.classList.remove('hub-booting');
+    if (source === 'shared') void bridge.resumePendingIntake?.().catch(() => {});
     if (notice) showNotice(notice);
     return true;
   } catch (error) {
@@ -652,13 +656,13 @@ async function refreshBridgeStatusUi() {
   if (typeof updateAboutBridgeStatus === 'function') await updateAboutBridgeStatus();
 }
 
-async function handleRecoveredSharedStorage(info) {
+async function handleRecoveredSharedStorage(info, { notify = false } = {}) {
   const databasePath = (info?.databasePath || '').trim();
   const authorityKey = databasePath || String(info?.storageMode || '').trim();
   if (!authorityKey || sharedDiskSyncIsBlocked()) return;
-  await reloadHubData({
+  return await reloadHubData({
     source: 'shared',
-    notice: PORTAL_UI_TEXT.authorityRecovered
+    notice: notify ? PORTAL_UI_TEXT.authorityRecovered : ''
   });
 }
 
@@ -676,6 +680,8 @@ function startSharedRecoveryPolling() {
 }
 
 async function checkForSharedRecovery() {
+  // Initial loading establishes the baseline; it is not a recovery event.
+  await hubInitializationPromise;
   if (sharedRecoveryCheckInProgress || sharedDiskDataReloadInProgress) return;
   if (typeof bridge === 'undefined') return;
   sharedRecoveryCheckInProgress = true;
@@ -683,6 +689,8 @@ async function checkForSharedRecovery() {
     await bridge.whenReady;
     const info = await bridge.getStorageInfo();
     const extensionReady = bridge.isAvailable();
+    if (extensionReady) relayHasConnected = true;
+    else if (relayHasConnected) relayWasUnavailable = true;
     const nativeReady = extensionReady && info?.authoritativeStorageAvailable === true;
     const databasePath = (info?.databasePath || info?.storageMode || '').trim();
 
@@ -694,7 +702,11 @@ async function checkForSharedRecovery() {
 
     if (statusChanged) await refreshBridgeStatusUi();
     if (statusChanged && !nativeReady) setPortalReadOnlyMode(true);
-    if (recovered) await handleRecoveredSharedStorage(info);
+    if (recovered) {
+      const restored = await handleRecoveredSharedStorage(info, { notify: relayWasUnavailable });
+      if (restored) relayWasUnavailable = false;
+      else lastBridgeNativeReady = false; // Retry a failed authoritative reload.
+    }
   } finally {
     sharedRecoveryCheckInProgress = false;
   }
@@ -1274,7 +1286,8 @@ function attachEventListeners() {
 
   window.addEventListener('morpheus:receive-game', e => {
     const detail = e.detail || {};
-    void persistExternalGameDelivery(detail)
+    void Promise.resolve(hubInitializationPromise)
+      .then(() => persistExternalGameDelivery(detail))
       .then(result => bridge.respondToPush(detail.pushRequestId, result))
       .catch(error => bridge.respondToPush(detail.pushRequestId, { ok: false, error: error?.message || String(error) }));
   });
@@ -1443,10 +1456,14 @@ async function initializeHubState() {
   updateUndoRedoUI();
   isDirty = false;
   if (!startupSharedLoadFailed) document.documentElement.classList.remove('hub-booting');
-  lastBridgeNativeReady = !startupSharedLoadFailed && authoritativePortalStorageReady();
-  lastBridgeRecoveryPath = (state.databasePath || '').trim();
+  lastBridgeNativeReady = loadedFromShared;
+  lastBridgeRecoveryPath = loadedFromShared ? startupSharedPath.trim() : '';
+  const relayAvailable = typeof bridge !== 'undefined' && bridge.isAvailable();
+  relayHasConnected = loadedFromShared || relayAvailable;
+  relayWasUnavailable = relayHasConnected && !relayAvailable;
   startSharedRecoveryPolling();
 
+  if (loadedFromShared) void bridge.resumePendingIntake?.().catch(() => {});
   if (startupSharedLoadFailed) {
     requestAnimationFrame(() => showNotice(
       `Cyrune Portal could not read the shared database at ${startupSharedPath}. The empty local fallback is being kept hidden while the connection retries. ${startupSharedLoadError}`
@@ -1473,3 +1490,4 @@ async function initializeHubState() {
 }
 
 hubInitializationPromise = initializeHubState();
+bridge.startGameIntake?.();

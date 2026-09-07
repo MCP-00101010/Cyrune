@@ -12,6 +12,8 @@ GAME_SUMMARY_FIELDS = (
     "language", "extension", "file_name", "letter", "view", "year", "publisher", "languages", "countries",
     "tosec_tags", "flags", "tags", "hardware", "default_emulator", "emulator_profile", "has_poks", "pok_count",
     "favourite", "is_ulaplus", "import_status", "import_match_count", "import_system_match_count", "import_matches",
+    "version", "video", "media_type", "media_label",
+    "platform_options", "series",
 )
 
 
@@ -35,6 +37,7 @@ class Game:
     view: str = "collection"
     year: str = ""
     publisher: str = ""
+    series: str = ""
     version: str = ""
     demo: str = ""
     video: str = ""
@@ -45,6 +48,7 @@ class Game:
     genre: str = ""
     developer: str = ""
     platform: str = ""
+    platform_options: tuple[str, ...] = ()
     region: str = ""
     players: str = ""
     coop: str = ""

@@ -1,7 +1,9 @@
 {
   "schemaVersion": 1,
   "protocols": {
+    "arcade-catalogue": { "version": 1, "participants": ["arcade", "host", "portal", "relay"], "maxMessageBytes": 1048576, "summary": "Optional bounded catalogue reads and explicit exact-entry game bindings." },
     "arcade-relay": { "version": 1, "participants": ["arcade", "relay"], "maxMessageBytes": 1048576, "summary": "Authenticated Arcade page requests routed through Relay." },
+    "arcade-scummvm": { "version": 1, "participants": ["arcade", "host", "portal", "relay"], "maxMessageBytes": 1048576, "summary": "Optional configured ScummVM targets, original platforms and exact native launch bindings." },
     "arcade-service": { "version": 1, "participants": ["arcade", "host"], "maxMessageBytes": 1048576, "summary": "Fixed-purpose Arcade service, metadata and launch operations." },
     "component-settings": { "version": 2, "participants": ["arcade", "host", "nexus", "portal", "relay", "widgets"], "maxMessageBytes": 65536, "summary": "Revisioned shared settings with component-scoped overrides." },
     "host-native": { "version": 2, "participants": ["host", "relay"], "maxMessageBytes": 8388608, "summary": "Bounded native messaging between Relay and Host." },

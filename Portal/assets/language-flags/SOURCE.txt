@@ -1,0 +1,4 @@
+Flag icons by Panayiotis Lipiridis and contributors (MIT license; see LICENSE.txt).
+Source: https://github.com/lipis/flag-icons/tree/086f7e97d657358203916dbe84f61c2bccaa81eb/flags/4x3
+Selected SVG assets copied unchanged on 2026-09-07.
+Flags are language display conventions, not inferred game release countries.

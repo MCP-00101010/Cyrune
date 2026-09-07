@@ -1,4 +1,4 @@
-const ARCADE_VERSION = '0.2.2';
+const ARCADE_VERSION = '0.2.28';
 
 const state = {
   games: [],
@@ -28,14 +28,17 @@ const extensionAssetCache = new Map();
 const requestArcadeRpc = globalThis.ArcadeTransport.rpc;
 const requestArcadeAsset = globalThis.ArcadeTransport.asset;
 const sendArcadeGame = globalThis.ArcadeTransport.sendGame;
+let portalDeliveryDraft = null;
 const arcadeCyruneSettings = globalThis.ArcadeTransport.settings;
 const optionalNetworkAllowed = globalThis.ArcadeTransport.optionalNetworkAllowed;
 const webHubHandoff = (() => {
   const params = new URLSearchParams(window.location.search);
   const gameId = String(params.get("game") || "");
+  const collectionId = String(params.get("collection") || "");
   const rebindGameKey = String(params.get("hubRebind") || "");
   return {
     gameId: /^[a-zA-Z0-9_-]{1,120}$/.test(gameId) ? gameId : "",
+    collectionId: /^[a-zA-Z0-9_-]{1,120}$/.test(collectionId) ? collectionId : "",
     rebindGameKey: /^game_[a-zA-Z0-9_-]{12,75}$/.test(rebindGameKey) ? rebindGameKey : "",
   };
 })();
@@ -96,11 +99,13 @@ const TAG_SUGGESTIONS = ["Official", "Homebrew", "CSSCGC", "ULAPlus", "Demo", "C
 const SORT_FIELDS = [
   ["title", "Name"],
   ["publisher", "Publisher"],
+  ["series", "Series"],
   ["year", "Year"],
   ["system", "System"],
   ["tag", "Tags"],
   ["language", "Language"],
   ["country", "Country"],
+  ["version", "Version"],
   ["poks", "POKs"],
   ["favourite", "Favourite"],
   ["recent", "Recent"],
@@ -114,11 +119,13 @@ const VIRTUAL_BUFFER_ROWS = 12;
 const COLUMN_DEFS = [
   { key: "title", label: "Title", sort: "title", width: 340, visible: true, render: renderTitleCell },
   { key: "publisher", label: "Publisher", sort: "publisher", width: 180, visible: true, render: (game) => escapeHtml(game.publisher || "") },
+  { key: "series", label: "Series", sort: "series", width: 150, visible: true, render: (game) => escapeHtml(game.series || "") },
   { key: "year", label: "Year", sort: "year", width: 72, visible: true, render: (game) => escapeHtml(gameYear(game)) },
-  { key: "system", label: "System", sort: "system", width: 86, visible: true, render: (game) => `<span class="pill">${escapeHtml(game.system || game.memory || "")}</span>` },
+  { key: "system", label: "System", sort: "system", width: 110, visible: true, render: renderPlatformIcons },
   { key: "tags", label: "Tags", sort: "tag", width: 170, visible: true, render: (game) => escapeHtml(collectionTypeLabel(game)) },
-  { key: "language", label: "Lang", sort: "language", width: 72, visible: true, render: (game) => escapeHtml(formatLanguageCodes(game)) },
-  { key: "country", label: "Country", sort: "country", width: 78, visible: true, render: (game) => escapeHtml(formatCountryCodes(game.countries || [])) },
+  { key: "language", label: "Lang", sort: "language", width: 90, visible: true, render: (game) => renderVersionFlags(game.languages || [], true) },
+  { key: "country", label: "Country", sort: "country", width: 90, visible: true, render: (game) => renderVersionFlags(game.countries || [], false) },
+  { key: "versions", label: "Versions", sort: "version", width: 170, visible: true, render: (game) => escapeHtml(game.version_editions?.join(' / ') || game.version || '') },
   { key: "poks", label: "POKs", sort: "poks", width: 64, visible: true, render: (game) => (game.pok_count ? `<span class="pill good">${game.pok_count}</span>` : "") },
   { key: "file", label: "Filename", sort: "file", width: 300, visible: false, render: (game) => escapeHtml(game.file_name || "") },
   { key: "format", label: "Format", sort: "format", width: 76, visible: false, render: (game) => escapeHtml(fileExtension(game.file_name)) },
@@ -127,6 +134,7 @@ const COLUMN_DEFS = [
   { key: "recent", label: "Recent", sort: "recent", width: 78, visible: false, render: (game) => (state.recentIds.has(game.id) ? statusIcon("recent", "Recent", "↻") : "") },
 ];
 const COLUMN_MAP = new Map(COLUMN_DEFS.map((column) => [column.key, column]));
+const COLLECTION_PLATFORMS = Object.freeze({'zx-spectrum': 'ZX Spectrum', scummvm: 'ScummVM'});
 
 state.ui = loadUiState();
 
@@ -148,6 +156,10 @@ const els = {
   editEmulators: document.querySelector("#edit-emulators"),
   editScrapers: document.querySelector("#edit-scrapers"),
   collectionSelect: document.querySelector("#collection-select"),
+  platformSelect: document.querySelector("#platform-select"),
+  prepareCatalogue: document.querySelector("#prepare-catalogue"),
+  catalogueRecovery: document.querySelector("#catalogue-recovery"),
+  catalogueReattachment: document.querySelector("#catalogue-reattachment"),
   rebuild: document.querySelector("#rebuild"),
   bulkEdit: document.querySelector("#bulk-edit"),
   importSelectTools: document.querySelector("#import-select-tools"),
@@ -177,36 +189,52 @@ if (els.version) {
   els.version.setAttribute('aria-label', `Cyrune Arcade version ${ARCADE_VERSION}`);
 }
 
-function loadUiState() {
-  const defaults = {
-    columnOrder: COLUMN_DEFS.map((column) => column.key),
-    columnVisibility: Object.fromEntries(COLUMN_DEFS.map((column) => [column.key, column.visible])),
-    columnWidths: Object.fromEntries(COLUMN_DEFS.map((column) => [column.key, column.width])),
-    sidebarCollapsed: false,
-    detailsCollapsed: false,
+function columnSettings(value = {}) {
+  const order = Array.isArray(value.columnOrder) ? [...new Set(value.columnOrder.filter(key => COLUMN_MAP.has(key)))] : [];
+  const result = {
+    columnOrder: [...order, ...COLUMN_DEFS.map(column => column.key).filter(key => !order.includes(key))],
+    columnVisibility: Object.fromEntries(COLUMN_DEFS.map(column => [column.key,
+      typeof value.columnVisibility?.[column.key] === 'boolean' ? value.columnVisibility[column.key] : column.visible])),
+    columnWidths: Object.fromEntries(COLUMN_DEFS.map(column => [column.key,
+      Number.isFinite(value.columnWidths?.[column.key]) ? Math.max(48, Math.min(640, value.columnWidths[column.key])) : column.width]))
   };
-  try {
-    const parsed = JSON.parse(localStorage.getItem(UI_STORAGE_KEY) || "{}");
-    const order = Array.isArray(parsed.columnOrder) ? parsed.columnOrder.filter((key) => COLUMN_MAP.has(key)) : [];
-    const missing = defaults.columnOrder.filter((key) => !order.includes(key));
-    const visibility = { ...defaults.columnVisibility, ...(parsed.columnVisibility || {}) };
-    if (!Object.values(visibility).some(Boolean)) {
-      visibility.title = true;
-    }
-    return {
-      columnOrder: [...order, ...missing],
-      columnVisibility: visibility,
-      columnWidths: { ...defaults.columnWidths, ...(parsed.columnWidths || {}) },
-      sidebarCollapsed: Boolean(parsed.sidebarCollapsed),
-      detailsCollapsed: Boolean(parsed.detailsCollapsed),
-    };
-  } catch (_error) {
-    return defaults;
-  }
+  if (!Object.values(result.columnVisibility).some(Boolean)) result.columnVisibility.title = true;
+  return result;
+}
+
+function loadUiState() {
+  let parsed = {};
+  try { parsed = JSON.parse(localStorage.getItem(UI_STORAGE_KEY) || '{}') || {}; } catch (_) { /* Use defaults. */ }
+  return {
+    ...columnSettings(parsed),
+    legacyColumns: columnSettings(parsed.legacyColumns || parsed),
+    platformColumns: Object.fromEntries(Object.keys(COLLECTION_PLATFORMS)
+      .filter(key => parsed.platformColumns?.[key] && typeof parsed.platformColumns[key] === 'object')
+      .map(key => [key, columnSettings(parsed.platformColumns[key])])),
+    platformCollections: Object.fromEntries(Object.keys(COLLECTION_PLATFORMS)
+      .filter(key => typeof parsed.platformCollections?.[key] === 'string')
+      .map(key => [key, parsed.platformCollections[key].slice(0, 120)])),
+    sidebarCollapsed: Boolean(parsed.sidebarCollapsed), detailsCollapsed: Boolean(parsed.detailsCollapsed)
+  };
 }
 
 function saveUiState() {
+  if (state.columnPlatform) state.ui.platformColumns[state.columnPlatform] = columnSettings(state.ui);
   localStorage.setItem(UI_STORAGE_KEY, JSON.stringify(state.ui));
+}
+
+function collectionPlatform(collection) {
+  return collection?.platform_id || (collection?.adapter === 'scummvm-config-v1' ? 'scummvm' : 'zx-spectrum');
+}
+
+function restorePlatformColumns(platform) {
+  if (state.columnPlatform === platform) return;
+  if (state.columnPlatform) saveUiState();
+  Object.assign(state.ui, columnSettings(state.ui.platformColumns[platform] || state.ui.legacyColumns));
+  state.columnPlatform = platform;
+  saveUiState();
+  renderTableStructure();
+  renderList();
 }
 
 function visibleColumns() {
@@ -423,9 +451,23 @@ async function init() {
   renderTableStructure();
   bindEvents();
 
+  const recovery = await api("/api/catalogue-recovery/status", { method: "POST", body: "{}" });
+  if (recovery.status === "recovery-required") {
+    throw new Error("An interrupted collection change needs review. Open Catalogue Recovery to continue.");
+  }
+
   // Prioritize the library. Collection counts can involve filesystem walks and
   // should not hold the first useful render behind secondary startup data.
-  const gamesPayload = await api("/api/games?view=all&shape=summary");
+  if (webHubHandoff.collectionId) {
+    const collections = await api("/api/collections");
+    if (collections.active?.id !== webHubHandoff.collectionId) {
+      const selected = collections.collections.find(item => item.id === webHubHandoff.collectionId && item.available !== false);
+      if (!selected) throw new Error("This game’s collection is unavailable.");
+      const job = await api("/api/select-collection", { method: "POST", body: JSON.stringify({ collection_id: selected.id }) });
+      await waitForJob(job.job_id);
+    }
+  }
+  const gamesPayload = await api("/api/games?view=all&shape=summary&groupVersions=true");
   replaceGameSummaries(gamesPayload.games);
   applyFilters();
 
@@ -449,6 +491,9 @@ async function init() {
 }
 
 function bindEvents() {
+  els.prepareCatalogue.addEventListener("click", showCataloguePreparationModal);
+  els.catalogueRecovery.addEventListener("click", showCatalogueRecoveryModal);
+  els.catalogueReattachment.addEventListener("click", showCatalogueReattachmentModal);
   els.search.addEventListener("input", scheduleFilterApply);
   document.addEventListener("click", hideContextMenu);
   window.addEventListener("blur", hideContextMenu);
@@ -462,30 +507,16 @@ function bindEvents() {
 
   els.collectionSelect.addEventListener("change", async () => {
     if (els.collectionSelect.value === ADD_COLLECTION_VALUE) {
-      renderCollections();
-      showAddCollectionModal();
-      return;
+      renderCollections(); showAddCollectionModal(); return;
     }
-    const selected = state.collections.find((collection) => collection.id === els.collectionSelect.value);
-    if (!selected || selected.available === false) {
-      renderCollections();
-      return;
-    }
-    if (selected.id === state.activeCollection?.id) {
-      renderCollections();
-      return;
-    }
-    await withBusy(`Switching to ${selected?.name || "collection"}`, "Starting index...", async () => {
-      const payload = await api("/api/select-collection", {
-        method: "POST",
-        body: JSON.stringify({ collection_id: els.collectionSelect.value }),
-      });
-      await waitForJob(payload.job_id);
-      state.selected = null;
-      state.selectedIds.clear();
-      await reloadCollections();
-      await reloadGames();
-    });
+    await selectCollection(els.collectionSelect.value);
+  });
+  els.platformSelect.addEventListener('change', async () => {
+    const platform = els.platformSelect.value;
+    const choices = state.collections.filter(collection => collectionPlatform(collection) === platform && collection.available !== false);
+    const selected = choices.find(collection => collection.id === state.ui.platformCollections[platform]) || choices[0];
+    if (selected) await selectCollection(selected.id);
+    else renderCollections();
   });
 
   els.collectionSelect.addEventListener("pointerdown", refreshCollectionsForDropdown);
@@ -587,7 +618,7 @@ async function waitForJob(jobId) {
 
 async function reloadGames() {
   const selectedId = state.selected?.id || "";
-  const payload = await api("/api/games?view=all&shape=summary");
+  const payload = await api("/api/games?view=all&shape=summary&groupVersions=true");
   replaceGameSummaries(payload.games);
   const validIds = new Set(state.games.map((game) => game.id));
   state.selectedIds = new Set([...state.selectedIds].filter((id) => validIds.has(id)));
@@ -603,6 +634,144 @@ function replaceGameSummaries(games) {
   state.games = Array.isArray(games) ? games : [];
   state.gamesById = new Map(state.games.map((game) => [game.id, game]));
   state.gameDetails.clear();
+  state.versionGroups = new Map();
+  for (const game of state.games) {
+    const key = game.version_group || game.id;
+    if (!state.versionGroups.has(key)) state.versionGroups.set(key, []);
+    state.versionGroups.get(key).push(game);
+  }
+}
+
+function groupedGameRows(games) {
+  const seen = new Set();
+  return games.flatMap(game => {
+    const key = game.version_group || game.id;
+    if (seen.has(key)) return [];
+    seen.add(key);
+    const members = state.versionGroups?.get(key) || [game];
+    const primary = members.find(row => row.id === game.default_version) || members[0];
+    const union = field => [...new Set(members.flatMap(row => row[field] || []).filter(Boolean))];
+    return [{ ...primary, languages: union('languages'), countries: union('countries'),
+      version_systems: union('system'), version_editions: union('version'),
+      version_platforms: union('platform_options'),
+      favourite: members.some(row => row.favourite) }];
+  });
+}
+
+const ARCADE_LANGUAGE_FLAGS = Object.freeze({ ar: 'sa', be: 'by', bg: 'bg', br: 'fr', ca: 'es-ct', cs: 'cz', da: 'dk',
+  de: 'de', el: 'gr', en: 'gb', es: 'es', et: 'ee', eu: 'es-pv', fa: 'ir', fi: 'fi', fr: 'fr', he: 'il', hr: 'hr',
+  hu: 'hu', it: 'it', ja: 'jp', ko: 'kr', lt: 'lt', lv: 'lv', nb: 'no', nl: 'nl', no: 'no', pl: 'pl', pt: 'pt',
+  ro: 'ro', ru: 'ru', sk: 'sk', sr: 'rs', sv: 'se', tr: 'tr', uk: 'ua', zh: 'cn',
+  uz: 'uz', 'en-us': 'us', 'en-gb': 'gb', 'fr-ca': 'ca', 'pt-br': 'br', 'zh-tw': 'tw', 'zh-cn': 'cn' });
+const ARCADE_FLAG_ASSETS = new Set(Object.values(ARCADE_LANGUAGE_FLAGS));
+
+function renderVersionFlags(values, language) {
+  return `<span class="game-version-flags">${[...new Set(values.map(value => String(value).toLowerCase()))].sort().map(code => {
+    const flag = language ? ARCADE_LANGUAGE_FLAGS[code] : code === 'uk' ? 'gb' : code;
+    const label = (language ? LANGUAGE_NAMES : COUNTRY_NAMES)[code.toUpperCase()] || code.toUpperCase();
+    return ARCADE_FLAG_ASSETS.has(flag)
+      ? `<img src="assets/language-flags/${flag}.svg" alt="${escapeHtml(label)}" title="${escapeHtml(label)}" width="20" height="15">`
+      : `<span role="img" aria-label="${escapeHtml(label)}" title="${escapeHtml(label)}">◎</span>`;
+  }).join('')}</span>`;
+}
+
+const ARCADE_PLATFORM_ICONS = Object.freeze({
+  dos: ['dos.png', 'DOS'], windows: ['windows.png', 'Windows'], amiga: ['amiga.png', 'Amiga'],
+  'fm-towns': ['fm-towns.png', 'FM Towns'], 'atari-st': ['atari-st.png', 'Atari ST'],
+  macintosh: ['macintosh.png', 'Macintosh'], 'zx-spectrum': ['zx-spectrum.png', 'ZX Spectrum'],
+  steam: ['steam.svg', 'Steam edition'], unknown: ['unknown.svg', 'Unspecified platform']
+});
+
+function renderPlatformIcons(game) {
+  const values = game.version_platforms?.length ? game.version_platforms
+    : game.platform_options?.length ? game.platform_options
+    : game.version_systems?.length ? game.version_systems : [game.system || game.memory || ''];
+  const hardware = [...new Set(values.flatMap(value => /^(?:16|48|128)K(?:-(?:16|48|128)K)?$/i.test(String(value))
+    ? String(value).toUpperCase().split('-') : []))].sort((a, b) => parseInt(a) - parseInt(b));
+  if (hardware.length) return `<span class="game-platform-icons">${hardware.map(system =>
+    `<span class="game-system-badge" title="ZX Spectrum ${system}">${system}</span>`).join('')}</span>`;
+  const icons = new Map();
+  for (const value of values) {
+    const label = String(value).slice(0, 80);
+    const normalized = label.trim().toLowerCase().replaceAll(' ', '-');
+    let id = Object.hasOwn(ARCADE_PLATFORM_ICONS, normalized) ? normalized : 'unknown';
+    if (normalized === 'ms-dos') id = 'dos';
+    const [file, name] = ARCADE_PLATFORM_ICONS[id];
+    const title = id === 'zx-spectrum' && /k/i.test(label) ? `${name} (${label})` : name;
+    if (icons.has(id)) icons.get(id).labels.add(title);
+    else icons.set(id, { file, name, labels: new Set([title]) });
+  }
+  return `<span class="game-platform-icons">${[...icons].map(([id, icon]) =>
+    `<img class="game-platform-icon${id === 'steam' ? ' game-platform-steam' : ''}" src="assets/platforms/${icon.file}" alt="${escapeHtml(icon.name)}" title="${escapeHtml([...icon.labels].join(' / '))}" width="26" height="26">`
+  ).join('')}</span>`;
+}
+
+async function showGameVersions(game) {
+  const previousFocus = document.activeElement;
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = `<section class="modal game-versions-modal" role="dialog" aria-modal="true" aria-labelledby="game-versions-title">
+    <h2 id="game-versions-title">Launch Version…</h2><p data-version-title></p>
+    <p>Double-click launches the default. Launching another version here leaves the default unchanged.</p>
+    <div data-version-list class="game-version-list"></div><p data-version-status role="status">Loading versions…</p>
+    <div class="modal-actions"><button data-version-close class="secondary">Close</button></div></section>`;
+  document.body.appendChild(overlay);
+  overlay.querySelector('[data-version-title]').textContent = game.title;
+  const status = overlay.querySelector('[data-version-status]');
+  const list = overlay.querySelector('[data-version-list]');
+  const close = overlay.querySelector('[data-version-close]');
+  let busy = false;
+  const dismiss = () => { if (!busy) { overlay.remove(); previousFocus?.focus(); } };
+  close.addEventListener('click', dismiss);
+  overlay.addEventListener('click', event => { if (event.target === overlay) dismiss(); });
+  overlay.addEventListener('keydown', event => {
+    if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); dismiss(); }
+    if (event.key === 'Tab') {
+      const buttons = [...overlay.querySelectorAll('button:not(:disabled)')];
+      if (!buttons.length) { event.preventDefault(); return; }
+      if (event.shiftKey && document.activeElement === buttons[0] || !event.shiftKey && document.activeElement === buttons.at(-1)) {
+        event.preventDefault(); buttons[event.shiftKey ? buttons.length - 1 : 0].focus();
+      }
+    }
+  });
+  close.focus();
+  const load = async () => {
+    const result = await api(`/api/game-versions?game_id=${encodeURIComponent(game.id)}`);
+    if (!overlay.isConnected) return;
+    list.replaceChildren();
+    for (const version of result.versions) {
+      const row = document.createElement('div'); row.className = 'game-version-row';
+      const label = document.createElement('span'); label.className = 'game-version-label'; label.textContent = version.label;
+      const marker = document.createElement('strong'); marker.textContent = version.isDefault ? 'Default' : '';
+      const launch = document.createElement('button'); launch.textContent = 'Launch';
+      const makeDefault = document.createElement('button'); makeDefault.className = 'secondary';
+      makeDefault.textContent = 'Use as default';
+      const run = async action => {
+        busy = true; overlay.querySelectorAll('button').forEach(button => { button.disabled = true; }); status.textContent = '';
+        try {
+          if (action === 'default') {
+            await api('/api/game-version-default', { method: 'POST', body: JSON.stringify({ game_id: game.id,
+              catalogueId: version.catalogueId, entryRevision: version.entryRevision }) });
+            await reloadGames(); await load(); status.textContent = 'Default saved for Arcade and Portal.';
+          } else {
+            const target = state.games.find(row => row.catalogue_id === version.catalogueId && row.entry_revision === version.entryRevision);
+            if (!target) throw new Error('The library changed. Close this window and try again.');
+            await selectGame(target.id);
+            const result = await launchGame('', '', true);
+            await refreshRecentAfterLaunch(); await renderDetails(launchMessage(result));
+            busy = false; dismiss();
+          }
+        } catch (error) { status.textContent = error.message; }
+        finally { busy = false; close.disabled = false;
+          list.querySelectorAll('button').forEach(button => { button.disabled = false; }); }
+      };
+      launch.addEventListener('click', () => void run('launch'));
+      makeDefault.addEventListener('click', () => void run('default'));
+      row.append(label, marker, launch, makeDefault); list.appendChild(row);
+    }
+    status.textContent = result.versions.some(version => version.isDefault) ? '' : 'The saved default is missing. Choose an available version as default.';
+  };
+  try { await load(); } catch (error) { status.textContent = error.message; }
 }
 
 async function reloadCollections() {
@@ -760,9 +929,33 @@ function fileExtension(fileName) {
   return match ? match[1].toLowerCase() : "";
 }
 
+async function selectCollection(collectionId) {
+  const selected = state.collections.find(collection => collection.id === collectionId);
+  if (!selected || selected.available === false || selected.id === state.activeCollection?.id) { renderCollections(); return; }
+  try {
+    await withBusy(`Switching to ${selected.name || 'collection'}`, 'Starting index...', async () => {
+      const payload = await api('/api/select-collection', {method: 'POST', body: JSON.stringify({collection_id: selected.id})});
+      await waitForJob(payload.job_id);
+      state.selected = null; state.selectedIds.clear(); state.multiFilters = {};
+      els.filterView.value = 'all';
+      await reloadCollections(); await reloadGames();
+    });
+  } finally { renderCollections(); }
+}
+
 function renderCollections() {
+  const platform = collectionPlatform(state.activeCollection);
+  restorePlatformColumns(platform);
+  if (state.activeCollection?.id) {
+    state.ui.platformCollections[platform] = state.activeCollection.id;
+    saveUiState();
+  }
+  els.platformSelect.innerHTML = Object.entries(COLLECTION_PLATFORMS)
+    .filter(([key]) => state.collections.some(collection => collectionPlatform(collection) === key))
+    .map(([key, label]) => `<option value="${key}">${label}</option>`).join('');
+  els.platformSelect.value = platform;
   els.collectionSelect.innerHTML = [
-    ...state.collections.map((collection) => {
+    ...state.collections.filter(collection => collectionPlatform(collection) === platform).map((collection) => {
       const access = collection.writable ? "" : " (read-only)";
       const availability = collection.available ? "" : " (unavailable)";
       const label = `${collection.name}${access}${availability}`;
@@ -776,6 +969,8 @@ function renderCollections() {
     els.collectionSelect.value = state.activeCollection.id;
   }
   renderViewOptions();
+  const active = state.collections.find((collection) => collection.id === state.activeCollection?.id);
+  els.prepareCatalogue.disabled = !active?.available || !active?.writable;
 }
 
 function renderViewOptions() {
@@ -823,18 +1018,19 @@ function renderViewBeacon(element, count, badge, label, titleSuffix) {
 }
 
 function renderEmulators() {
-  const previous = els.emulator.value;
-  els.emulator.innerHTML = state.emulators
+  const previous = state.emulatorCollection === state.activeCollection?.id ? els.emulator.value : '';
+  const scummvm = collectionPlatform(state.activeCollection) === 'scummvm';
+  const emulators = state.emulators.filter(emu => (emu.type === 'scummvm') === scummvm);
+  els.emulator.innerHTML = emulators
     .map((emu) => {
       const label = emu.available ? emu.name : `${emu.name} (missing)`;
       return `<option value="${escapeHtml(emu.id)}">${escapeHtml(label)}</option>`;
     })
     .join("");
   const collectionDefault = state.activeCollection?.default_emulator || "";
-  const preferred = collectionDefault || previous;
-  if (preferred && state.emulators.some((emulator) => emulator.id === preferred)) {
-    els.emulator.value = preferred;
-  }
+  els.emulator.value = [collectionDefault, previous].find(id => emulators.some(emu => emu.id === id))
+    || emulators.find(emu => emu.available)?.id || emulators[0]?.id || '';
+  state.emulatorCollection = state.activeCollection?.id;
 }
 
 function showEmulatorProfileModal() {
@@ -1133,7 +1329,8 @@ function thegamesdbSettingsFields(provider) {
       <option value="true"${provider.enabled ? " selected" : ""}>Enabled</option>
       <option value="false"${provider.enabled ? "" : " selected"}>Disabled</option>
     </select></label>
-    <label><span>Platform ID</span><input data-scraper-provider="thegamesdb" data-scraper-field="platform_id" type="text" value="${escapeHtml(provider.platform_id || "4913")}" placeholder="4913"></label>
+    <label><span>Spectrum Platform ID</span><input data-scraper-provider="thegamesdb" data-scraper-field="platform_id" type="text" value="${escapeHtml(provider.platform_id ?? "4913")}" placeholder="4913"></label>
+    <div class="wide meta">ScummVM searches use each version's original system automatically. Unspecified systems search across platforms.</div>
     <label class="wide"><span>Base URL</span><input data-scraper-provider="thegamesdb" data-scraper-field="base_url" type="text" value="${escapeHtml(provider.base_url || "https://api.thegamesdb.net/v1")}"></label>
     <label class="wide"><span>API Key${provider.has_api_key ? " (saved)" : ""}</span><input data-scraper-provider="thegamesdb" data-scraper-field="api_key" type="password" value="" placeholder="${provider.has_api_key ? "Leave blank to keep saved key" : ""}"></label>
   `;
@@ -1299,14 +1496,15 @@ function emulatorProfileCard(id, title, emulator) {
       <div class="emulator-card-title"><h3>${escapeHtml(title)}</h3>${deleteButton}</div>
       <div class="emulator-grid">
         <label><span>Name</span><input data-field="name" type="text" value="${escapeHtml(emulator.name || title)}"></label>
-        <label><span>Launch Adapter</span><select data-field="type"${emulator.built_in ? " disabled" : ""}>
-          ${["generic", "eightyone", "spectaculator"].map((value) => `<option value="${value}"${adapter === value ? " selected" : ""}>${value}</option>`).join("")}
+        <label><span>Launch Adapter</span><select data-field="type"${(emulator.built_in || adapter === "scummvm") ? " disabled" : ""}>
+          ${["generic", "eightyone", "spectaculator", "scummvm"].map((value) => `<option value="${value}"${adapter === value ? " selected" : ""}>${value}</option>`).join("")}
         </select></label>
         <label><span>Supported Extensions</span><input data-field="supported_extensions" type="text" value="${escapeHtml(extensions)}"></label>
         <label class="wide"><span>Executable Path</span>${pathPickerInput("path", emulator.path || "", "file")}</label>
+        ${adapter === "scummvm" ? '<div class="meta wide">Uses each game’s registered ScummVM target and existing settings.</div>' : `
         <label class="wide"><span>Working Directory</span>${pathPickerInput("working_dir", emulator.working_dir || "", "folder")}</label>
         <label class="wide"><span>Launch Arguments (JSON array)</span><textarea data-field="arguments" data-format="arguments">${escapeHtml(formatArgumentList(emulator.arguments || ["{file}"]))}</textarea></label>
-        <div class="meta wide">Allowed placeholders: {file}, {file_dir}, {file_name}, {collection_root}, {pok_file}, {system}, {title}. Arguments are passed directly without a shell.</div>
+        <div class="meta wide">Allowed placeholders: {file}, {file_dir}, {file_name}, {collection_root}, {pok_file}, {system}, {title}. Arguments are passed directly without a shell.</div>`}
         ${extra}
       </div>
     </section>
@@ -1434,7 +1632,7 @@ function applyFilters() {
   const filters = activeFiltersSnapshot();
   renderMetadataFilters(filters);
   renderViewOptions();
-  state.filtered = state.games.filter((game) => matchesActiveFilters(game, "", filters));
+  state.filtered = groupedGameRows(state.games.filter((game) => matchesActiveFilters(game, "", filters)));
   sortFilteredGames();
   renderList();
   renderCounts();
@@ -1525,11 +1723,13 @@ function compareSortValues(a, b, key) {
 function sortValue(game, key) {
   if (key === "title") return game.sort_title || game.title_key || game.title;
   if (key === "publisher") return game.publisher || "";
+  if (key === "series") return game.series || "";
   if (key === "year") return gameYear(game);
   if (key === "system") return game.system || game.memory || "";
   if (key === "tag") return gameTags(game).join(" ");
   if (key === "language") return formatLanguageCodes(game);
   if (key === "country") return formatCountryCodes(game.countries || []);
+  if (key === "version") return game.version_editions?.join(' / ') || game.version || '';
   if (key === "poks") return game.has_poks ? Number(game.pok_count || 1) : 0;
   if (key === "favourite") return game.favourite ? 1 : 0;
   if (key === "recent") return state.recentIds.has(game.id) ? 1 : 0;
@@ -1551,6 +1751,7 @@ function matchesQuery(game, query) {
     ...(gameTags(game)),
     ...(game.countries || []),
     game.publisher,
+    game.series,
     game.year,
     ...(game.tosec_tags || []),
     ...(game.flags || []),
@@ -1665,6 +1866,7 @@ function showCollectionBulkModal(games) {
       <p>${games.length.toLocaleString()} collection game${games.length === 1 ? "" : "s"} selected.</p>
       <div class="modal-actions">
         <button data-action="metadata">Edit Metadata</button>
+        ${!webHubHandoff.rebindGameKey ? '<button class="secondary" data-action="send-selected-webhub">Send selected games to Portal</button>' : ''}
         <button class="secondary" data-action="set-country">Set Country</button>
         <button class="secondary" data-action="set-language">Set Language</button>
         <button class="secondary" data-action="favourite-add" ${favouriteAddGames.length ? "" : "disabled"}>Add to Favourites (${favouriteAddGames.length.toLocaleString()})</button>
@@ -1687,6 +1889,11 @@ function showCollectionBulkModal(games) {
     const action = button.dataset.action;
     if (action === "cancel") {
       overlay.remove();
+      return;
+    }
+    if (action === "send-selected-webhub") {
+      overlay.remove();
+      await sendGamesToPortal(games);
       return;
     }
     if (action === "metadata") {
@@ -2029,7 +2236,7 @@ function renderTitleCell(game) {
     game.favourite ? statusIcon("favourite", "Favourite", "★") : "",
     state.recentIds.has(game.id) ? statusIcon("recent", "Recent", "↻") : "",
   ].join("");
-  return `<div class="title-cell"><span class="title-text">${escapeHtml(game.title)}</span>${flags}</div>`;
+  return `<div class="title-cell"><span class="title-text">${escapeHtml(game.title)}</span>${game.version_count > 1 ? `<span class="version-count" title="Available versions">${game.version_count}</span>` : ''}${flags}</div>`;
 }
 
 function importStatusIcon(game) {
@@ -2317,10 +2524,21 @@ function resolveLaunchMeta(game) {
 }
 
 function resolveLaunchBinding(game, emulatorOverride = "") {
-  const emulatorId = emulatorOverride || game.default_emulator || els.emulator.value || "";
+  const compatible = compatibleGameEmulators(game);
+  const explicit = emulatorOverride || game.default_emulator;
+  const emulatorId = explicit || [els.emulator.value, state.activeCollection?.default_emulator]
+    .find(id => compatible.some(emu => emu.id === id)) || compatible[0]?.id || '';
+  if (!compatible.some(emu => emu.id === emulatorId)) {
+    throw new Error(explicit ? 'The selected or saved emulator is unavailable or incompatible with this game.'
+      : 'No compatible emulator is available for this game. Configure one in Emulators & Profiles.');
+  }
+  if (state.emulators.find(item => item.id === emulatorId)?.type === "scummvm") return { emulatorId, profileId: "" };
   const pinnedProfile = game.emulator_profile
     ? state.emulatorProfiles.find((profile) => profile.id === game.emulator_profile && (!emulatorId || profile.emulator_id === emulatorId))
     : null;
+  if (game.emulator_profile && (!pinnedProfile || pinnedProfile.managed_exists === false)) {
+    throw new Error('The saved emulator profile is unavailable or incompatible. Choose a valid profile in Arcade.');
+  }
   const profile = pinnedProfile || automaticProfileForGame(emulatorId, game);
   return { emulatorId, profileId: profile?.id || "" };
 }
@@ -2328,8 +2546,8 @@ function resolveLaunchBinding(game, emulatorOverride = "") {
 async function sendSelectedToWebHub() {
   const game = state.selected;
   if (!game) return;
-  const binding = resolveLaunchBinding(game);
   try {
+    const binding = resolveLaunchBinding(game);
     await renderDetails("Sending game shortcut to Cyrune Portal...");
     const result = await sendArcadeGame({
       gameId: game.id,
@@ -2349,6 +2567,118 @@ async function sendSelectedToWebHub() {
     }
   } catch (error) {
     await renderDetails(error.message || "The game could not be sent to Cyrune Portal.", true);
+  }
+}
+
+async function sendGamesToPortal(games) {
+  if (document.querySelector('[data-portal-delivery]')) return;
+  if (webHubHandoff.rebindGameKey) return;
+  const focusBefore = document.activeElement;
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.dataset.portalDelivery = '';
+  overlay.innerHTML = `<div class="modal" role="dialog" aria-modal="true" aria-labelledby="portal-delivery-title">
+    <h2 id="portal-delivery-title">Send games to Portal</h2>
+    <p data-delivery-status role="status" aria-live="polite">Sending selected games…</p>
+    <p data-delivery-help>Queued games will arrive in Portal’s Inbox when it is available.</p>
+    <ul data-delivery-results class="portal-delivery-results"></ul>
+    <div class="modal-actions">
+      <button data-delivery-retry hidden>Retry remaining</button>
+      <button data-delivery-discard class="secondary" hidden>Discard remaining</button>
+      <button data-delivery-stop class="secondary">Stop after current game</button>
+      <button data-delivery-close class="secondary" disabled>Close</button>
+    </div>
+  </div>`;
+  document.body.appendChild(overlay);
+  const status = overlay.querySelector('[data-delivery-status]');
+  const results = overlay.querySelector('[data-delivery-results]');
+  const retry = overlay.querySelector('[data-delivery-retry]');
+  const discard = overlay.querySelector('[data-delivery-discard]');
+  const stop = overlay.querySelector('[data-delivery-stop]');
+  const close = overlay.querySelector('[data-delivery-close]');
+  const labels = { pending: 'Not sent', sending: 'Sending…', delivered: 'Delivered', queued: 'Queued', unconfirmed: 'Not confirmed — retry available' };
+  const render = view => {
+    const count = value => view.records.filter(record => record.status === value).length;
+    status.textContent = `${count('delivered')} delivered · ${count('queued')} queued · ${count('unconfirmed')} not confirmed · ${count('pending')} not sent`;
+    results.replaceChildren(...view.records.map(record => {
+      const row = document.createElement('li');
+      row.textContent = `${record.title} — ${labels[record.status]}${record.message ? `: ${record.message}` : ''}`;
+      return row;
+    }));
+    retry.hidden = view.running || !view.records.some(record => ['pending', 'unconfirmed'].includes(record.status));
+    discard.hidden = retry.hidden;
+    overlay.querySelector('[data-delivery-help]').textContent = count('unconfirmed')
+      ? 'Unconfirmed games may already be queued. Retry avoids duplicates. Discard abandons the remaining attempts; it does not remove delivered or queued games.'
+      : 'Queued games will arrive in Portal’s Inbox when it is available. Close keeps unfinished attempts available in this Arcade page.';
+    stop.hidden = !view.running;
+    close.disabled = view.running;
+    overlay.querySelector('[role="dialog"]').setAttribute('aria-busy', String(view.running));
+    if (view.running && document.activeElement === retry) stop.focus();
+    if (!view.running && document.activeElement === stop) (retry.hidden ? close : retry).focus();
+  };
+  const dismiss = () => {
+    if (close.disabled) return;
+    if (portalDeliveryDraft?.batch.snapshot().records.every(record => ['delivered', 'queued'].includes(record.status))) portalDeliveryDraft = null;
+    overlay.remove();
+    focusBefore?.focus();
+  };
+  close.addEventListener('click', dismiss);
+  discard.addEventListener('click', () => { portalDeliveryDraft = null; dismiss(); });
+  retry.addEventListener('click', () => {
+    stop.disabled = false;
+    void portalDeliveryDraft.batch.run();
+  });
+  stop.addEventListener('click', () => {
+    portalDeliveryDraft?.batch.stop();
+    stop.disabled = true;
+  });
+  overlay.addEventListener('keydown', event => {
+    if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); dismiss(); }
+    if (event.key === 'Tab') {
+      const buttons = [...overlay.querySelectorAll('button')].filter(button => !button.hidden && !button.disabled);
+      const first = buttons[0], last = buttons.at(-1);
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+    }
+  });
+  stop.focus();
+  try {
+    if (portalDeliveryDraft) {
+      portalDeliveryDraft.render = render;
+      overlay.querySelector('[data-delivery-help]').textContent = 'These are the remaining games from your previous send. Retry keeps their delivery identities and skips games already accepted by Portal or Relay.';
+      render(portalDeliveryDraft.batch.snapshot());
+      retry.focus();
+      return;
+    }
+    if (!games.length || games.length > 100 || games.some(game => ['incoming', 'trash'].includes(game.view))) {
+      throw new Error('Select between 1 and 100 collection games. Incoming and deleted games must first be added or restored to a collection.');
+    }
+    const collectionId = state.activeCollection?.id;
+    const launcher = state.activeCollection?.default_emulator || els.emulator.value;
+    // Freeze each game's launch policy before starting. A different row's pinned
+    // emulator/profile must never overwrite another selected game's settings.
+    const entries = [];
+    for (const game of games) {
+      // Library summaries already carry the launch pins and profile-rule tags.
+      // Native binding validates each game; no separate per-row detail fetch.
+      const emulatorId = game.default_emulator || launcher;
+      const pinned = game.emulator_profile;
+      const profile = pinned ? state.emulatorProfiles.find(value => value.id === pinned) : automaticProfileForGame(emulatorId, game);
+      entries.push({ title: `${game.title}${game.system ? ` (${game.system})` : ''}`, gameId: game.id, emulatorId, profileId: pinned || profile?.id || '' });
+    }
+    const draft = { render, batch: null };
+    draft.batch = globalThis.ArcadePortalDelivery.createBatch(entries, payload => {
+      if (state.activeCollection?.id !== collectionId) throw new Error('The collection changed.');
+      return sendArcadeGame(payload);
+    }, view => draft.render(view));
+    portalDeliveryDraft = draft;
+    await draft.batch.run();
+    close.focus();
+  } catch (error) {
+    status.textContent = error.message || 'The selected games could not be sent.';
+    stop.hidden = true;
+    close.disabled = false;
+    close.focus();
   }
 }
 
@@ -2466,7 +2796,11 @@ async function runLaunchChoice(choice, emulator = "") {
   }
 }
 
-async function launchGame(launchAction, emulator = "") {
+async function launchGame(launchAction, emulator = "", exactVersion = false) {
+  const summary = state.gamesById.get(state.selected.id);
+  if (!exactVersion && summary?.version_group && !summary.default_version) {
+    throw new Error('The saved default version is missing. Choose another in Launch Version…');
+  }
   const binding = resolveLaunchBinding(state.selected, emulator);
   return api("/api/launch", {
     method: "POST",
@@ -2509,6 +2843,310 @@ function showLaunchChoice(payload) {
       });
     });
   });
+}
+
+function showCatalogueReattachmentModal() {
+  const overlay = document.createElement("div");
+  overlay.className = "modal-overlay";
+  overlay.innerHTML = `
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="catalogue-reattachment-title">
+      <h2 id="catalogue-reattachment-title">Reconnect Collection</h2>
+      <p>Reconnect a prepared collection after moving or copying its folder. Choose the original collection, then select its new folder.</p>
+      <label><span>Prepared collection</span><select data-reattachment-source disabled></select></label>
+      <p>The review checks every retained game ID and file against the prepared collection. Confirmation updates its location while preserving catalogue identities. Existing device approvals still apply.</p>
+      <div data-reattachment-summary class="preview-summary" role="status" aria-live="polite">Loading prepared collections...</div>
+      <div class="modal-actions">
+        <button data-action="choose" disabled>Choose Folder</button>
+        <button data-action="review" disabled>Review Reconnection</button>
+        <button data-action="confirm" disabled>Confirm Reconnection</button>
+        <button data-action="reload" hidden>Reload Library</button>
+        <button data-action="cancel" class="secondary">Close</button>
+      </div>
+      <div data-reattachment-error class="message error" role="alert"></div>
+    </div>`;
+  document.body.appendChild(overlay);
+  const source = overlay.querySelector('[data-reattachment-source]');
+  const summary = overlay.querySelector('[data-reattachment-summary]');
+  const errorBox = overlay.querySelector('[data-reattachment-error]');
+  const buttons = Object.fromEntries(["choose", "review", "confirm", "reload", "cancel"].map((action) => [action, overlay.querySelector(`[data-action="${action}"]`)]));
+  let busy = false;
+  let selectionToken = "";
+  let reviewToken = "";
+  let writableSources = [];
+  const clearReview = () => { selectionToken = ""; reviewToken = ""; };
+  const update = () => {
+    source.disabled = busy || !writableSources.length;
+    buttons.choose.disabled = busy || !writableSources.includes(source.value);
+    buttons.review.disabled = busy || !selectionToken;
+    buttons.confirm.disabled = busy || !reviewToken;
+    buttons.cancel.disabled = busy;
+    overlay.setAttribute("aria-busy", String(busy));
+  };
+  const close = () => {
+    if (busy) return;
+    overlay.remove();
+    els.catalogueReattachment.focus();
+  };
+  source.addEventListener("change", () => {
+    clearReview();
+    summary.textContent = "Choose the new folder for this collection.";
+    update();
+  });
+  overlay.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") { event.preventDefault(); close(); }
+    if (event.key === "Tab") {
+      const controls = [...overlay.querySelectorAll("select, button")].filter((control) => !control.disabled && !control.hidden);
+      const index = controls.indexOf(document.activeElement);
+      event.preventDefault();
+      controls[(index + (event.shiftKey ? -1 : 1) + controls.length) % controls.length]?.focus();
+    }
+  });
+  const run = async (action) => {
+    if (busy || (action === "review" && !selectionToken) || (action === "confirm" && !reviewToken)) return;
+    const selected = selectionToken;
+    const reviewed = reviewToken;
+    clearReview();
+    busy = true;
+    update();
+    errorBox.textContent = "";
+    summary.textContent = action === "choose" ? "Choose the relocated folder in the folder picker." : "Checking collection...";
+    try {
+      if (action === "sources") {
+        const result = await api("/api/catalogue-reattachment/sources", { method: "POST", body: "{}" });
+        writableSources = result.sources.filter((item) => item.writable).map((item) => item.collectionId);
+        source.innerHTML = result.sources.map((item) => `<option value="${escapeHtml(item.collectionId)}"${item.writable ? "" : " disabled"}>${escapeHtml(item.name)}${item.available ? "" : " (folder unavailable)"}${item.writable ? "" : " (read-only)"}</option>`).join("");
+        source.value = writableSources.includes(state.activeCollection?.id) ? state.activeCollection.id : writableSources[0] || "";
+        summary.textContent = writableSources.length ? "Choose the new folder for the selected collection." : "No writable prepared collection is available to reconnect.";
+      } else if (action === "choose") {
+        const result = await api("/api/pick-path", { method: "POST", body: JSON.stringify({ kind: "catalogue-reattachment", collection_id: source.value }) });
+        if (result.cancelled) summary.textContent = "Folder selection cancelled. No collection changes were made.";
+        else {
+          selectionToken = result.selectionToken;
+          summary.textContent = `Selected folder: ${result.folderName}. Review it before reconnecting.`;
+        }
+      } else if (action === "review") {
+        const result = await api("/api/catalogue-reattachment/preview", { method: "POST", body: JSON.stringify({ selection_token: selected }) });
+        summary.textContent = `${result.entries.toLocaleString()} retained game files verified. Catalogue identities will be preserved. Confirm this location change within five minutes.`;
+        reviewToken = result.reviewToken;
+      } else {
+        const result = await api("/api/catalogue-reattachment/confirm", { method: "POST", body: JSON.stringify({ review_token: reviewed }) });
+        summary.textContent = result.status === "unchanged" ? "This collection already uses the selected folder. Reload the library to continue." : "Collection reconnected. Reload the library to continue.";
+        buttons.reload.hidden = false;
+      }
+    } catch (error) {
+      clearReview();
+      summary.textContent = "Choose the folder again for a fresh review. If reconnection was interrupted, check Catalogue Recovery first.";
+      errorBox.textContent = error.message;
+    } finally {
+      busy = false;
+      update();
+      (reviewToken ? buttons.confirm : selectionToken ? buttons.review : buttons.cancel).focus();
+    }
+  };
+  overlay.addEventListener("click", (event) => {
+    if (event.target === overlay) { close(); return; }
+    const action = event.target.closest("button")?.dataset.action;
+    if (busy || !action) return;
+    if (action === "cancel") close();
+    else if (action === "reload") window.location.reload();
+    else void run(action);
+  });
+  void run("sources");
+}
+
+function showCatalogueRecoveryModal() {
+  const overlay = document.createElement("div");
+  overlay.className = "modal-overlay";
+  overlay.innerHTML = `
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="catalogue-recovery-title">
+      <h2 id="catalogue-recovery-title">Catalogue Recovery</h2>
+      <p>Review an interrupted collection change before repairing it. Recovery uses the collection recorded with that change.</p>
+      <div data-recovery-status role="status" aria-live="polite">Checking for interrupted work...</div>
+      <label><span>Recovery choice</span><select data-recovery-direction disabled></select></label>
+      <p>Finish applies the saved change. Restore returns its managed records and file moves to their previous state. Once confirmed, an interrupted repair must resume the same choice.</p>
+      <div data-recovery-preview class="preview-summary" role="status" aria-live="polite"></div>
+      <div class="modal-actions">
+        <button data-action="review" disabled>Review Recovery</button>
+        <button data-action="confirm" disabled>Confirm Recovery</button>
+        <button data-action="reload" hidden>Reload Library</button>
+        <button data-action="cancel" class="secondary">Close</button>
+      </div>
+      <div data-recovery-error class="message error" role="alert"></div>
+    </div>`;
+  document.body.appendChild(overlay);
+  const direction = overlay.querySelector('[data-recovery-direction]');
+  const status = overlay.querySelector('[data-recovery-status]');
+  const preview = overlay.querySelector('[data-recovery-preview]');
+  const errorBox = overlay.querySelector('[data-recovery-error]');
+  const review = overlay.querySelector('[data-action="review"]');
+  const confirm = overlay.querySelector('[data-action="confirm"]');
+  const reload = overlay.querySelector('[data-action="reload"]');
+  const cancel = overlay.querySelector('[data-action="cancel"]');
+  let token = "";
+  let busy = false;
+  let available = false;
+  const updateButtons = () => {
+    direction.disabled = busy || !available;
+    review.disabled = busy;
+    confirm.disabled = busy || !token;
+    cancel.disabled = busy;
+    overlay.setAttribute("aria-busy", String(busy));
+  };
+  const close = () => {
+    if (busy) return;
+    overlay.remove();
+    els.catalogueRecovery.focus();
+  };
+  const loadStatus = async () => {
+    const result = await api("/api/catalogue-recovery/status", { method: "POST", body: "{}" });
+    available = result.status === "recovery-required";
+    const choices = available ? result.directions : [];
+    direction.innerHTML = choices.map((value) => `<option value="${escapeHtml(value)}">${value === "forward" ? "Finish saved change" : "Restore previous state"}</option>`).join("");
+    status.textContent = available ? `${result.collectionName}: interrupted ${result.operation === "prepare" ? "catalogue preparation" : result.operation === "reattach" ? "source reattachment" : "metadata change"}.` : "No interrupted catalogue change needs recovery.";
+    review.textContent = available ? "Review Recovery" : "Check Again";
+    return available;
+  };
+  direction.addEventListener("change", () => {
+    token = "";
+    preview.textContent = "Review the selected recovery choice before confirming.";
+    updateButtons();
+  });
+  overlay.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") { event.preventDefault(); close(); }
+    if (event.key === "Tab") {
+      const controls = [...overlay.querySelectorAll("select, button")].filter((control) => !control.disabled && !control.hidden);
+      const index = controls.indexOf(document.activeElement);
+      event.preventDefault();
+      controls[(index + (event.shiftKey ? -1 : 1) + controls.length) % controls.length]?.focus();
+    }
+  });
+  const run = async (action) => {
+    if (busy || (action === "confirm" && !token)) return;
+    const reviewedToken = token;
+    token = "";
+    busy = true;
+    updateButtons();
+    errorBox.textContent = "";
+    preview.textContent = "Checking recovery...";
+    try {
+      if (action === "status" || !available) {
+        await loadStatus();
+        preview.textContent = "";
+      } else if (action === "review") {
+        const result = await api("/api/catalogue-recovery/preview", { method: "POST", body: JSON.stringify({ direction: direction.value }) });
+        preview.textContent = `${result.documents.toLocaleString()} managed records to update; ${result.moves.toLocaleString()} file moves. ${result.direction === "forward" ? "Finish the saved change" : "Restore the previous state"}. Confirm within five minutes.`;
+        token = result.reviewToken;
+      } else {
+        const result = await api("/api/catalogue-recovery/confirm", { method: "POST", body: JSON.stringify({ review_token: reviewedToken }) });
+        preview.textContent = result.status === "rolled-back" ? "Previous state restored. Reload the library to continue." : "Saved change completed. Reload the library to continue.";
+        available = false;
+        direction.innerHTML = "";
+        status.textContent = "Recovery completed.";
+        review.textContent = "Check Again";
+        reload.hidden = false;
+      }
+    } catch (error) {
+      token = "";
+      available = false;
+      review.textContent = "Check Again";
+      preview.textContent = "Check recovery again before choosing or confirming. An interrupted repair keeps its confirmed choice.";
+      errorBox.textContent = error.message;
+    } finally {
+      busy = false;
+      updateButtons();
+      (token ? confirm : cancel).focus();
+    }
+  };
+  overlay.addEventListener("click", (event) => {
+    if (event.target === overlay) { close(); return; }
+    const action = event.target.closest("button")?.dataset.action;
+    if (busy || !action) return;
+    if (action === "cancel") close();
+    else if (action === "reload") window.location.reload();
+    else void run(action);
+  });
+  void run("status");
+}
+
+function showCataloguePreparationModal() {
+  const collection = state.collections.find((item) => item.id === state.activeCollection?.id);
+  if (!collection?.available || !collection.writable) return;
+  const overlay = document.createElement("div");
+  overlay.className = "modal-overlay";
+  overlay.innerHTML = `
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="catalogue-prepare-title">
+      <h2 id="catalogue-prepare-title">Preserve IDs for relocation</h2>
+      <p><strong>${escapeHtml(collection.name)}</strong></p>
+      <p>Portal already browses this library through Add Game. This optional maintenance step records identities for collection relocation.</p>
+      <p>Preparation records stable game identities on this device and fills missing IDs in collection metadata. Existing game IDs, favourites and recent history are preserved.</p>
+      <p>Use this before moving a collection whose prepared identities need to be retained.</p>
+      <div data-preparation-summary class="preview-summary" role="status" aria-live="polite">Review preparation to see the changes.</div>
+      <div class="modal-actions">
+        <button data-action="review">Review Preparation</button>
+        <button data-action="confirm" disabled>Confirm Preparation</button>
+        <button data-action="cancel" class="secondary">Cancel</button>
+      </div>
+      <div data-preparation-error class="message error" role="alert"></div>
+    </div>`;
+  document.body.appendChild(overlay);
+  const reviewButton = overlay.querySelector('[data-action="review"]');
+  const confirmButton = overlay.querySelector('[data-action="confirm"]');
+  const cancelButton = overlay.querySelector('[data-action="cancel"]');
+  const summary = overlay.querySelector('[data-preparation-summary]');
+  const errorBox = overlay.querySelector('[data-preparation-error]');
+  let reviewToken = "";
+  let busy = false;
+  const close = () => {
+    if (busy) return;
+    overlay.remove();
+    els.prepareCatalogue.focus();
+  };
+  overlay.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") { event.preventDefault(); close(); }
+    if (event.key === "Tab") {
+      const buttons = [...overlay.querySelectorAll("button")].filter((button) => !button.disabled);
+      const index = buttons.indexOf(document.activeElement);
+      event.preventDefault();
+      buttons[(index + (event.shiftKey ? -1 : 1) + buttons.length) % buttons.length]?.focus();
+    }
+  });
+  overlay.addEventListener("click", async (event) => {
+    if (event.target === overlay) { close(); return; }
+    const action = event.target.closest("button")?.dataset.action;
+    if (busy || !action) return;
+    if (action === "cancel") { close(); return; }
+    if (action === "confirm" && !reviewToken) return;
+    const token = reviewToken;
+    reviewToken = "";
+    busy = true;
+    reviewButton.disabled = confirmButton.disabled = cancelButton.disabled = true;
+    overlay.setAttribute("aria-busy", "true");
+    errorBox.textContent = "";
+    summary.textContent = action === "review" ? "Checking collection and game files..." : "Preparing collection...";
+    try {
+      const result = await api(`/api/catalogue-preparation/${action === "review" ? "preview" : "confirm"}`, {
+        method: "POST", body: JSON.stringify({ collection_id: collection.id, ...(action === "confirm" ? { review_token: token } : {}) }),
+      });
+      if (action === "review") {
+        reviewToken = result.reviewToken;
+        summary.textContent = `${result.entries.toLocaleString()} game files verified. ${result.newEntries.toLocaleString()} new catalogue identities; ${result.retainedEntries.toLocaleString()} existing identities retained; ${result.pinnedIds.toLocaleString()} missing metadata IDs to fill. Confirm within five minutes.`;
+      } else {
+        summary.textContent = result.status === "unchanged" ? "This collection is already prepared. No changes were needed." : "Collection prepared. Use Add Game in a Portal board column to choose games.";
+        cancelButton.textContent = "Close";
+      }
+    } catch (error) {
+      reviewToken = "";
+      summary.textContent = "Review preparation again before confirming. If a request was interrupted, the next review will check the collection's current state.";
+      errorBox.textContent = error.message;
+    } finally {
+      busy = false;
+      overlay.removeAttribute("aria-busy");
+      reviewButton.disabled = cancelButton.disabled = false;
+      confirmButton.disabled = !reviewToken;
+      (reviewToken ? confirmButton : cancelButton).focus();
+    }
+  });
+  reviewButton.focus();
 }
 
 function showAddCollectionModal() {
@@ -2808,6 +3446,17 @@ function showSortHeaderMenu(event, key) {
   });
 }
 
+function compatibleGameEmulators(game) {
+  const scummvm = game?.type === 'ScummVM';
+  const extension = String(game?.extension || '').toLowerCase();
+  return state.emulators.filter(emu => {
+    if (!emu.available || (emu.type === 'scummvm') !== scummvm) return false;
+    if (scummvm) return true;
+    const extensions = emu.supported_extensions || [];
+    return !extensions.length || extensions.some(value => String(value).toLowerCase() === extension);
+  });
+}
+
 async function showContextMenu(event, gameId) {
   event.preventDefault();
   hideContextMenu();
@@ -2826,6 +3475,7 @@ async function showContextMenu(event, gameId) {
   menu.style.top = `${event.clientY}px`;
   const isIncoming = game.view === "incoming";
   const isTrash = game.view === "trash";
+  const selectedForPortal = state.selectedIds.has(gameId) ? selectedGameList() : [];
   const editButtons = state.activeCollection?.writable && !isIncoming && !isTrash
     ? `
       <button data-action="metadata">Edit Metadata</button>
@@ -2844,8 +3494,7 @@ async function showContextMenu(event, gameId) {
       <button data-action="purge-trash" class="danger">Remove Permanently</button>
     `
     : "";
-  const emulatorButtons = state.emulators
-    .filter((emu) => emu.available)
+  const emulatorButtons = compatibleGameEmulators(state.selected)
     .map(
       (emu) =>
         `<button data-action="launch" data-emulator="${escapeHtml(emu.id)}">Open with ${escapeHtml(emu.name)}</button>`,
@@ -2853,8 +3502,11 @@ async function showContextMenu(event, gameId) {
     .join("");
   menu.innerHTML = `
     <div class="context-section">
+      ${!isIncoming && !isTrash ? '<button data-action="launch-version">Launch Version…</button>' : ''}
       ${emulatorButtons}
       <button data-action="send-webhub">${webHubHandoff.rebindGameKey ? "Update Portal Shortcut" : "Send to Portal"}</button>
+      ${selectedForPortal.length > 1 && !webHubHandoff.rebindGameKey && !isIncoming && !isTrash
+        ? `<button data-action="send-selected-webhub">Send selected games to Portal (${selectedForPortal.length})</button>` : ''}
       <button data-action="research-web">Search the Web</button>
     </div>
     <div class="context-section">
@@ -2873,6 +3525,7 @@ async function showContextMenu(event, gameId) {
     const action = button.dataset.action;
     const emulator = button.dataset.emulator;
     hideContextMenu();
+    if (action === 'send-selected-webhub') { await sendGamesToPortal(selectedForPortal); return; }
     await handleContextAction(action, emulator);
   });
 }
@@ -2892,6 +3545,7 @@ function clampMenuToViewport(menu) {
 async function handleContextAction(action, emulator) {
   if (!state.selected) return;
   try {
+    if (action === 'launch-version') { await showGameVersions(state.selected); return; }
     if (action === "launch") {
       if (emulator) {
         els.emulator.value = emulator;
@@ -2993,6 +3647,7 @@ async function importIncomingSelected() {
 async function showScrapePreviewModal() {
   const game = state.selected;
   if (!game) return;
+  const canApply = Boolean(state.activeCollection?.writable || state.activeCollection?.adapter === "scummvm-config-v1");
   const overlay = document.createElement("div");
   overlay.className = "modal-overlay";
   overlay.innerHTML = `
@@ -3002,6 +3657,7 @@ async function showScrapePreviewModal() {
         <span class="scrape-provider-label">Provider</span>
         <select id="scrape-provider"></select>
       </div>
+      ${canApply ? "" : '<div class="meta">This collection is read-only. You can preview matches, but cannot save scraped metadata yet.</div>'}
       <div id="scrape-preview-content" class="scrape-preview-content">Loading providers...</div>
       <div class="modal-actions sticky-actions">
         <button data-action="apply" disabled>Apply Selected</button>
@@ -3016,6 +3672,7 @@ async function showScrapePreviewModal() {
   const previewBox = overlay.querySelector("#scrape-preview-content");
   const applyButton = overlay.querySelector('[data-action="apply"]');
   let currentPreview = null;
+  let previewGeneration = 0;
   const loadProviders = async () => {
     const payload = await api("/api/scrapers");
     providerSelect.innerHTML = payload.providers
@@ -3029,6 +3686,9 @@ async function showScrapePreviewModal() {
       .join("");
   };
   const loadPreview = async () => {
+    const generation = ++previewGeneration;
+    currentPreview = null;
+    applyButton.disabled = true;
     errorBox.textContent = "";
     previewBox.innerHTML = '<div class="meta">Looking up metadata...</div>';
     try {
@@ -3037,12 +3697,14 @@ async function showScrapePreviewModal() {
         body: JSON.stringify({ game_id: game.id, provider: providerSelect.value || "manual" }),
       });
       await prepareArtworkAssets((payload.matches || []).flatMap((match) => Object.values(match.remote_assets || {})));
+      if (generation !== previewGeneration || !overlay.isConnected) return;
       currentPreview = payload;
       previewBox.innerHTML = renderScrapePreview(payload);
       const firstChoice = previewBox.querySelector("[data-scrape-match]");
       if (firstChoice) firstChoice.checked = true;
-      applyButton.disabled = !firstChoice;
+      applyButton.disabled = !canApply || !firstChoice;
     } catch (error) {
+      if (generation !== previewGeneration || !overlay.isConnected) return;
       currentPreview = null;
       applyButton.disabled = true;
       previewBox.innerHTML = "";
@@ -3060,13 +3722,13 @@ async function showScrapePreviewModal() {
       overlay.remove();
       return;
     }
-    if (button.dataset.action === "apply") {
+    if (button.dataset.action === "apply" && canApply) {
       await applySelectedScrapeMatch(overlay, game, currentPreview);
     }
   });
   previewBox.addEventListener("change", (event) => {
     if (event.target.closest("[data-scrape-match]")) {
-      applyButton.disabled = false;
+      applyButton.disabled = !canApply;
     }
   });
   providerSelect.addEventListener("change", loadPreview);
@@ -3671,5 +4333,6 @@ function escapeHtml(value) {
 }
 
 init().catch((error) => {
-  document.body.innerHTML = `<pre>${escapeHtml(error.stack || error.message)}</pre>`;
+  els.count.textContent = "Library unavailable";
+  els.details.innerHTML = `<div class="empty-state">${escapeHtml(error.message || "The library could not be loaded.")} Reload the page after resolving the issue.</div>`;
 });

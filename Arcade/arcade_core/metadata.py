@@ -32,6 +32,7 @@ class MetadataService:
         clean_metadata_text: Callable[..., str],
         clean_asset_path: Callable[[object], str],
         dedupe: Callable[[list[str]], list[str]],
+        before_move: Callable[[Path, Path], None] | None = None,
     ) -> None:
         self._library_provider = library_provider
         self._ensure_metadata_file = ensure_metadata_file
@@ -50,6 +51,7 @@ class MetadataService:
         self._clean_metadata_text = clean_metadata_text
         self._clean_asset_path = clean_asset_path
         self._dedupe = dedupe
+        self._before_move = before_move or (lambda _source, _target: None)
         self._history: list[dict[str, object]] = []
 
     def rename_game(self, game_id: str, name: str) -> dict[str, object]:
@@ -72,6 +74,7 @@ class MetadataService:
             return {"ok": True, "path": str(source), "name": source.name, "unchanged": True}
         target = self._unique_path(requested_target)
         old_relative = self._collection_relative(source)
+        self._before_move(source, target)
         source.replace(target)
         try:
             self._update_metadata_game(game_id, file=self._collection_relative(target), format=target.suffix.lower())
@@ -197,6 +200,7 @@ class MetadataService:
                     raise FileExistsError(f"Undo target already exists: {source.name}")
                 if target.exists():
                     source.parent.mkdir(parents=True, exist_ok=True)
+                    self._before_move(target, source)
                     shutil.move(str(target), str(source))
                     reversed_moves.append((source, target))
             self._save_metadata(deepcopy(record["metadata"]))
