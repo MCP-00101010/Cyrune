@@ -4,6 +4,36 @@ const path = require('node:path');
 const test = require('node:test');
 const vm = require('node:vm');
 
+test('theme publication uses authoritative snapshots and cannot fail a database save', async () => {
+  const listeners = [], sent = [];
+  let saveReply = {ok:true}, publishReply = {ok:true};
+  const window = {location:{href:'file:///Portal/index.html'},
+    addEventListener(type,fn) { if (type === 'message') listeners.push(fn); }, dispatchEvent() {},
+    postMessage(message) {
+      sent.push(message);
+      const reply = message.type === 'MW_PING' ? {ok:true,nativeAvailable:false,storageMode:'relay',
+        capabilities:['portalAuthority','portalTheme'],protocols:{'portal-relay':1,'component-settings':2}}
+        : message.type === 'MW_SAVE' ? saveReply
+        : message.type === 'MW_LOAD' ? {ok:true,json:'{"settings":{"theme":"loaded"}}'} : publishReply;
+      queueMicrotask(()=>listeners.forEach(fn=>fn({source:window,data:{_mw:true,_res:true,id:message.id,...reply}})));
+    }};
+  const context = vm.createContext({window,document:{hidden:false,hasFocus:()=>true},setTimeout,clearTimeout,
+    CustomEvent:class {},createArcadeThemeProjection:settings=>({snapshotTheme:settings.theme})});
+  vm.runInContext(fs.readFileSync(path.join(__dirname,'../source/bridge.js'),'utf8'),context);
+  await vm.runInContext('bridge.whenReady',context);
+  const flush = async()=>{for(let i=0;i<20;i++) await Promise.resolve();};
+  await vm.runInContext('bridge.loadState()',context); await flush();
+  assert.equal(sent.find(msg=>msg.type==='MW_PUBLISH_PORTAL_THEME').theme.snapshotTheme,'loaded');
+  saveReply={ok:true,conflict:true};
+  await vm.runInContext('bridge.saveState(JSON.stringify({settings:{theme:"conflict"}}))',context); await flush();
+  assert.equal(sent.filter(msg=>msg.type==='MW_PUBLISH_PORTAL_THEME').length,1);
+  saveReply={ok:true}; publishReply={ok:false,error:'Theme delivery unavailable'};
+  const saved=await vm.runInContext('bridge.saveState(JSON.stringify({settings:{theme:"saved"}}))',context); await flush();
+  assert.equal(saved.ok,true);
+  assert.equal(vm.runInContext('bridge.isAvailable()',context),true);
+  assert.equal(sent.filter(msg=>msg.type==='MW_PUBLISH_PORTAL_THEME').at(-1).theme.snapshotTheme,'saved');
+});
+
 test('Relay reconnection never replays uncertain game actions', async () => {
   const listeners = [], sent = [];
   const dispatch = data => listeners.forEach(fn => fn({source: window, data}));

@@ -98,3 +98,17 @@ def test_unprepared_library_workflow(tmp_path):
     assert (tmp_path / "spectrum/collection-metadata.json").read_bytes() == before
     assert not (tmp_path / "Arcade/catalogue-identities.json").exists()
     assert not (tmp_path / "Arcade/catalogue-proofs.json").exists()
+
+
+def add_atari_fixture(root):
+    source = root / 'Atari'
+    source.mkdir()
+    for language, system in [('en', ''), ('de', '(STE)')]:
+        for disk in (1, 2, 3):
+            (source / f'Atari Adventure (1990)(Publisher)({language}){system}(Disk {disk} of 3).st').write_bytes(bytes([disk]) * 1024)
+    (root / 'steem.ini').write_text('[Machine]\n', encoding='utf-8')
+    completed = subprocess.run([sys.executable, '-B', str(REPO / 'Arcade/tools/configure_atari.py'),
+        '--arcade-config', str(root / 'Arcade/config.json'), '--root', str(source),
+        '--executable', str(root / 'fixture.exe'), '--apply'], capture_output=True, text=True, timeout=30)
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    assert json.loads(completed.stdout)['editions'] == 2

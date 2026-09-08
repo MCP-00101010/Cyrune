@@ -18,7 +18,7 @@ test('Relay manifest and changelog identify the current component release', () =
   const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'manifest.json'), 'utf8'));
   const popup = fs.readFileSync(path.join(__dirname, '..', 'popup', 'popup.html'), 'utf8');
   const icon = fs.readFileSync(path.join(__dirname, '..', 'icons', 'icon-48.svg'), 'utf8');
-  assert.equal(manifest.version, '1.1.9');
+  assert.equal(manifest.version, '1.1.12');
   assert.match(popup, /rel="icon" type="image\/svg\+xml" href="\.\.\/icons\/icon-48\.svg"/);
   assert.match(icon, /RJ45-style connector/);
 });
@@ -56,4 +56,13 @@ test('Portal persistence uses fixed Host operations instead of page-shaped path 
     "type: 'LIST_THEMES'",
     "type: 'WRITE_THEME'"
   ]) assert.doesNotMatch(source, new RegExp(legacyOperation));
+});
+
+
+test('content bridge advertises the negotiated native Atari adapter for both game clients', () => {
+  const content = fs.readFileSync(path.join(__dirname, '..', 'content.js'), 'utf8');
+  for (const role of ['PORTAL', 'ARCADE']) {
+    const declaration = content.split('\n').find(line => line.startsWith('const ' + role + '_CLIENT_PROTOCOLS'));
+    assert.match(declaration, /'arcade-atari-st': 1/);
+  }
 });

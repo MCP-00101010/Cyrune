@@ -2,7 +2,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
-const source = fs.readFileSync(path.join(__dirname, '../web/app.js'), 'utf8');
+const source = fs.readFileSync(path.join(__dirname, '../web/app.js'), 'utf8')+'\n'+fs.readFileSync(path.join(__dirname,'../web/scrape-views.js'),'utf8');
 const controller = source.slice(source.indexOf('function showCatalogueRecoveryModal()'), source.indexOf('function showCataloguePreparationModal()'));
 
 async function main() {
@@ -33,7 +33,7 @@ async function main() {
   const requests = [];
   let response = async () => ({ status: 'recovery-required', collectionName: '<Fixture>', operation: 'prepare', directions: ['forward', 'rollback'] });
   let reloads = 0;
-  const context = { document, els: { catalogueRecovery: element() }, window: { location: { reload() { reloads++; } } },
+  const context = { document, els: { version: element() }, window: { location: { reload() { reloads++; } } },
     escapeHtml: (value) => String(value),
     api: async (route, options) => { requests.push({ route, body: JSON.parse(options.body) }); return await response(); },
   };
@@ -82,7 +82,7 @@ async function main() {
   assert.equal(buttons.review.disabled, false);
   handlers.keydown({ key: 'Escape', preventDefault() {} });
   assert.ok(overlay.removed);
-  assert.equal(document.activeElement, context.els.catalogueRecovery);
+  assert.equal(document.activeElement, context.els.version);
 
   // Execute startup itself to ensure pending recovery stops before library reads.
   const startup = source.slice(source.indexOf('async function init()'), source.indexOf('function bindEvents()'));

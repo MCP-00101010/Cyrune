@@ -1,5 +1,50 @@
 # Cyrune Arcade TODO
 
+- Monitor 0.2.57 remembered search terms and platform choices when re-scraping favourites, switching providers and scraping newly indexed versions.
+
+- Monitor 0.2.56: scrape retry/resume, cross-platform artwork, repeated collection switches and Game Boy picker use. Implementation details and validation: `../docs/reviews/arcade-implementation-2026-09-08.md`.
+
+- Monitor Arcade 0.2.55 emulator application shortcuts and compact platform row. Platform swapping, Spectrum titles and SameBoy/VBA-M game launches are confirmed working by the user.
+
+- Monitor Arcade 0.2.52 shared metadata loading for legacy Atari/Spectrum scrapes, newly indexed editions, protected corrections and matching Arcade/catalogue presentation. ScummVM ports remain independent.
+
+- Monitor Arcade 0.2.51 missing-artwork/description filters against the displayed Atari/Spectrum default, especially groups with older unpopulated alternatives and language exclusions.
+
+- Monitor Arcade 0.2.50 shared platform definitions, protected manual metadata, fill-missing scraping, persistent batch Undo and per-platform cleanup filters. Platform definitions now provide the common capabilities; future platforms still require their native adapters.
+
+- Monitor Arcade 0.2.49 larger artwork beside bulk game titles, responsive search controls and clearer provider result selection.
+
+- Monitor Arcade 0.2.48 inline bulk covers, aligned scraper controls and cached/incremental artwork display.
+
+- Monitor Arcade 0.2.47 folder-shared Atari/Spectrum scrapes, ScummVM platform/version batches, editable bulk retries and per-result artwork review.
+
+- Monitor Arcade 0.2.44 ScreenScraper title-match quality, platform routing and native screenshot/cover retrieval after restarting the browser and rescraping affected games.
+
+- Monitor Arcade 0.2.43 compact Players/Co-op details, expanded descriptions and artwork without redundant labels.
+
+- Monitor Arcade 0.2.41 committed Portal-theme handoff, custom/light themes, Relay restart and Arcade appearance with Portal closed.
+
+- Monitor Arcade 0.2.40 Portal-style navigation, compact filters, version-button Settings, per-platform library drafts and emulator editing without switching the active game list.
+- Monitor per-platform filter/search restoration, excluded-edition display with unchanged default launches, and reviewed bulk scraper match quality/provider persistence.
+
+- Monitor Arcade 0.2.37 include/exclude filters, platform-specific controls and metadata/Properties save responsiveness on larger live collections.
+
+- Monitor Arcade 0.2.36 fresh dialog edition loading on already-open pages and versioned frontend asset refresh.
+
+- Monitor Arcade 0.2.35 additive Atari reindexing, complete filename labels and emulator-independent edition disk settings.
+
+- Monitor Arcade 0.2.34 Hatari alternative launches, named profiles, hardware compatibility and saved Properties in Arcade/Portal; verify real game boot and disk swapping with user feedback.
+
+- Monitor Arcade 0.2.33 Atari scraped metadata/artwork overrides through reload, inactive-library catalogue browsing and launches with saved Properties.
+
+- Monitor Arcade 0.2.32 immediate create/import from the save-disk selector, per-edition choices and independent launch-settings drafts. Keep ordinary file actions direct and leave Properties open after they complete.
+
+- Monitor Arcade 0.2.31 Atari Properties, per-edition Safe Disks, imports/restores, drive B choices, named profiles and interrupted-save recovery. Verify real STEem in-game save/load and disk swaps when a test session is authorized.
+
+- Monitor Arcade 0.2.30 immediate grouped favourites updates from context menus and bulk actions, including default-version changes and delayed saves.
+
+- Monitor Arcade 0.2.29 Atari ST disk-set browsing, STEem SSE selection, multi-disk swaps and Portal defaults under the [Atari adapter contract](../docs/architecture/arcade-atari-adapter.md).
+
 - Monitor review fixes for strict saved profiles, media compatibility, simultaneous version refresh and scraper preview response ordering.
 
 ## Portal-Fronted Multisystem Migration
@@ -28,7 +73,7 @@ Arcade becomes Cyrune's game-library workshop, catalogue, metadata authority, em
 
 - Monitor Arcade 0.2.13's [native import manifest schema 1 and Spectrum adapter](../docs/architecture/arcade-import-manifest.md): bounded source/entry identity, exact editions, provenance, local/remote artwork references and explicit POK links, with no launch authority. Discovery/review and the running Spectrum catalogue share normalization; a manifest is not a replacement metadata database.
 - Separate discovery/parsing from review/apply. Use a staged, previewable, recoverable pipeline for scan, metadata extraction, duplicate grouping, meaningful-version retention, merge/sort decisions, artwork acquisition, and catalogue publication.
-- Monitor Arcade 0.2.16's [configured ScummVM integration](../docs/architecture/arcade-scummvm-adapter.md): source selection, mixed-platform Portal browsing, exact registered-target launch and single/batch Send. The supplied library has 169 registrations, including 27 without an explicit original platform. Native API launch verified with Elvira II (DOS/German), including visible startup and survival after Host exits; continue monitoring other engines. Add unregistered-directory discovery and richer metadata/artwork separately. Defer Atari ST/STe/Falcon until that collection is ready for validation.
+- Monitor Arcade 0.2.16's [configured ScummVM integration](../docs/architecture/arcade-scummvm-adapter.md): source selection, mixed-platform Portal browsing, exact registered-target launch and single/batch Send. The supplied library has 169 registrations, including 27 without an explicit original platform. Native API launch verified with Elvira II (DOS/German), including visible startup and survival after Host exits; continue monitoring other engines. Add unregistered-directory discovery and richer metadata/artwork separately. Atari ST/STe now use the disk-set adapter; add TT/Falcon emulators separately.
 - Define launch-target kinds rather than forcing every game into a single-file model: confined media file, multi-file/disc manifest, ScummVM game ID/configuration, DOSBox configuration/working directory, MAME machine/driver, and other explicitly validated adapters.
 - Support multiple installed emulators per platform with device-local defaults and exact-entry overrides, including the existing EightyOne/Spectaculator path and future Fuse, STEem SSE, Hatari, and ScummVM profiles. Portal bindings identify an exact Arcade entry, while Arcade remains free to change its emulator/profile configuration without rewriting Portal cards.
 - Keep system-specific cleanup scripts small and replaceable by having them emit the common manifest. Do not accumulate unrelated platform parsing, filesystem reorganisation, or emulator quirks in the Portal client or Relay.

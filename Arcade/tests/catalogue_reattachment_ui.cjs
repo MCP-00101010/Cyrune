@@ -2,7 +2,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
-const sourceText = fs.readFileSync(path.join(__dirname, '../web/app.js'), 'utf8');
+const sourceText = fs.readFileSync(path.join(__dirname, '../web/app.js'), 'utf8')+'\n'+fs.readFileSync(path.join(__dirname,'../web/scrape-views.js'),'utf8');
 const controller = sourceText.slice(sourceText.indexOf('function showCatalogueReattachmentModal()'), sourceText.indexOf('function showCatalogueRecoveryModal()'));
 
 async function main() {
@@ -31,7 +31,7 @@ async function main() {
   let response = async () => ({ sources: [{ collectionId: 'missing', name: '<Fixture>', available: false, writable: true },
     { collectionId: 'other', name: 'Other', available: true, writable: true }] });
   let reloads = 0;
-  const context = { document, state: { activeCollection: null }, els: { catalogueReattachment: element() },
+  const context = { document, state: { activeCollection: null }, els: { version: element() },
     window: { location: { reload() { reloads++; } } },
     escapeHtml: (value) => String(value).replaceAll('<', '&lt;').replaceAll('>', '&gt;'),
     api: async (route, options) => { requests.push({ route, body: JSON.parse(options.body) }); return await response(); },
@@ -90,7 +90,7 @@ async function main() {
   assert.equal(buttons.review.disabled, true);
   handlers.keydown({ key: 'Escape', preventDefault() {} });
   assert.ok(overlay.removed);
-  assert.equal(document.activeElement, context.els.catalogueReattachment);
+  assert.equal(document.activeElement, context.els.version);
   console.log('Reconnection source selection, picker, review, confirmation and retry flows pass.');
 }
 main().catch((error) => { console.error(error); process.exitCode = 1; });

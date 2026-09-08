@@ -4,7 +4,7 @@ const arcadeGamePicker = (() => {
   const text = (value, limit) => typeof value === 'string' && [...value].length <= limit && !/\p{C}/u.test(value);
   const keys = (value, fields) => value && typeof value === 'object' && !Array.isArray(value)
     && Object.keys(value).length === fields.length && fields.every(field => Object.hasOwn(value, field));
-  const platforms = Object.freeze({ 'zx-spectrum': 'ZX Spectrum', dos: 'DOS', windows: 'Windows', 'fm-towns': 'FM Towns', amiga: 'Amiga', 'atari-st': 'Atari ST', macintosh: 'Macintosh', unknown: 'Unspecified platform' });
+  const platforms = Object.freeze({ 'zx-spectrum': 'ZX Spectrum', 'game-boy': 'Game Boy', dos: 'DOS', windows: 'Windows', 'fm-towns': 'FM Towns', amiga: 'Amiga', 'atari-st': 'Atari ST', macintosh: 'Macintosh', unknown: 'Unspecified platform' });
   const baseFields = ['catalogueId', 'sourceId', 'entryRevision', 'title', 'platformId', 'platformLabel',
     'hardwareLabel', 'editionLabel', 'targetKind', 'year', 'publisher', 'availability', 'artworkRef'];
   const states = ['ready', 'available', 'source-unavailable', 'media-missing', 'configuration-required', 'unsupported', 'review-required'];
@@ -32,7 +32,7 @@ const arcadeGamePicker = (() => {
     if (!keys(value, detail ? [...baseFields, 'description', 'languages', 'countries', 'suggestedTags'] : baseFields)
         || !['catalogueId', 'sourceId', 'entryRevision'].every(field => id(value[field]))
         || !text(value.title, 160) || typeof value.platformId !== 'string' || !Object.hasOwn(platforms, value.platformId) || value.platformLabel !== platforms[value.platformId]
-        || !text(value.hardwareLabel, 80) || !text(value.editionLabel, 160) || value.targetKind !== (value.platformId === 'zx-spectrum' ? 'media-file' : 'scummvm-game')
+        || !text(value.hardwareLabel, 80) || !text(value.editionLabel, 160) || !(['zx-spectrum','game-boy'].includes(value.platformId) ? value.targetKind === 'media-file' : value.targetKind === 'scummvm-game' || value.platformId === 'atari-st' && value.targetKind === 'disk-set')
         || !text(value.year, 16) || !text(value.publisher, 160) || !states.includes(value.availability)
         || !text(value.artworkRef, 128) || (value.artworkRef && !/^[A-Za-z0-9_-]+$/.test(value.artworkRef))) throw failure('unavailable');
     if (detail && (!text(value.description, 2000) || ![['languages', 16], ['countries', 16], ['suggestedTags', 80]].every(([field, limit]) =>

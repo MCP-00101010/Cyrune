@@ -104,7 +104,7 @@ class MetadataService:
     def scrape_candidate_changes(self, candidate: dict, remote_assets: dict) -> dict[str, object]:
         changes: dict[str, object] = {}
         for key in (
-            "title", "year", "publisher", "genre", "developer", "platform", "region", "players",
+            "title", "year", "publisher", "genre", "developer", "region", "players",
             "coop", "rating", "youtube_id", "description", "scraper_source", "scraper_id",
         ):
             value = self._clean_metadata_text(candidate.get(key, ""), max_len=2000 if key == "description" else 160)
@@ -118,7 +118,8 @@ class MetadataService:
             changes["loading_screen"] = loading_screen
         return changes
 
-    def apply_scrape(self, game_id: str, candidate: object, remote_assets: object | None = None) -> dict[str, object]:
+    def apply_scrape(self, game_id: str, candidate: object, remote_assets: object | None = None,
+                     game_ids: list[str] | None = None) -> dict[str, object]:
         if not isinstance(candidate, dict):
             return {"ok": False, "error": "Missing scrape candidate"}
         if not self._library_provider().get_game(game_id):
@@ -126,7 +127,14 @@ class MetadataService:
         changes = self.scrape_candidate_changes(candidate, remote_assets if isinstance(remote_assets, dict) else {})
         if not changes:
             return {"ok": False, "error": "Scrape candidate has no usable metadata"}
-        result = self.update([game_id], changes, False)
+        game = self._library_provider().get_game(game_id)
+        if game_ids and len(game_ids) > 1:
+            # Fill the shared presentation from the reviewed edition, including
+            # blank values, so a previous wrong match cannot survive on a sibling.
+            from arcade_core.scummvm_overrides import TEXT_FIELDS, ART_FIELDS
+            common = {'date' if key == 'year' else key: getattr(game, key, '') for key in (*TEXT_FIELDS, *ART_FIELDS)}
+            changes = {**common, **changes}
+        result = self.update(game_ids or [game_id], changes, False, atomic=True)
         if not result.get("ok"):
             return result
         updated = self._library_provider().get_game(game_id)
@@ -137,7 +145,7 @@ class MetadataService:
             "game": asdict(updated) if updated else None,
         }
 
-    def update(self, game_ids: object, changes: object, rename_files: bool = False) -> dict[str, object]:
+    def update(self, game_ids: object, changes: object, rename_files: bool = False, *, atomic: bool = False) -> dict[str, object]:
         if not isinstance(game_ids, list) or not game_ids:
             return {"ok": False, "error": "No games selected"}
         if not isinstance(changes, dict):
@@ -163,6 +171,8 @@ class MetadataService:
                 item = self._game_to_metadata_item(game, [])
                 items.append(item)
                 by_id[game_id] = item
+            if atomic:
+                item.setdefault('scrape_family_title', str(item.get('title') or game.title))
             result = self._apply_metadata_changes(game, item, changes, rename_files)
             if result.get("ok"):
                 updated.append({"id": game_id, "file": str(item.get("file", ""))})
@@ -173,9 +183,43 @@ class MetadataService:
                     moved_files.append((source_path, target_path))
             else:
                 errors.append(str(result.get("error") or game.file_name))
+        # Presentation edits belong to the game folder. Hardware, language,
+        # filename moves and launch settings still apply only to selected files.
+        from arcade_core.shared_metadata import FIELDS, group_keys
+        groups = group_keys(original_metadata.get('games', []))
+        presentation_keys = [key for key in changes if ('year' if key == 'date' else key) in FIELDS]
+        shared_updates = set(entry['id'] for entry in updated)
+        if presentation_keys:
+            for entry in list(updated):
+                anchor = library.get_game(entry['id'])
+                if anchor.view != 'collection':
+                    continue
+                values = {key: by_id[entry['id']].get('year' if key == 'date' else key, '') for key in presentation_keys}
+                for sibling in library.games:
+                    if (sibling.id in shared_updates or sibling.view != 'collection'
+                            or Path(sibling.path).parent != Path(anchor.path).parent):
+                        continue
+                    if groups.get(anchor.id) is None or groups.get(sibling.id) != groups[anchor.id]:
+                        continue
+                    item = by_id.get(sibling.id)
+                    if item is None:
+                        continue
+                    result = self._apply_metadata_changes(sibling, item, values, False)
+                    if result.get('ok'):
+                        updated.append({'id': sibling.id, 'file': str(item.get('file', ''))})
+                        shared_updates.add(sibling.id)
+                    else:
+                        errors.append(str(result.get('error') or sibling.file_name))
+        if errors and atomic:
+            return {'ok': False, 'updated': [], 'updated_count': 0, 'errors': errors,
+                    'error': 'The folder metadata could not be saved. Re-index and search again.'}
         if updated:
             self._save_metadata(metadata)
-            library.rebuild()
+            refresh = getattr(library, 'refresh_metadata', None)
+            if callable(refresh):
+                refresh(metadata, [entry['id'] for entry in updated])
+            else:
+                library.rebuild()
             self._history.append({
                 "metadata": original_metadata,
                 "moves": moved_files,
@@ -186,6 +230,9 @@ class MetadataService:
             "ok": not errors, "updated": updated, "errors": errors, "warnings": warnings,
             "updated_count": len(updated), "undo_available": bool(self._history),
         }
+
+    def clear_history(self):
+        self._history.clear()
 
     def undo_last(self) -> dict[str, object]:
         if not self._history:

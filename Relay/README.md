@@ -48,3 +48,8 @@ Mozilla signing is a separate workflow. After AMO returns a signed XPI, validate
 Signed imports must contain the same bounded Relay payload plus Mozilla `META-INF` signature records. They are written beneath `artifacts/Relay/<version>/signed/` and are never synthesized or labelled as signed locally.
 
 Configured ScummVM targets are supported through optional `arcade-scummvm: 1`; use compatible Arcade 0.2.15, Host 0.2.6, Relay 1.1.6 and Portal 0.12.10 releases. Older sessions retain Spectrum browsing. See the [exact target and native migration contract](../docs/architecture/arcade-scummvm-adapter.md#optional-transport-and-native-approval-migration).
+
+Relay also caches one bounded Portal-owned theme presentation for Arcade. Only registered Portal pages may publish it and only registered Arcade pages may read it. This cache contains validated visual tokens only, and is independent of native settings profiles and the Portal database.
+
+
+Arcade transfers are bounded across complete responses. Queued native requests have count/byte/deadline limits and Arcade session checks at dispatch. Optional `arcade-gameboy: 1` is negotiated independently of existing adapters.

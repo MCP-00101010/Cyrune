@@ -1,6 +1,6 @@
 """Windows Explorer presentation for an already resolved native game target.
 
-Selection semantics: https://learn.microsoft.com/en-us/windows/win32/api/shlobj_core/nf-shlobj_core-shopenfolderandselectitems
+Use the same direct Explorer startup as Portal's Reveal game file action.
 """
 
 import ctypes
@@ -16,18 +16,21 @@ from pathlib import Path
 _ENSURE_VISIBLE = r'''
 $ErrorActionPreference = 'Stop'
 $target = $env:CYRUNE_EXPLORER_TARGET
-$parent = [IO.Path]::GetDirectoryName($target)
+$directory = $env:CYRUNE_EXPLORER_DIRECTORY -eq '1'
+$parent = if ($directory) { $target } else { [IO.Path]::GetDirectoryName($target) }
 $name = [IO.Path]::GetFileName($target)
 $shell = New-Object -ComObject Shell.Application
 for ($attempt = 0; $attempt -lt 20; $attempt++) {
     foreach ($window in @($shell.Windows())) {
         try {
             if ($window.Document.Folder.Self.Path -eq $parent) {
-                $item = $window.Document.Folder.ParseName($name)
-                if ($null -ne $item) {
+                if (-not $directory) {
+                    $item = $window.Document.Folder.ParseName($name)
+                    if ($null -eq $item) { continue }
                     $window.Document.SelectItem($item, 29)
-                    exit 0
                 }
+                Write-Output ([long]$window.HWND)
+                exit 0
             }
         } catch { }
     }
@@ -37,56 +40,40 @@ exit 1
 '''
 
 
-def ensure_visible(target):
-    environment = dict(os.environ, CYRUNE_EXPLORER_TARGET=str(target))
+def ensure_visible(target, *, directory=False):
+    environment = dict(os.environ, CYRUNE_EXPLORER_TARGET=str(target),
+                       CYRUNE_EXPLORER_DIRECTORY='1' if directory else '0')
     powershell = Path(os.environ.get('SystemRoot', r'C:\Windows')) / 'System32/WindowsPowerShell/v1.0/powershell.exe'
     result = subprocess.run([str(powershell), '-NoProfile', '-NonInteractive', '-Command', _ENSURE_VISIBLE],
-                            env=environment, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                            env=environment, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, text=True,
                             stderr=subprocess.DEVNULL, creationflags=subprocess.CREATE_NO_WINDOW, timeout=8)
-    if result.returncode:
+    handle = (result.stdout or '').strip()
+    if result.returncode or not handle.isascii() or not handle.isdecimal() or len(handle) > 20:
         raise OSError('Explorer opened the folder but could not bring the selected game into view')
+    window = int(handle)
+    if not 0 < window < 2 ** (ctypes.sizeof(ctypes.c_void_p) * 8):
+        raise OSError('Windows could not resolve the Explorer window')
+    user = ctypes.WinDLL('user32', use_last_error=True)
+    user.IsIconic.argtypes = [wintypes.HWND]
+    user.IsIconic.restype = wintypes.BOOL
+    user.ShowWindowAsync.argtypes = [wintypes.HWND, ctypes.c_int]
+    user.ShowWindowAsync.restype = wintypes.BOOL
+    user.SetForegroundWindow.argtypes = [wintypes.HWND]
+    user.SetForegroundWindow.restype = wintypes.BOOL
+    # Restore minimized windows; showing an already maximized window keeps its size.
+    # SelectItem focuses the file, but does not restore the containing window.
+    if not user.ShowWindowAsync(window, 9 if user.IsIconic(window) else 5):
+        raise OSError('Windows could not show the Explorer window')
+    # Windows can decline foreground focus if the user has switched applications.
+    user.SetForegroundWindow(window)
 
 
 def reveal_game(path):
     target = Path(path).resolve(strict=True)
-    shell = ctypes.WinDLL('shell32', use_last_error=True)
-    if target.is_dir():
-        execute = shell.ShellExecuteW
-        execute.argtypes = [wintypes.HWND, wintypes.LPCWSTR, wintypes.LPCWSTR,
-                            wintypes.LPCWSTR, wintypes.LPCWSTR, ctypes.c_int]
-        execute.restype = ctypes.c_void_p
-        if (execute(None, 'open', str(target), None, None, 1) or 0) <= 32:
-            raise OSError('Windows could not open the game folder')
-        return
-
-    ole = ctypes.WinDLL('ole32', use_last_error=True)
-    ole.CoInitializeEx.argtypes = [ctypes.c_void_p, wintypes.DWORD]
-    ole.CoInitializeEx.restype = ctypes.c_long
-    ole.CoUninitialize.argtypes = []
-    ole.CoUninitialize.restype = None
-    ole.CoTaskMemFree.argtypes = [ctypes.c_void_p]
-    ole.CoTaskMemFree.restype = None
-    shell.SHParseDisplayName.argtypes = [wintypes.LPCWSTR, ctypes.c_void_p,
-                                       ctypes.POINTER(ctypes.c_void_p), wintypes.DWORD, ctypes.c_void_p]
-    shell.SHParseDisplayName.restype = ctypes.c_long
-    shell.SHOpenFolderAndSelectItems.argtypes = [ctypes.c_void_p, wintypes.UINT, ctypes.c_void_p, wintypes.DWORD]
-    shell.SHOpenFolderAndSelectItems.restype = ctypes.c_long
-    initialized = ole.CoInitializeEx(None, 2)
-    # A native thread already initialized in MTA can use its existing apartment.
-    if initialized < 0 and initialized != -2147417850:  # RPC_E_CHANGED_MODE
-        raise OSError('Windows could not initialize Explorer selection')
-    item = ctypes.c_void_p()
-    try:
-        result = shell.SHParseDisplayName(str(target), None, ctypes.byref(item), 0, None)
-        if result < 0 or not item.value:
-            raise OSError('Windows could not resolve the game in Explorer')
-        # With cidl=0, Windows opens the parent and selects this exact item.
-        result = shell.SHOpenFolderAndSelectItems(item, 0, None, 0)
-        if result < 0:
-            raise OSError('Windows could not select the game in Explorer')
-    finally:
-        if item.value:
-            ole.CoTaskMemFree(item)
-        if initialized >= 0:
-            ole.CoUninitialize()
-    ensure_visible(target)
+    directory = target.is_dir()
+    # Launch Explorer itself, as Portal does. Shell API selection alone may open
+    # a passive window from the native host. Keep /select, separate so spaces and
+    # commas in the path are quoted as data rather than part of the switch.
+    subprocess.Popen(['explorer.exe', str(target)] if directory
+                     else ['explorer.exe', '/select,', str(target)])
+    ensure_visible(target, directory=directory)

@@ -6,6 +6,7 @@ import hashlib
 from pathlib import Path
 import re
 from typing import Callable
+from arcade_core.platforms import collection_platform
 
 
 COLLECTION_EXTENSIONS = {".tap", ".tzx", ".z80", ".sna", ".szx", ".pok"}
@@ -130,7 +131,7 @@ class CollectionService:
                 "writable": writable,
                 "auto_metadata": bool(item.get("auto_metadata", False)),
                 "default_emulator": str(item.get("default_emulator", "") or ""),
-                "platform_id": "scummvm" if item.get("adapter") == "scummvm-config-v1" else "zx-spectrum",
+                "platform_id": collection_platform(item),
                 "incoming_count": file_count_in_tree(root / "incoming", {".tap", ".tzx"}) if writable else 0,
                 "trash_count": file_count_in_tree(root / "_Deleted", {".tap", ".tzx"}) if writable else 0,
                 "active": item.get("id") == active.get("id"),

@@ -3,6 +3,7 @@
 const RELAY_PROTOCOLS = Object.freeze({
   'arcade-catalogue': 1,
   'arcade-scummvm': 1,
+  'arcade-atari-st': 1, 'arcade-gameboy': 1,
   'portal-relay': 1,
   'arcade-relay': 1,
   'nexus-relay': 2,
@@ -114,9 +115,9 @@ const HUB_PAGE_REQUEST_TYPES = new Set([
   'MW_REVEAL_GAME', 'MW_FORGET_GAME',
   'MW_FETCH_TRANSLATOR_ASSET_CHUNK', 'MW_NOTIFICATION_SCHEDULE', 'MW_NOTIFICATION_CANCEL',
   'MW_NOTIFICATION_LIST', 'MW_NOTIFICATION_MARK_READ', 'MW_NOTIFICATION_CLEAR',
-  'MW_GET_CYRUNE_SETTINGS'
+  'MW_GET_CYRUNE_SETTINGS', 'MW_PUBLISH_PORTAL_THEME'
 ]);
-const EMUGUI_PAGE_REQUEST_TYPES = new Set(['MW_EMUGUI_SEND_GAME', 'MW_EMUGUI_RPC', 'MW_EMUGUI_ASSET', 'MW_EMUGUI_GET_CYRUNE_SETTINGS']);
+const EMUGUI_PAGE_REQUEST_TYPES = new Set(['MW_EMUGUI_SEND_GAME', 'MW_EMUGUI_RPC', 'MW_EMUGUI_ASSET', 'MW_EMUGUI_GET_CYRUNE_SETTINGS', 'MW_EMUGUI_GET_PORTAL_THEME']);
 const NEXUS_PAGE_REQUEST_TYPES = new Set([
   'MW_NEXUS_PING', 'MW_NEXUS_GET_SETTINGS', 'MW_NEXUS_SAVE_SETTINGS',
   'MW_NEXUS_GET_STATUS', 'MW_NEXUS_GET_DOCUMENT', 'MW_NEXUS_OPEN_TODO',
@@ -135,7 +136,7 @@ const CATALOGUE_CODES = new Set(['invalid-request', 'unsupported-protocol', 'una
   'busy', 'timeout', 'catalogue-changed', 'entry-changed', 'entry-missing', 'source-unavailable',
   'media-missing', 'configuration-required', 'unsupported-target', 'review-required', 'binding-limit',
   'binding-forgotten', 'request-conflict', 'persistence-failed']);
-const CATALOGUE_PLATFORMS = Object.freeze({ 'zx-spectrum': 'ZX Spectrum', dos: 'DOS', windows: 'Windows', 'fm-towns': 'FM Towns', amiga: 'Amiga', 'atari-st': 'Atari ST', macintosh: 'Macintosh', unknown: 'Unspecified platform' });
+const CATALOGUE_PLATFORMS = Object.freeze({ 'zx-spectrum': 'ZX Spectrum', 'game-boy': 'Game Boy', dos: 'DOS', windows: 'Windows', 'fm-towns': 'FM Towns', amiga: 'Amiga', 'atari-st': 'Atari ST', macintosh: 'Macintosh', unknown: 'Unspecified platform' });
 const catalogueSessions = new Map();
 const catalogueBytes = value => new TextEncoder().encode(JSON.stringify(value)).length;
 const catalogueObject = value => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -171,7 +172,7 @@ function validateCatalogueEntry(entry, detail) {
   if (!['catalogueId', 'sourceId', 'entryRevision'].every(key => catalogueId(entry[key]))
     || !Object.entries(text).every(([key, limit]) => catalogueText(entry[key], limit))
     || typeof entry.platformId !== 'string' || !Object.hasOwn(CATALOGUE_PLATFORMS, entry.platformId) || entry.platformLabel !== CATALOGUE_PLATFORMS[entry.platformId]
-    || entry.targetKind !== (entry.platformId === 'zx-spectrum' ? 'media-file' : 'scummvm-game')
+    || !(['zx-spectrum','game-boy'].includes(entry.platformId) ? entry.targetKind === 'media-file' : entry.targetKind === 'scummvm-game' || entry.platformId === 'atari-st' && entry.targetKind === 'disk-set')
     || !['ready', 'available', 'source-unavailable', 'media-missing', 'configuration-required', 'unsupported', 'review-required'].includes(entry.availability)
     || !/^[A-Za-z0-9_-]{0,128}$/.test(entry.artworkRef) || catalogueBytes(Object.fromEntries(fields.map(key => [key, entry[key]]))) > 2048) return false;
   return !detail || (catalogueText(entry.description, 2000)
@@ -295,7 +296,7 @@ async function routeCatalogueRequest(msg, sender) {
       if (catalogueSessions.size >= 64) return { ok: false, code: 'busy' };
       const port = browser.runtime.connectNative('morpheus_webhub');
       state = { port, tabId: sender.tab.id, token: registration.sessionToken, url: registration.url,
-        reads: 0, mutations: 0, closed: false, pending: new Set(), tail: Promise.resolve(), sessionId: '', scummvm: false };
+        reads: 0, mutations: 0, closed: false, pending: new Set(), tail: Promise.resolve(), sessionId: '', scummvm: false, atari: false };
       catalogueSessions.set(state.tabId, state);
       state.leaseTimer = setTimeout(() => closeCatalogueSession(state.tabId), 30 * 60 * 1000);
       port.onDisconnect.addListener(() => { if (catalogueSessions.get(state.tabId) === state) closeCatalogueSession(state.tabId, 'unavailable'); });
@@ -336,17 +337,33 @@ async function routeCatalogueRequest(msg, sender) {
           else if (!(catalogueKeys(enabled, ['ok', 'code']) && enabled.ok === false
             && ['unsupported-protocol', 'invalid-request'].includes(enabled.code))) throw { code: 'unavailable' };
         }
+        if (RELAY_PROTOCOLS['arcade-atari-st'] === 1 && registration.protocols?.['arcade-atari-st'] === 1) {
+          const enabled = await catalogueExchange(state, { type: 'ARCADE_CATALOGUE_ENABLE_ATARI', protocol: 1,
+            sessionId: state.sessionId, payload: {} });
+          if (catalogueKeys(enabled, ['ok', 'schemaVersion']) && enabled.ok === true && enabled.schemaVersion === 1) state.atari = true;
+          else if (!(catalogueKeys(enabled, ['ok', 'code']) && enabled.ok === false
+            && ['unsupported-protocol', 'invalid-request'].includes(enabled.code))) throw { code: 'unavailable' };
+        }
+        if (RELAY_PROTOCOLS['arcade-gameboy'] === 1 && registration.protocols?.['arcade-gameboy'] === 1) {
+          const enabled = await catalogueExchange(state, { type: 'ARCADE_CATALOGUE_ENABLE_GAMEBOY', protocol: 1,
+            sessionId: state.sessionId, payload: {} });
+          if (catalogueKeys(enabled, ['ok', 'schemaVersion']) && enabled.ok === true && enabled.schemaVersion === 1) state.gameboy = true;
+          else if (!(catalogueKeys(enabled, ['ok', 'code']) && enabled.ok === false
+            && ['unsupported-protocol', 'invalid-request'].includes(enabled.code))) throw { code: 'unavailable' };
+        }
       }
       if (!await cataloguePageCurrent(msg, sender, state)) throw { code: 'unauthorized' };
-      if (!state.scummvm && msg.type === 'MW_SEARCH_ARCADE_CATALOGUE' && msg.payload.platformIds?.some(id => id !== 'zx-spectrum')) {
+      if (!state.scummvm && msg.type === 'MW_SEARCH_ARCADE_CATALOGUE' && msg.payload.platformIds?.some(id => id !== 'zx-spectrum' && !(state.atari && id === 'atari-st') && !(state.gameboy && id === 'game-boy'))) {
         return { ok: false, code: 'unsupported-protocol' };
       }
       const response = await catalogueExchange(state, { type: CATALOGUE_ROUTES[msg.type], protocol: 1, sessionId: state.sessionId, payload: msg.payload });
       if (!await cataloguePageCurrent(msg, sender, state)) throw { code: 'unauthorized' };
       if (!validateCatalogueResponse(msg.type, msg.payload, response)) throw { code: 'unavailable' };
-      if (!state.scummvm && response.ok === true && (response.entries?.some(entry => entry.targetKind !== 'media-file')
-        || response.entry && response.entry.targetKind !== 'media-file'
-        || response.results?.some(result => result.ok && result.game.systemId !== 'zx-spectrum'))) throw { code: 'unavailable' };
+      if (response.ok === true) {
+        const permitted = entry => entry.targetKind === 'media-file' && (entry.platformId !== 'game-boy' || state.gameboy) || entry.targetKind === 'scummvm-game' && state.scummvm || entry.targetKind === 'disk-set' && state.atari;
+        if (response.entries?.some(entry => !permitted(entry)) || response.entry && !permitted(response.entry)
+          || response.results?.some(result => result.ok && result.game.systemId !== 'zx-spectrum' && !state.scummvm && !(state.atari && result.game.systemId === 'atari-st'))) throw { code: 'unavailable' };
+      }
       if (msg.type === 'MW_GET_ARCADE_CATALOGUE_ARTWORK' && response.ok === true && !await validateCataloguePng(response)) throw { code: 'unavailable' };
       if (!await cataloguePageCurrent(msg, sender, state)) throw { code: 'unauthorized' };
       return response;
@@ -398,6 +415,10 @@ const nativePortRequestQueue = [];
 
 function pumpNativePortQueue() {
   if (nativePortActiveRequest || !nativePortRequestQueue.length) return;
+  while (nativePortRequestQueue.length && nativePortRequestQueue[0].expires <= Date.now()) {
+    nativePortRequestQueue.shift().reject(new Error('Native request expired before it started. Retry the operation.'));
+  }
+  if (!nativePortRequestQueue.length) return;
   if (!nativePort) {
     try {
       const port = browser.runtime.connectNative('morpheus_webhub');
@@ -441,6 +462,11 @@ function pumpNativePortQueue() {
   nativePortActiveRequest = nativePortRequestQueue.shift();
   const activeRequest = nativePortActiveRequest;
   try {
+    if (activeRequest.check && !activeRequest.check()) {
+      nativePortActiveRequest = null;
+      activeRequest.reject(new Error('The page session changed before this request started.'));
+      pumpNativePortQueue(); return;
+    }
     nativePort.postMessage(activeRequest.message);
     if (nativePortActiveRequest !== activeRequest) return;
     const requestTimeoutMs = Number.isFinite(activeRequest.timeoutMs) && activeRequest.timeoutMs > 0
@@ -471,12 +497,17 @@ function pumpNativePortQueue() {
   }
 }
 
-function sendPersistentNativeMessage(message, timeoutMs = NATIVE_REQUEST_TIMEOUT_MS) {
+function sendPersistentNativeMessage(message, timeoutMs = NATIVE_REQUEST_TIMEOUT_MS, check = null) {
+  if (check && !check()) return Promise.reject(new Error('The page session changed.'));
   if (typeof browser.runtime.connectNative !== 'function') {
     return sendNativeRequest(message);
   }
   return new Promise((resolve, reject) => {
-    nativePortRequestQueue.push({ message, resolve, reject, timeoutMs });
+    const bytes = JSON.stringify(message).length;
+    if (nativePortRequestQueue.length >= 128 || nativePortRequestQueue.reduce((sum, item) => sum + (item.bytes || 0), bytes) > 32 * 1024 * 1024) {
+      reject(new Error('Native requests are busy. Retry shortly.')); return;
+    }
+    nativePortRequestQueue.push({ message, resolve, reject, timeoutMs, bytes, check, expires:Date.now() + Math.max(15000, Math.min(timeoutMs, 305000)) });
     pumpNativePortQueue();
   });
 }
@@ -645,7 +676,7 @@ function createHubSessionToken() {
 }
 
 function sanitizeClientProtocols(value) {
-  const allowed = new Set(['portal-relay', 'arcade-relay', 'arcade-service', 'nexus-relay', 'component-settings', 'arcade-catalogue', 'arcade-scummvm']);
+  const allowed = new Set(['portal-relay', 'arcade-relay', 'arcade-service', 'nexus-relay', 'component-settings', 'arcade-catalogue', 'arcade-scummvm', 'arcade-atari-st', 'arcade-gameboy']);
   const output = {};
   if (!value || typeof value !== 'object' || Array.isArray(value)) return output;
   for (const [name, version] of Object.entries(value)) {
@@ -853,6 +884,57 @@ async function getNexusStatus() {
   return { ok: true, snapshot };
 }
 
+// Portal theme projection: bounded presentation cache, never a Portal database.
+const PORTAL_THEME_KEY = 'cyrunePortalThemeV1';
+let portalThemeQueue = Promise.resolve();
+function validatePortalTheme(value) {
+  if (!value || value.schemaVersion !== 1 || !['dark', 'light'].includes(value.colorScheme)
+      || Object.keys(value).some(key => !['schemaVersion', 'colorScheme', 'variables'].includes(key))) throw new Error('Invalid Portal theme');
+  const variables = value.variables;
+  if (!variables || Array.isArray(variables) || Object.keys(variables).length !== 38) throw new Error('Invalid Portal theme tokens');
+  const color = /^(?:#[\da-f]{3,8}|rgba?\(\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}(?:\s*,\s*(?:0|1|0?\.\d{1,4}))?\s*\))$/i;
+  const rules = {
+    '--radius': /^(?:\d|[1-4]\d|50)(?:\.\d{1,2})?px$/,
+    '--shadow': /^(?:none|(?:0|\d{1,3}px) (?:0|\d{1,3}px) (?:0|\d{1,3}px)(?: (?:0|\d{1,3}px))? rgba?\([\d.,\s]+\))$/,
+    '--base-font-size': /^(?:[89]|[1-4]\d|50)px$/,
+    '--panel-alpha': /^(?:0\.[1-9]\d{0,3}|1)$/
+  };
+  for (const key of ['bg','panel','panel-2','panel-muted','line','text','muted','accent','accent-strong','danger']) rules[`--${key}`] = color;
+  for (const prefix of ['hub-name','bookmark','board','title']) {
+    rules[`--${prefix}-color`] = color;
+    rules[`--${prefix}-font-size`] = /^(?:[89]|[1-7]\d|80)px$/;
+    rules[`--${prefix}-font-family`] = /^[a-z\d\s,'"-]{1,160}$/i;
+    rules[`--${prefix}-font-weight`] = /^(?:normal|bold|600)$/;
+    rules[`--${prefix}-font-style`] = /^(?:normal|italic)$/;
+    rules[`--${prefix}-text-decoration`] = /^(?:none|underline)$/;
+  }
+  const clean = {};
+  for (const [key, rule] of Object.entries(rules)) {
+    const token = variables[key];
+    if (typeof token !== 'string' || token.length > 160 || !rule.test(token)) throw new Error('Invalid Portal theme token');
+    clean[key] = token;
+  }
+  return { schemaVersion: 1, colorScheme: value.colorScheme, variables: clean };
+}
+async function readPortalTheme() {
+  const stored = (await browser.storage.local.get(PORTAL_THEME_KEY))[PORTAL_THEME_KEY];
+  if (!stored) return null;
+  try { return validatePortalTheme(stored); } catch { return null; }
+}
+function publishPortalTheme(theme) {
+  const clean = validatePortalTheme(theme);
+  const pending = portalThemeQueue.then(async () => {
+    if (JSON.stringify(await readPortalTheme()) === JSON.stringify(clean)) return { ok: true };
+    await browser.storage.local.set({ [PORTAL_THEME_KEY]: clean });
+    await Promise.all([...emuguiRegistrations.keys()].map(tabId =>
+      browser.tabs.sendMessage(tabId, { type: 'MW_PORTAL_THEME_CHANGED' }).catch(() => null)));
+    return { ok: true };
+  });
+  portalThemeQueue = pending.catch(() => {});
+  return pending;
+}
+// End Portal theme projection.
+
 async function broadcastNexusSettingsChanged(revision) {
   await Promise.all([
     ...[...nexusRegistrations.keys()].map(tabId =>
@@ -980,7 +1062,7 @@ function getStorageInfo() {
     fileSchemeAccess,
     fileSchemeAccessRequired,
     extensionId: browser.runtime.id || '',
-    capabilities: ['portalAuthority', 'durableIntake', 'urlHealth', 'serviceMonitor', 'systemMetrics', 'approvedDirectories', 'gitWorkspace', 'recentFiles', 'applicationLauncher', 'emuguiService', 'commandPalette', 'browserSessions', 'backupTimeline', 'portableBundles', 'translationModels', 'notificationScheduler', 'cyruneSettings']
+    capabilities: ['portalAuthority', 'durableIntake', 'urlHealth', 'serviceMonitor', 'systemMetrics', 'approvedDirectories', 'gitWorkspace', 'recentFiles', 'applicationLauncher', 'emuguiService', 'commandPalette', 'browserSessions', 'backupTimeline', 'portableBundles', 'translationModels', 'notificationScheduler', 'cyruneSettings', 'portalTheme']
   };
 }
 
@@ -2160,7 +2242,34 @@ async function runGameAction(type, gameKey) {
   return sendPersistentNativeMessage(request, EMUGUI_REQUEST_TIMEOUT_MS);
 }
 
-async function runEmuGuiPageRpc(message) {
+// Bound complete transfers, not just individual chunks. Waiting work expires
+// before dispatch, so a timed-out queued mutation cannot run later.
+const arcadeTransferGate = (() => {
+  let active = 0;
+  const queue = [];
+  const pump = () => {
+    while (active < 2 && queue.length) {
+      const item = queue.shift(); clearTimeout(item.timer); active++;
+      Promise.resolve().then(item.work).then(item.resolve, item.reject).finally(() => {active--; pump();});
+    }
+  };
+  return work => new Promise((resolve, reject) => {
+    if (queue.length >= 64) {reject(new Error('Arcade is busy. Try again shortly.')); return;}
+    const item = {work, resolve, reject};
+    item.timer = setTimeout(() => {
+      const index = queue.indexOf(item);
+      if (index >= 0) {queue.splice(index, 1); reject(new Error('Arcade request expired before it started.'));}
+    }, 15000);
+    queue.push(item); pump();
+  });
+})();
+
+function runEmuGuiPageRpc(message, sender) {
+  const check = () => authorizeEmuGuiPageRequest(message, sender);
+  return arcadeTransferGate(() => executeEmuGuiPageRpc(message, check));
+}
+
+async function executeEmuGuiPageRpc(message, check = null) {
   await ensureNativeStorageReady();
   if (!nativeAvailable) return { ok: false, error: 'Native host not available' };
   const path = String(message.path || '').slice(0, 96);
@@ -2171,7 +2280,7 @@ async function runEmuGuiPageRpc(message) {
     path,
     query: message.query && typeof message.query === 'object' ? message.query : {},
     body: message.body && typeof message.body === 'object' ? message.body : {}
-  }, timeoutMs);
+  }, timeoutMs, check);
   if (response?.ok !== true) return response || { ok: false, error: 'Cyrune Arcade API request failed' };
   return { ok: true, result: await readEmuGuiNativeTransfer(response.transfer) };
 }
@@ -2241,17 +2350,37 @@ async function fetchEmuGuiRemoteAsset(url) {
   }
 }
 
-async function loadEmuGuiPageAsset(path) {
+function loadEmuGuiPageAsset(path, collectionId, check = null) {
+  if (check && !check()) return Promise.reject(new Error('The page session changed.'));
+  return executeEmuGuiPageAsset(path, collectionId, check);
+}
+
+async function executeEmuGuiPageAsset(path, collectionId, check = null) {
   const requestedPath = String(path || '').slice(0, 2048);
   if (/^https?:\/\//i.test(requestedPath)) return fetchEmuGuiRemoteAsset(requestedPath);
   await ensureNativeStorageReady();
   if (!nativeAvailable) return { ok: false, error: 'Native host not available' };
+  let asset = await arcadeTransferGate(async () => {
   const response = await sendPersistentNativeMessage(
-    { type: 'EMUGUI_ASSET', path: requestedPath },
-    EMUGUI_REQUEST_TIMEOUT_MS
+    { type: 'EMUGUI_ASSET', path: requestedPath, ...(collectionId !== undefined ? {collectionId} : {}) },
+    EMUGUI_REQUEST_TIMEOUT_MS, check
   );
-  if (response?.ok !== true) return response || { ok: false, error: 'Cyrune Arcade artwork request failed' };
-  return { ok: true, asset: await readEmuGuiNativeTransfer(response.transfer) };
+  if (response?.ok !== true) throw new Error(response?.error || 'Cyrune Arcade artwork request failed');
+  return readEmuGuiNativeTransfer(response.transfer);
+  });
+  if (asset.job_id) {
+    const deadline = Date.now() + 110000;
+    while (true) {
+      if (Date.now() > deadline) throw new Error('Artwork download timed out. Retry shortly.');
+      await new Promise(resolve => setTimeout(resolve, 250));
+      // Only hold a slot while transferring; provider I/O must not block game reads.
+      const reply = await arcadeTransferGate(() => executeEmuGuiPageRpc({method:'GET', path:'/api/scrape-job', query:{id:asset.job_id, collection_id:collectionId || asset.collection_id || ''}}, check));
+      if (!reply.ok || reply.result?.ok === false) throw new Error(reply.result?.error || reply.error || 'Artwork request failed');
+      if (reply.result.status === 'done') {asset = reply.result.result; break;}
+    }
+  }
+  if (asset.ok === false) throw new Error(asset.error || 'Artwork unavailable');
+  return { ok:true, asset };
 }
 
 async function readEmuGuiNativeTransfer(initialTransfer) {
@@ -2644,6 +2773,16 @@ browser.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         .catch(error => sendResponse({ ok: false, error: error?.message || String(error) }));
       return true;
 
+    case 'MW_PUBLISH_PORTAL_THEME':
+      Promise.resolve().then(() => publishPortalTheme(msg.theme))
+        .then(sendResponse).catch(error => sendResponse({ ok: false, error: error.message }));
+      return true;
+
+    case 'MW_EMUGUI_GET_PORTAL_THEME':
+      readPortalTheme().then(theme => sendResponse({ ok: true, theme }))
+        .catch(() => sendResponse({ ok: false, error: 'Portal theme is unavailable' }));
+      return true;
+
     case 'MW_GET_STATUS':
       if (!nativeAvailable) void ensureNativeStorageReady();
       Promise.all([ensureMorpheusTab(), readDurableIntake()])
@@ -2869,11 +3008,11 @@ browser.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       return true;
 
     case 'MW_EMUGUI_RPC':
-      runEmuGuiPageRpc(msg).then(sendResponse).catch(e => sendResponse({ ok: false, error: e.message }));
+      runEmuGuiPageRpc(msg, sender).then(sendResponse).catch(e => sendResponse({ ok: false, error: e.message }));
       return true;
 
     case 'MW_EMUGUI_ASSET':
-      loadEmuGuiPageAsset(msg.path).then(sendResponse).catch(e => sendResponse({ ok: false, error: e.message }));
+      loadEmuGuiPageAsset(msg.path, msg.collectionId, () => authorizeEmuGuiPageRequest(msg, sender)).then(sendResponse).catch(e => sendResponse({ ok: false, error: e.message }));
       return true;
 
     case 'MW_GET_GAME_STATUS':

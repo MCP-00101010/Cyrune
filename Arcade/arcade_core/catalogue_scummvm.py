@@ -23,6 +23,7 @@ class ScummvmSource:
     browse = True
 
     def __init__(self, collection, identity, runtime=None):
+        self.runtime = runtime
         self.collection_id = collection["id"]
         self.root = Path(collection["root"]).resolve()
         value = collection.get("scummvm_config")
@@ -39,6 +40,11 @@ class ScummvmSource:
     def _row_index(self):
         return self.rows
 
+    def artwork_target(self, row):
+        from arcade_core.entry_artwork import target
+        values = ScummvmOverrides.values(self.overrides, row['id'], row['target'])
+        return target(self.root, self.runtime, {**row['metadata'], **values})
+
     def snapshot(self):
         result = []
         for legacy, row in self.rows.items():
@@ -54,7 +60,7 @@ class ScummvmSource:
             detail = {key: presentation[key] for key in (*DETAIL_TEXT, *DETAIL_LISTS)}
             result.append(ScummvmEntry(base, detail, legacy, self.collection_id, target["directory"], (),
                                       (self.collection.get("default_emulator", ""), ""),
-                                      _metadata_digest({"registration": row, "overrides": values} if values else row), None, target,
+                                      _metadata_digest({"registration": row, "overrides": values} if values else row), self.artwork_target(row), target,
                                       metadata["title"]))
         return result
 

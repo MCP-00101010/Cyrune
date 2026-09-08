@@ -14,7 +14,7 @@ from arcade_core.paths import ConfinedRoot
 from arcade_core.profiles import EmulatorProfileService
 
 
-def resolve_plan(lifecycle, catalogue_id, entry_revision=None):
+def resolve_plan(lifecycle, catalogue_id, entry_revision=None, *, atari_emulator_override=''):
     """Read one exact source and explicit policy; never activate a collection."""
     with lifecycle._lock:
         service = lifecycle.service()
@@ -24,9 +24,14 @@ def resolve_plan(lifecycle, catalogue_id, entry_revision=None):
         target = service.resolve_native(catalogue_id, public["entryRevision"])
         indexed = service._by_id[catalogue_id]
         source = next(s for s in service._sources if s.collection_id == indexed.collection_id)
+        if atari_emulator_override and public['targetKind'] != 'disk-set':
+            raise CatalogueError('unsupported-target')
         if public["targetKind"] == "scummvm-game":
             from arcade_core.catalogue_scummvm import resolve_scummvm_plan
             return resolve_scummvm_plan(lifecycle, source, indexed, public, target)
+        if public['targetKind'] == 'disk-set':
+            from arcade_core.catalogue_atari import resolve_atari_plan
+            return resolve_atari_plan(lifecycle, source, indexed, public, atari_emulator_override)
         item = source._row_index().get(indexed.legacy_id)
         if item is None:
             raise CatalogueError("entry-missing")
@@ -42,7 +47,7 @@ def resolve_plan(lifecycle, catalogue_id, entry_revision=None):
                                 if isinstance(value, dict) and not value.get("hidden")
                                 and (not normalize_extensions(value.get("supported_extensions", []))
                                      or target.suffix.lower() in normalize_extensions(value.get("supported_extensions", [])))
-                                and (value.get("type") or key) not in {"default", "spectaculator_stub", "scummvm"}), None)
+                                and (value.get("type") or key) not in {"default", "spectaculator_stub", "scummvm", "steem", "hatari"}), None)
         if not valid_id(emulator_id, legacy=True):
             raise CatalogueError("configuration-required")
         emulator = config.get("emulators", {}).get(emulator_id)
@@ -52,7 +57,9 @@ def resolve_plan(lifecycle, catalogue_id, entry_revision=None):
         if extensions and target.suffix.lower() not in extensions:
             raise CatalogueError("unsupported-target")
         adapter = emulator.get("type") or emulator_id
-        if adapter not in ALLOWED_ADAPTERS - {"default", "scummvm"}:
+        if public['platformId'] == 'game-boy' and adapter != 'generic':
+            raise CatalogueError('unsupported-target')
+        if adapter not in ALLOWED_ADAPTERS - {"default", "scummvm", "steem", "hatari"}:
             raise CatalogueError("unsupported-target")
         executable = _native_path(emulator.get("path"))
         if not executable.is_file():
@@ -106,7 +113,7 @@ def resolve_plan(lifecycle, catalogue_id, entry_revision=None):
             "emulatorId": emulator_id, "profileId": str((profile or {}).get("id") or ""), "adapterId": adapter,
             "executable": str(executable), "executableSignature": media_signature(executable), "cwd": str(cwd),
             "template": template, "arguments": render_arguments(template, game=game, file_path=target, collection_root=source.root),
-            "profileCopy": profile_copy, "public": {"title": public["title"], "systemId": "zx-spectrum", "systemName": "ZX Spectrum"},
+            "profileCopy": profile_copy, "public": {"title": public["title"], "systemId": public['platformId'], "systemName": public['platformLabel']},
             "game": {"title": game.title, "system": game.system},
         }
         if len(encoded(result)) > 64 * 1024:
@@ -125,15 +132,15 @@ def _native_path(value):
     return path.resolve()
 
 
-def launch_plan(runtime, plan, *, launch_process, copy_profile):
+def launch_plan(runtime, plan, *, launch_process, copy_profile, atari_emulator_override=''):
     """Use existing adapter behaviour with exact-source data and Host callbacks."""
     lifecycle = runtime.get_library_catalogue()
     if lifecycle is None:
         raise CatalogueError("unavailable")
     with runtime.COLLECTION_JOB_LOCK, lifecycle._lock:
-        if resolve_plan(lifecycle, plan["catalogueId"], plan["entryRevision"]) != plan:
+        if resolve_plan(lifecycle, plan["catalogueId"], plan["entryRevision"], atari_emulator_override=atari_emulator_override) != plan:
             raise CatalogueError("entry-changed")
-        if plan["adapterId"] == "scummvm":
+        if plan["adapterId"] in {"scummvm", "steem", "hatari"}:
             process = launch_process([plan["executable"], *plan["arguments"]], Path(plan["cwd"]))
             if process is None:
                 raise CatalogueError("unavailable")
@@ -143,7 +150,7 @@ def launch_plan(runtime, plan, *, launch_process, copy_profile):
                 pass
             else:
                 raise CatalogueError("unavailable")
-            runtime.focus_launched_emulator("scummvm", process)
+            runtime.focus_launched_emulator(plan['adapterId'], process)
             if process.poll() is not None:
                 raise CatalogueError("unavailable")
             runtime.mark_recent(plan["gameId"])

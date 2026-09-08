@@ -51,6 +51,22 @@ def atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
     atomic_write_text(path, json.dumps(payload, indent=2, ensure_ascii=False))
 
 
+def atomic_write_bytes(path: Path, content: bytes) -> None:
+    """Durably replace binary data without exposing a partial save image."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(mode='wb', dir=path.parent, prefix=f'.{path.name}.', suffix='.tmp', delete=False) as handle:
+            temporary = Path(handle.name)
+            handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+
+
 def atomic_copy_file(source: Path, target: Path) -> None:
     """Copy a file without exposing a partially written destination."""
 

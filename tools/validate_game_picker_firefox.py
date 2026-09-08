@@ -31,6 +31,7 @@ def main():
     parser.add_argument("--arcade-send", action="store_true", help="Check Arcade multiselect delivery while Portal is closed")
     parser.add_argument("--scummvm", action="store_true", help="Check ScummVM picker, collection handoff and batch delivery")
     parser.add_argument("--legacy-spectrum", action="store_true", help="Check an existing Spectrum shortcut while ScummVM stays active")
+    parser.add_argument("--atari", action="store_true", help="Check Atari disk sets, STEem selection and Portal shortcuts")
     args = parser.parse_args()
     if args.legacy_spectrum:
         args.scummvm = True
@@ -43,8 +44,24 @@ def main():
     if not 125 <= args.entries <= 100000:
         parser.error("entries must be between 125 and 100000")
     fixture.prepare_fixture(root, entries=args.entries, prepared=args.prepared)
+    if args.atari:
+        fixture.add_atari_fixture(root)
+        (root / 'config').mkdir()
+        (root / 'config/STe Fixture.ini').write_text('[Machine]\nmem_bank_1=1\n[Disks]\nAutoInsert2=1\nDisk_B_Path=old.st\n', encoding='utf-8')
+        (root / 'hatari.cfg').write_text('[System]\nnModelType=0\n[Floppy]\n', encoding='utf-8')
+        (root / 'configs').mkdir()
+        (root / 'configs/STe 8Mhz 2MB 1.62').write_text('[System]\nnModelType=2\n[Floppy]\n', encoding='utf-8')
+        config_path = root / 'Arcade/config.json'
+        config = json.loads(config_path.read_text(encoding='utf-8'))
+        config['emulators']['hatari'] = {'name':'Hatari', 'type':'hatari', 'path':str(root / 'fixture.exe'),
+                                       'arguments':[], 'supported_extensions':['.st','.stx','.msa','.dim']}
+        config_path.write_text(json.dumps(config), encoding='utf-8')
     if args.scummvm:
         fixture.add_scummvm_fixture(root)
+        scraper_config_path = root / 'Arcade/config.json'
+        scraper_config = json.loads(scraper_config_path.read_text(encoding='utf-8'))
+        scraper_config.setdefault('scrapers', {})['fixture-manual'] = {'name':'Fixture Metadata', 'type':'manual', 'enabled':True}
+        scraper_config_path.write_text(json.dumps(scraper_config), encoding='utf-8')
         spectrum_metadata_path = root / 'spectrum/collection-metadata.json'
         spectrum_metadata = json.loads(spectrum_metadata_path.read_text(encoding='utf-8'))
         spectrum_metadata['games'][0]['language'] = 'English'
@@ -67,6 +84,7 @@ def main():
               "columns": [{"id": "chosen", "title": "Chosen column", "items": []}],
               "inbox": {"id": "inbox", "items": []}}]}],
             "navItems": [{"id": "nav", "type": "board", "boardId": "games"}], "essentials": [], "settings": {}, "tags": []}
+    data["settings"] = {"activeThemeName":"light" if args.atari else "default-dark", "globalFontColorFromTheme":False, "globalFontColor":"#fa2424"}
     database = root / "portal.json"
     if args.legacy_spectrum:
         legacy_key = 'game_legacy_fixture_123456'
@@ -200,6 +218,236 @@ def main():
             checks.append('Legacy Spectrum board, language/hardware badges, board switching and reload with ScummVM active; binding and active collection unchanged')
             print(json.dumps({'ok':True,'browser':browser.session_capabilities.get('browserVersion'),'checks':checks,'artifacts':str(root)}))
             return
+
+        if args.atari:
+            ini_before = (root / 'steem.ini').read_bytes()
+            js("document.querySelector('[data-column-id=chosen]').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,clientX:500,clientY:200}))")
+            wait("return [...document.querySelectorAll('.context-menu button')].some(e => e.textContent === 'Add Game')")
+            browser.find_element(By.XPATH, '//div[contains(@class,"context-menu")]/button[text()="Add Game"]').click()
+            wait("return document.querySelectorAll('.arcade-picker-row').length === 50")
+            element('[data-picker-query]').send_keys('Atari Adventure')
+            wait("return document.querySelectorAll('.arcade-picker-row').length === 1")
+            assert js("return document.querySelector('.arcade-picker-row').textContent.includes('2 versions')")
+            element('.arcade-picker-row strong').click()
+            element('[data-picker-add]').click()
+            wait("return document.querySelector('[data-picker-status]').textContent.includes('1 games saved; 0')")
+            cards = json.loads(database.read_text(encoding='utf-8'))['boards'][0]['tabs'][0]['columns'][0]['items']
+            assert len(cards) == 1 and cards[0]['systemId'] == 'atari-st'
+            assert not any(word in json.dumps(cards) for word in ('steem.ini', 'arguments', 'fixture.exe', 'catalogueId'))
+            element('[data-picker-close]').click()
+            browser.navigate((REPO / 'Portal/index.html').as_uri())
+            wait("return ['ST','STe'].includes(document.querySelector('[data-column-id=chosen] .game-default-system')?.textContent)")
+            wait("return !!document.querySelector('[data-column-id=chosen] .game-default-language')")
+            assert_quiet_startup()
+            (root / 'portal-atari.png').write_bytes(browser.screenshot(format='binary', full=False))
+            checks.append('Atari picker groups six disks into two editions and one portable shortcut; default language and hardware survive reload')
+            browser.navigate((REPO / 'Arcade/web/index.html').as_uri() + '?collection=atari-st')
+            wait("return document.querySelectorAll('.row-select').length === 1 && document.querySelector('#platform-select').value === 'atari-st'")
+            assert js("return document.querySelector('#emulator').value") == 'steem-sse'
+            assert js("return document.querySelector('#filter-poks').closest('label').getClientRects().length === 0 && !document.querySelector('th[data-col=poks]')")
+            element('#column-options').click()
+            assert js("return !document.querySelector('.column-editor-row[data-column=poks]')")
+            js("document.querySelector('.column-modal [data-action=apply]').click()")
+            element('#arcade-version').click()
+            platform = js("return document.querySelector('#platform-select').value")
+            element(f'[data-settings-tab="{platform}"]').click()
+            wait("return !!document.querySelector('[data-settings-action=emulators]')")
+            element('[data-settings-action=emulators]').click()
+            assert set(js("return [...document.querySelector('#spectrum-emulator-select').options].map(row=>row.value)")) == {'steem-sse','hatari'}
+            assert js("return document.querySelector('#profile-source').getClientRects().length === 0")
+            element('.emulator-modal [data-action=cancel]').click()
+            wait("return document.querySelector('[data-arcade-settings]').hidden === false")
+            element('[data-settings-close]').click()
+            element('#filter-language .filter-combo-button').click()
+            element('#filter-language input[value=DE]').click()
+            assert js("return document.querySelectorAll('.game-row').length === 1")
+            element('#filter-language input[value=DE]').click()
+            assert js("return document.querySelector('#filter-language input[value=DE]').indeterminate && document.querySelectorAll('.game-row').length === 1 && !document.querySelector('.game-row .version-count')")
+            assert js("return [...document.querySelectorAll('.game-row .game-version-flags img')].map(img=>img.alt)") == ['English']
+            (root / 'arcade-exclude-filter.png').write_bytes(browser.screenshot(format='binary',full=False))
+            js("document.querySelector('#search').value='Atari'; document.querySelector('#search').dispatchEvent(new Event('input',{bubbles:true})); document.body.click(); const platform=document.querySelector('#platform-select'); platform.value='zx-spectrum'; platform.dispatchEvent(new Event('change',{bubbles:true}))")
+            wait("return document.querySelector('#emulator').value === 'fixture'")
+            assert js("return document.querySelector('#search').value") == ''
+            js("document.querySelector('#search').value='Game 000'; document.querySelector('#search').dispatchEvent(new Event('input',{bubbles:true})); const platform=document.querySelector('#platform-select'); platform.value='atari-st'; platform.dispatchEvent(new Event('change',{bubbles:true}))")
+            wait("return document.querySelector('#emulator').value === 'steem-sse'")
+            assert js("return document.querySelector('#search').value") == 'Atari'
+            browser.navigate((REPO / 'Arcade/web/index.html').as_uri() + '?collection=atari-st')
+            wait("return document.querySelector('#platform-select').value === 'atari-st' && document.querySelectorAll('.game-row').length === 1")
+            assert js("return document.querySelector('#search').value === 'Atari' && document.querySelector('#filter-language input[value=DE]').indeterminate")
+            element('#filter-language .filter-combo-button').click()
+            element('#filter-language input[value=DE]').click()
+            assert js("return document.querySelectorAll('.game-row').length === 1")
+            element('#filter-language input[value=DE]').send_keys(' ')
+            assert js("return document.querySelector('#filter-language input[value=DE]').checked")
+            element('#clear-filters').click()
+            checks.append('Atari hides POK filters/columns and Spectrum profiles, lists only STEem/Hatari, and language filters cycle include/exclude/any by mouse and keyboard')
+            checks.append('Excluded editions reduce list badges/counts; platform searches and exclusions survive switches and page reload')
+            assert js("return document.querySelector('.game-row').textContent.includes('STe')")
+            js("document.querySelector('.game-row').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,clientX:500,clientY:250}))")
+            wait("return !!document.querySelector('.context-menu [data-emulator]')")
+            assert set(js("return [...document.querySelectorAll('.context-menu [data-emulator]')].map(button => button.dataset.emulator)")) == {'steem-sse', 'hatari'}
+            wait("return document.documentElement.dataset.portalTheme === 'light'")
+            assert js("return getComputedStyle(document.body).backgroundColor === 'rgb(245, 246, 250)' && getComputedStyle(document.querySelector('input')).backgroundColor === 'rgb(245, 246, 250)'")
+            assert js("return !!document.querySelector('[data-platform=atari-st] svg path')")
+            checks.append('Portal light theme follows through to Arcade surfaces and controls with native Atari artwork')
+            (root / 'arcade-atari.png').write_bytes(browser.screenshot(format='binary', full=False))
+            assert element('[data-action=favourite]').text == 'Add to Favourites'
+            wait("return !!document.querySelector('.context-menu [data-action=favourite]')")
+            element('.context-menu [data-action=favourite]').click()
+            wait("return !!document.querySelector('.game-row [title=Favourite]')")
+            js("const view=document.querySelector('#filter-view'); view.value='favourites'; view.dispatchEvent(new Event('change',{bubbles:true}))")
+            wait("return document.querySelectorAll('.row-select').length === 1")
+            js("document.querySelector('.game-row').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,clientX:500,clientY:250}))")
+            wait("return !!document.querySelector('.context-menu [data-action=favourite]')")
+            element('.context-menu [data-action=favourite]').click()
+            wait("return document.querySelectorAll('.row-select').length === 0")
+            assert not json.loads((root / 'Arcade/state.json').read_text(encoding='utf-8'))['favourites']
+            js("const view=document.querySelector('#filter-view'); view.value='all'; view.dispatchEvent(new Event('change',{bubbles:true}))")
+            wait("return document.querySelectorAll('.row-select').length === 1")
+            js("document.querySelector('.game-row').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,clientX:500,clientY:250}))")
+            wait("return !!document.querySelector('.context-menu [data-action=favourite]')")
+            element('.context-menu [data-action=favourite]').click()
+            wait("return !!document.querySelector('.game-row [title=Favourite]')")
+            js("document.querySelector('.game-row').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,clientX:500,clientY:250}))")
+            wait("return document.querySelector('[data-action=favourite]')?.textContent === 'Remove from Favourites'")
+            wait("return !!document.querySelector('.context-menu [data-action=favourite]')")
+            element('.context-menu [data-action=favourite]').click()
+            wait("return !document.querySelector('.game-row [title=Favourite]')")
+            checks.append('Context menu favourite actions immediately update grouped stars and Favourites filtering without reload')
+            js("document.querySelector('.game-row').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,clientX:500,clientY:250}))")
+            wait("return !!document.querySelector('[data-action=properties]')")
+            element('[data-action=properties]').click()
+            wait("return document.querySelector('[data-prop-save]')?.disabled === false")
+            assert js("return document.querySelectorAll('[data-prop-version] option').length") == 2
+            assert js("return document.querySelector('[data-prop-version]').selectedOptions[0].textContent.endsWith('.st')")
+            assert js("return document.querySelector('[data-prop-images]').textContent.includes('(Disk 3 of 3)')")
+            assert not js("return !!document.querySelector('[data-prop-action]')")
+            initial_version = js("return document.querySelector('[data-prop-version]').value")
+            js("const profile=document.querySelector('[data-prop-profile]'); profile.selectedIndex=1; profile.dispatchEvent(new Event('input',{bubbles:true})); const disk=document.querySelector('[data-prop-disk]'); disk.value='@create'; disk.dispatchEvent(new Event('change',{bubbles:true}))")
+            wait("return document.querySelector('[data-prop-status]').textContent.startsWith('Created ') && !document.querySelector('[data-prop-save]').disabled")
+            save_name=js("return document.querySelector('[data-prop-disk]').value")
+            assert (root / 'Atari/Safe Disks' / save_name).stat().st_size == 737280
+            assert js("return document.querySelector('[data-prop-profile]').selectedOptions[0].textContent") == 'STe Fixture'
+            assert js("return document.querySelector('[data-prop-drive]').value") == 'save'
+            element('[data-prop-cancel]').click()
+            assert (root / 'Atari/Safe Disks' / save_name).is_file(), 'Explicit disk creation survives Cancel'
+            assert not list((root / 'Arcade/game-properties').glob('*.json')), 'Cancel must not commit launch settings'
+            js("document.querySelector('.game-row').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,clientX:500,clientY:250}))")
+            wait("return !!document.querySelector('[data-action=properties]')")
+            element('[data-action=properties]').click()
+            wait("return document.querySelector('[data-prop-save]')?.disabled === false")
+            assert js("return document.querySelector('[data-prop-profile]').value") == ''
+            assert js("return document.querySelector('[data-prop-drive]').value") == 'game:1'
+            js("const version=document.querySelector('[data-prop-version]'); version.value=[...version.options].find(option=>option.value!==version.value).value; version.dispatchEvent(new Event('change',{bubbles:true}))")
+            wait("return document.querySelector('[data-prop-save]')?.disabled === false")
+            assert save_name not in js("return [...document.querySelector('[data-prop-disk]').options].map(option=>option.value)")
+            js("const version=document.querySelector('[data-prop-version]'); version.value="+json.dumps(initial_version)+"; version.dispatchEvent(new Event('change',{bubbles:true}))")
+            wait("return document.querySelector('[data-prop-save]')?.disabled === false")
+            assert save_name in js("return [...document.querySelector('[data-prop-disk]').options].map(option=>option.value)")
+            js("const disk=document.querySelector('[data-prop-disk]'); disk.value="+json.dumps(save_name)+"; disk.dispatchEvent(new Event('change',{bubbles:true})); const profile=document.querySelector('[data-prop-profile]'); profile.selectedIndex=1; profile.dispatchEvent(new Event('input',{bubbles:true}))")
+            for width, height in [(600,800),(1280,900)]:
+                browser.set_window_rect(width=width,height=height)
+                assert js("const r=document.querySelector('.game-properties-modal').getBoundingClientRect();return r.left>=0 && r.right<=innerWidth+1 && r.top>=0 && r.bottom<=innerHeight+1")
+                (root / f'properties-{width}.png').write_bytes(browser.screenshot(format='binary',full=False))
+            element('[data-prop-save]').click()
+            wait("return !document.querySelector('.game-properties-modal')",seconds=60)
+            js("document.querySelector('.game-row').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,clientX:500,clientY:250}))")
+            wait("return !!document.querySelector('[data-action=properties]')")
+            element('[data-action=properties]').click()
+            wait("return document.querySelector('[data-prop-save]')?.disabled === false")
+            assert js("return document.querySelector('[data-prop-drive]').value") == 'save'
+            assert js("return document.querySelector('[data-prop-disk]').value") == save_name
+            assert js("return document.querySelector('[data-prop-profile]').selectedOptions[0].textContent") == 'STe Fixture'
+            element('[data-prop-cancel]').click()
+            checks.append('Save-disk selector creates immediately without closing Properties; Cancel preserves the disk but discards launch drafts; edition filtering, Save persistence and compact layouts pass')
+
+
+            js("document.body.click(); const platform=document.querySelector('#platform-select'); platform.value='zx-spectrum'; platform.dispatchEvent(new Event('change',{bubbles:true}))")
+            wait("return document.querySelector('#emulator').value === 'fixture'")
+            assert 'steem-sse' not in js("return [...document.querySelectorAll('#emulator option')].map(option => option.value)")
+            js("const platform=document.querySelector('#platform-select'); platform.value='atari-st'; platform.dispatchEvent(new Event('change',{bubbles:true}))")
+            wait("return document.querySelector('#emulator').value === 'steem-sse'")
+            assert (root / 'steem.ini').read_bytes() == ini_before
+            checks.append('Arcade Atari title grouping, hardware badges, compatible context menu and emulator reset across platform switches; no emulator launch or INI modification')
+            atari_metadata = (root / 'Atari/collection-metadata.json').read_bytes()
+            wait("return document.querySelectorAll('.row-select').length === 1 && document.querySelector('.game-row').textContent.includes('Atari Adventure')")
+            element('.game-row .col-cell-title').click()
+            js("document.querySelector('.game-row').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,clientX:500,clientY:250}))")
+            wait("return !!document.querySelector('.context-menu [data-action=scrape]')")
+            wait("return !!document.querySelector('.context-menu [data-action=scrape]')")
+            element('.context-menu [data-action=scrape]').click()
+            wait("return document.querySelectorAll('[data-bulk-game]:not(:disabled)').length === 2")
+            js("document.querySelectorAll('[data-bulk-game]').forEach(input => input.click())")
+            (root / 'atari-scrape-apply.png').write_bytes(browser.screenshot(format='binary', full=False))
+            element('[data-bulk-apply]').click()
+            wait("return document.querySelector('[data-bulk-status]').textContent.includes('2 saved') && !document.querySelector('[data-bulk-close]').disabled")
+            element('[data-bulk-close]').click()
+            overrides = list((root / 'Arcade/atari-overrides').glob('*.json'))
+            assert len(overrides) == 1
+            saved_override = overrides[0].read_bytes()
+            assert len(json.loads(saved_override)['games']) == 2
+            assert (root / 'Atari/collection-metadata.json').read_bytes() == atari_metadata
+            browser.navigate((REPO / 'Arcade/web/index.html').as_uri() + '?collection=atari-st')
+            wait("return document.querySelectorAll('.row-select').length === 1 && document.querySelector('#platform-select').value === 'atari-st'")
+            assert overrides[0].read_bytes() == saved_override
+            checks.append('Atari scraper Apply is enabled and persists exact-edition overrides through reload without changing the original disk-set metadata')
+
+            js("document.querySelector('.game-row').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,clientX:500,clientY:250}))")
+            wait("return !!document.querySelector('[data-action=properties]')")
+            element('[data-action=properties]').click()
+            wait("return document.querySelector('[data-prop-save]')?.disabled === false")
+            js("const emu=document.querySelector('[data-prop-emulator]'); emu.value='hatari'; emu.dispatchEvent(new Event('change',{bubbles:true}))")
+            wait("return [...document.querySelector('[data-prop-profile]').options].some(p=>p.textContent==='STe 8Mhz 2MB 1.62')")
+            assert js("return document.querySelector('[data-prop-drive]').value") == 'save'
+            assert js("return document.querySelector('[data-prop-disk]').value") == save_name
+            js("const profile=document.querySelector('[data-prop-profile]'); profile.selectedIndex=1; profile.dispatchEvent(new Event('input',{bubbles:true}))")
+            (root / 'properties-hatari.png').write_bytes(browser.screenshot(format='binary',full=False))
+            element('[data-prop-save]').click()
+            wait("return !document.querySelector('.game-properties-modal')",seconds=60)
+            browser.navigate((REPO / 'Arcade/web/index.html').as_uri() + '?collection=atari-st')
+            wait("return document.querySelectorAll('.row-select').length === 1")
+            js("document.querySelector('.game-row').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,clientX:500,clientY:250}))")
+            wait("return !!document.querySelector('[data-action=properties]')")
+            element('[data-action=properties]').click()
+            wait("return document.querySelector('[data-prop-save]')?.disabled === false")
+            assert js("return document.querySelector('[data-prop-emulator]').value") == 'hatari'
+            assert js("return document.querySelector('[data-prop-profile]').selectedOptions[0].textContent") == 'STe 8Mhz 2MB 1.62'
+            element('[data-prop-cancel]').click()
+            checks.append('Hatari alternative and extensionless named profile can be selected, saved and reloaded in Properties')
+
+            for release in ('007', 'Empire', 'Replicants'):
+                (root / 'Atari' / f'Powermonger (1990)(Bullfrog)[cr {release}].st').write_bytes(b'x' * 1024)
+            element('#arcade-version').click()
+            element('[data-settings-tab=atari-st]').click()
+            wait("return !!document.querySelector('[data-settings-action=rebuild]')")
+            element('[data-settings-action=rebuild]').click()
+            wait("return document.querySelectorAll('.row-select').length === 2 && document.querySelector('#busy-overlay').classList.contains('hidden')",seconds=60)
+            js("[...document.querySelectorAll('.game-row')].find(row=>row.textContent.includes('Powermonger')).dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,clientX:500,clientY:250}))")
+            wait("return !!document.querySelector('[data-action=launch-version]')")
+            element('[data-action=launch-version]').click()
+            wait("return document.querySelectorAll('.game-version-row').length === 3")
+            assert set(js("return [...document.querySelectorAll('.game-version-filename')].map(el=>el.textContent)")) == {
+                f'Powermonger (1990)(Bullfrog)[cr {release}].st' for release in ('007','Empire','Replicants')}
+            (root / 'powermonger-versions.png').write_bytes(browser.screenshot(format='binary',full=False))
+            element('[data-version-close]').click()
+            checks.append('Rebuild discovers three Powermonger releases and Launch Version displays their full image filenames; disk choices survive emulator switches')
+
+            # Reproduce an already-open page with a stale one-edition cache.
+            js("window.eval(\"state.games = state.games.filter(row => row.title !== 'Powermonger' || row.id === state.selected.id); state.versionGroups.clear();\")")
+            js("[...document.querySelectorAll('.game-row')].find(row=>row.textContent.includes('Powermonger')).dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,clientX:500,clientY:250}))")
+            wait("return !!document.querySelector('[data-action=properties]')")
+            element('[data-action=properties]').click()
+            wait("return document.querySelector('[data-prop-save]')?.disabled === false")
+            options = js("return [...document.querySelector('[data-prop-version]').options].map(option=>option.textContent)")
+            assert set(options) == {f'Powermonger (1990)(Bullfrog)[cr {release}].st' for release in ('007','Empire','Replicants')}
+            js("const version=document.querySelector('[data-prop-version]'); version.value=[...version.options].find(option=>option.textContent.includes('[cr Empire]')).value; version.dispatchEvent(new Event('change',{bubbles:true}))")
+            wait("return document.querySelector('[data-prop-save]')?.disabled === false && document.querySelector('[data-prop-images]').textContent.includes('[cr Empire]')")
+            (root / 'powermonger-properties.png').write_bytes(browser.screenshot(format='binary',full=False))
+            element('[data-prop-cancel]').click()
+            checks.append('Properties fetches all three Powermonger editions despite a stale single-edition page cache and opens the selected Empire disk')
+
+            print(json.dumps({'ok':True,'browser':browser.session_capabilities.get('browserVersion'),'checks':checks,'artifacts':str(root)}))
+            return
         if args.scummvm:
             ini_before = (root / "scummvm.ini").read_bytes()
             js("document.querySelector('[data-column-id=chosen]').dispatchEvent(new MouseEvent('contextmenu', {bubbles:true,clientX:500,clientY:200}))")
@@ -254,23 +502,77 @@ def main():
             browser.navigate((REPO / 'Arcade/web/index.html').as_uri() + '?collection=scummvm')
             wait("return document.querySelectorAll('.row-select').length === 2 && document.querySelector('#platform-select').value === 'scummvm'")
             assert js("return document.querySelector('#platform-select').value") == 'scummvm'
+            assert js("return document.querySelectorAll('#platform-grid [data-platform]').length") == 4
+            assert js("return document.querySelector('#platform-grid [data-platform=scummvm]').getAttribute('aria-pressed')") == 'true'
+            wait("return getComputedStyle(document.documentElement).getPropertyValue('--text').trim() === '#fa2424'")
+            assert js("return document.querySelector('[data-platform=zx-spectrum] img').getAttribute('src').endsWith('portal-zx-spectrum.svg') && !!document.querySelector('[data-platform=atari-st] .platform-native-icon')")
+            element('.game-row .col-cell-title').click()
+            wait("return !!document.querySelector('#send-webhub')")
+            assert js("return !document.querySelector('#launch, #scrape-metadata, #favourite') && document.querySelector('.details').getBoundingClientRect().width > 360")
+            checks.append('Arcade inherits committed Portal theme with Portal closed; native platform icons and wider artwork/details pane replace redundant actions')
+            (root / 'arcade-portal-shell.png').write_bytes(browser.screenshot(format='binary',full=False))
+            element('#arcade-version').click()
+            element('[data-settings-tab=scummvm]').click()
+            wait("return !!document.querySelector('#library-root')")
+            original_name = js("return document.querySelector('#library-name').value")
+            js("document.querySelector('#library-name').value='Unsaved draft'; document.querySelector('#library-name').dispatchEvent(new Event('input',{bubbles:true}))")
+            element('[data-settings-tab=zx-spectrum]').click()
+            wait("return !!document.querySelector('#library-root')")
+            assert js("return document.querySelector('#platform-select').value") == 'scummvm'
+            element('[data-settings-tab=scummvm]').click()
+            wait("return document.querySelector('#library-name')?.value === 'Unsaved draft'")
+            element('[data-settings-close]').click()
+            element('#arcade-version').click()
+            element('[data-settings-tab=scummvm]').click()
+            wait("return !!document.querySelector('#library-name')")
+            assert js("return document.querySelector('#library-name').value") == original_name
+            (root / 'arcade-platform-settings.png').write_bytes(browser.screenshot(format='binary',full=False))
+            browser.set_window_rect(width=540,height=850)
+            assert js("const r=document.querySelector('.arcade-settings-modal').getBoundingClientRect();return r.left>=0 && r.right<=innerWidth+1 && r.bottom<=innerHeight+1")
+            (root / 'arcade-platform-settings-narrow.png').write_bytes(browser.screenshot(format='binary',full=False))
+            browser.set_window_rect(width=1920,height=1000)
+            js("document.querySelector('#library-name').value='ScummVM saved settings'; document.querySelector('#library-name').dispatchEvent(new Event('input',{bubbles:true}))")
+            element('[data-settings-save]').click()
+            wait("return document.querySelector('[data-settings-status]').textContent === 'Settings saved.'")
+            js("document.querySelector('#library-name').value=" + json.dumps(original_name) + "; document.querySelector('#library-name').dispatchEvent(new Event('input',{bubbles:true}))")
+            element('[data-settings-save]').click()
+            wait("return !document.querySelector('[data-settings-save]').disabled")
+            element('[data-settings-close]').click()
+            checks.append('Portal-style shell, platform icons and version Settings; platform tabs preserve drafts without switching the library; Cancel discards and Save persists settings')
+
             assert js("return document.querySelector('#emulator').value") == 'scummvm'
+            assert js("return document.querySelector('#filter-poks').closest('label').hidden && !document.querySelector('th[data-col=poks]')")
+            element('#arcade-version').click()
+            platform = js("return document.querySelector('#platform-select').value")
+            element(f'[data-settings-tab="{platform}"]').click()
+            wait("return !!document.querySelector('[data-settings-action=emulators]')")
+            element('[data-settings-action=emulators]').click()
+            assert js("return [...document.querySelector('#spectrum-emulator-select').options].map(row=>row.value)") == ['scummvm']
+            element('.emulator-modal [data-action=cancel]').click()
+            wait("return document.querySelector('[data-arcade-settings]').hidden === false")
+            element('[data-settings-close]').click()
             assert js("return [...document.querySelectorAll('#collection-select option')].filter(option => option.value && !option.disabled && !option.value.startsWith('__')).map(option => option.value)") == ['scummvm']
             assert js("return document.querySelector('.game-row:first-child .col-cell-publisher').textContent") == 'LucasArts'
             assert js("return document.querySelector('.game-row:first-child .col-cell-series').textContent") == 'The Secret of Monkey Island'
             element('#column-options').click()
             js("const width=document.querySelector('[data-column=series] [data-column-width]'); width.value='210'; width.dispatchEvent(new Event('input',{bubbles:true}))")
             element('.column-modal [data-action=apply]').click()
-            js("const platform=document.querySelector('#platform-select'); platform.value='zx-spectrum'; platform.dispatchEvent(new Event('change',{bubbles:true}))")
+            element('#platform-grid [data-platform=zx-spectrum]').click()
             wait("return document.querySelector('#platform-select').value === 'zx-spectrum' && document.querySelectorAll('.row-select').length > 2 && document.querySelector('#busy-overlay').classList.contains('hidden')")
             assert js("return document.querySelector('col[data-col=series]').style.width") == '150px'
+            assert js("return !document.querySelector('#filter-poks').closest('label').hidden && !!document.querySelector('th[data-col=poks]')")
+            element('#filter-poks').click()
+            assert js("return document.querySelector('#filter-poks').dataset.filterState") == 'include'
+            element('#filter-poks').click()
+            assert js("return document.querySelector('#filter-poks').indeterminate")
+            element('#clear-filters').click()
             assert js("return document.querySelector('#emulator').value") == 'fixture'
             assert 'scummvm' not in js("return [...document.querySelectorAll('#emulator option')].map(option => option.value)")
             assert js("return [...document.querySelectorAll('.game-row:first-child .game-system-badge')].map(badge => badge.textContent)") == ['48K', '128K']
             assert js("return [...document.querySelectorAll('.game-row:first-child .game-version-flags img')].map(img => img.alt)") == ['German', 'English']
             (root / 'arcade-spectrum-systems.png').write_bytes(browser.screenshot(format='binary', full=False))
             assert 'scummvm' not in js("return [...document.querySelectorAll('#collection-select option')].map(option => option.value)")
-            js("const platform=document.querySelector('#platform-select'); platform.value='scummvm'; platform.dispatchEvent(new Event('change',{bubbles:true}))")
+            element('#platform-grid [data-platform=scummvm]').click()
             wait("return document.querySelectorAll('.row-select').length === 2 && document.querySelector('#busy-overlay').classList.contains('hidden')")
             assert js("return document.querySelector('col[data-col=series]').style.width") == '210px'
             assert js("return document.querySelector('#emulator').value") == 'scummvm'
@@ -280,16 +582,20 @@ def main():
             checks.append('ScummVM publisher/series metadata, separate platform/collection selectors and platform column widths surviving switches and reload')
             # Manual preview exercises the same Apply route without provider credentials.
             element('.game-row:first-child .col-cell-title').click()
-            wait("return !!document.querySelector('#scrape-metadata')")
-            element('#scrape-metadata').click()
-            wait("return !!document.querySelector('.scrape-modal [data-scrape-match]') && !document.querySelector('.scrape-modal [data-action=apply]').disabled")
+            js("document.querySelector('.game-row').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,clientX:500,clientY:250}))")
+            wait("return !!document.querySelector('.context-menu [data-action=scrape]')")
+            wait("return !!document.querySelector('.context-menu [data-action=scrape]')")
+            element('.context-menu [data-action=scrape]').click()
+            wait("return document.querySelectorAll('[data-bulk-game]:not(:disabled)').length === 2")
+            js("document.querySelectorAll('[data-bulk-game]').forEach(input => input.click())")
             (root / 'scummvm-scrape-apply.png').write_bytes(browser.screenshot(format='binary', full=False))
-            element('.scrape-modal [data-action=apply]').click()
-            wait("return !document.querySelector('.scrape-modal') && document.querySelector('#busy-overlay').classList.contains('hidden')")
+            element('[data-bulk-apply]').click()
+            wait("return document.querySelector('[data-bulk-status]').textContent.includes('2 saved') && !document.querySelector('[data-bulk-close]').disabled")
+            element('[data-bulk-close]').click()
             override_files = list((root / 'Arcade/scummvm-overrides').glob('*.json'))
             assert len(override_files) == 1
             saved_override = override_files[0].read_bytes()
-            assert len(json.loads(saved_override)['games']) == 1
+            assert len(json.loads(saved_override)['games']) == 2
             assert (root / 'scummvm.ini').read_bytes() == ini_before
             browser.navigate((REPO / 'Arcade/web/index.html').as_uri() + '?collection=scummvm')
             wait("return document.querySelectorAll('.row-select').length === 2 && document.querySelector('#platform-select').value === 'scummvm'")
@@ -351,19 +657,51 @@ def main():
             element('[data-picker-add]').click()
             wait("return document.querySelector('[data-picker-status]').textContent.includes('1 games saved; 0')")
             element('[data-picker-close]').click()
-            wait("return !!document.querySelector('[data-column-id=chosen] .game-spectrum-icon')")
+            wait("return !!document.querySelector('[data-column-id=chosen] [data-system=zx-spectrum]')")
             for hardware, language in [('48K', 'English'), ('128K', 'German')]:
-                js("document.querySelector('[data-column-id=chosen] .game-spectrum-icon').closest('[data-item-type=game]').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,clientX:500,clientY:250}))")
+                js("document.querySelector('[data-column-id=chosen] [data-system=zx-spectrum]').closest('[data-item-type=game]').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,clientX:500,clientY:250}))")
                 wait("return [...document.querySelectorAll('.context-menu button')].some(button => button.textContent === 'Launch Version…')")
                 browser.find_element(By.XPATH, '//div[contains(@class,"context-menu")]/button[text()="Launch Version…"]').click()
                 wait("return document.querySelectorAll('.game-version-row').length === 2")
                 js("[...document.querySelectorAll('.game-version-row')].find(row => row.querySelector('.game-version-label').textContent.includes(" + json.dumps(hardware) + ")).querySelector('button:last-child').click()")
                 wait("return document.querySelector('[data-version-status]').textContent === 'Default saved.'")
                 element('[data-version-close]').click()
-                wait("const row=document.querySelector('[data-column-id=chosen] .game-spectrum-icon').closest('[data-item-type=game]'); return row.querySelector('.game-default-system')?.textContent === " + json.dumps(hardware) + " && row.querySelector('.game-default-language')?.alt === " + json.dumps(language))
+                wait("const row=document.querySelector('[data-column-id=chosen] [data-system=zx-spectrum]').closest('[data-item-type=game]'); return row.querySelector('.game-default-system')?.textContent === " + json.dumps(hardware) + " && row.querySelector('.game-default-language')?.alt === " + json.dumps(language))
             (root / 'portal-spectrum-default.png').write_bytes(browser.screenshot(format='binary', full=False))
             assert (root / 'spectrum/collection-metadata.json').read_bytes() == metadata_before
             checks.append('Spectrum icon matches Arcade; English/48K and German/128K defaults update without source metadata writes')
+            browser.navigate((REPO / 'Arcade/web/index.html').as_uri() + '?collection=scummvm')
+            wait("return document.querySelectorAll('.row-select').length === 2 && document.querySelector('#platform-select').value === 'scummvm'")
+            js("document.querySelector('.game-row').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,clientX:450,clientY:220}))")
+            wait("return !!document.querySelector('.context-menu [data-action=scrape]')")
+            element('.context-menu [data-action=scrape]').click()
+            wait("return document.querySelectorAll('[data-bulk-game]:not(:disabled)').length === 2")
+            js("const provider=document.querySelector('[data-bulk-provider]'); provider.value='fixture-manual'; provider.dispatchEvent(new Event('change',{bubbles:true}))")
+            wait("return document.querySelectorAll('[data-bulk-game]:not(:disabled)').length === 2")
+            js("const term=document.querySelector('[data-bulk-term]'); term.value='A revised lookup'; term.dispatchEvent(new Event('input',{bubbles:true}))")
+            element('[data-bulk-retry]').click()
+            wait("return !document.querySelector('[data-bulk-close]').disabled")
+            assert js("return document.querySelector('[data-bulk-term]').value") == 'A revised lookup'
+            element('[data-bulk-close]').click()
+            browser.navigate((REPO / 'Arcade/web/index.html').as_uri() + '?collection=scummvm')
+            wait("return document.querySelectorAll('.row-select').length === 2")
+            js("document.querySelector('.game-row').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,clientX:450,clientY:220}))")
+            wait("return !!document.querySelector('.context-menu [data-action=resume-scrape]')")
+            element('.context-menu [data-action=resume-scrape]').click()
+            wait("return document.querySelectorAll('[data-bulk-game]:not(:disabled)').length === 2")
+            assert js("return document.querySelector('[data-bulk-term]').value") == 'A revised lookup'
+            assert js("return document.querySelector('[data-bulk-provider]').value") == 'fixture-manual'
+            js("document.querySelectorAll('[data-bulk-game]').forEach(input => input.click())")
+            wait("return !document.querySelector('[data-bulk-apply]').disabled")
+            for width in (1920, 900, 420):
+                browser.set_window_rect(width=width,height=1000)
+                (root / f'bulk-scraping-{width}.png').write_bytes(browser.screenshot(format='binary',full=False))
+                assert js("const modal=document.querySelector('.bulk-scrape-modal'); return modal.scrollWidth <= modal.clientWidth + 2")
+            element('[data-bulk-apply]').click()
+            wait("return document.querySelector('[data-bulk-status]').textContent.includes('2 saved') && !document.querySelector('[data-bulk-close]').disabled")
+            element('[data-bulk-close]').click()
+            assert (root/'scummvm.ini').read_bytes() == ini_before
+            checks.append('ScummVM bulk edit/retry, provider selection, persisted review after reload, explicit two-version apply and responsive layouts passed')
             print(json.dumps({'ok': True, 'browser': browser.session_capabilities.get('browserVersion'), 'checks': checks, 'artifacts': str(root)}))
             return
         # Open via the actual column context-menu event and its rendered action.

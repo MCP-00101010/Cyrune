@@ -1,4 +1,4 @@
-const APP_VERSION = '0.12.17';
+const APP_VERSION = '0.12.21';
 const PORTAL_UI_TEXT = Object.freeze({
   readOnlyCached: 'Read-only: reconnect Cyrune Relay to edit Portal data. The last authoritative cache remains available for viewing and export.',
   readOnlyIncompatible: 'Read-only: Cyrune Relay is incompatible or outdated. Reload the temporary extension from this checkout, then reload Portal.',

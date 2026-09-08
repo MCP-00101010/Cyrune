@@ -12,8 +12,8 @@ const IS_ARCADE = (!!document.querySelector('meta[name="cyrune-arcade"]')
   && window.location.protocol === 'file:';
 const IS_NEXUS = !!document.querySelector('meta[name="cyrune-nexus"]')
   && window.location.protocol === 'file:';
-const PORTAL_CLIENT_PROTOCOLS = Object.freeze({ 'portal-relay': 1, 'component-settings': 2, 'arcade-catalogue': 1, 'arcade-scummvm': 1 });
-const ARCADE_CLIENT_PROTOCOLS = Object.freeze({ 'arcade-relay': 1, 'arcade-service': 1, 'component-settings': 2, 'arcade-catalogue': 1, 'arcade-scummvm': 1 });
+const PORTAL_CLIENT_PROTOCOLS = Object.freeze({ 'portal-relay': 1, 'component-settings': 2, 'arcade-catalogue': 1, 'arcade-scummvm': 1, 'arcade-atari-st': 1, 'arcade-gameboy': 1 });
+const ARCADE_CLIENT_PROTOCOLS = Object.freeze({ 'arcade-relay': 1, 'arcade-service': 1, 'component-settings': 2, 'arcade-catalogue': 1, 'arcade-scummvm': 1, 'arcade-atari-st': 1, 'arcade-gameboy': 1 });
 const NEXUS_CLIENT_PROTOCOLS = Object.freeze({ 'nexus-relay': 2, 'component-settings': 2 });
 const pendingPagePushes = new Map();
 let pushSequence = 0;
@@ -223,6 +223,9 @@ if (IS_ARCADE) {
   setRelayDiagnostic('loaded');
   void registerArcade();
   browser.runtime.onMessage.addListener(msg => {
+    if (msg.type === 'MW_PORTAL_THEME_CHANGED') {
+      window.postMessage({ _arcade: true, _emugui: true, _portalThemeChanged: true }, '*');
+    }
     if (msg.type === 'MW_CYRUNE_SETTINGS_CHANGED') {
       window.postMessage({ _arcade: true, _emugui: true, _cyruneSettingsChanged: true, revision: Number(msg.revision || 0) }, '*');
     }
@@ -276,7 +279,7 @@ window.addEventListener('message', async event => {
   if (IS_ARCADE && event.source === window && (event.data?._arcadeReq === true || event.data?._emuguiReq === true)) {
     const requestId = String(event.data.requestId || '');
     const type = String(event.data.type || '');
-    if (!requestId || !['MW_EMUGUI_SEND_GAME', 'MW_EMUGUI_RPC', 'MW_EMUGUI_ASSET', 'MW_EMUGUI_GET_CYRUNE_SETTINGS'].includes(type)) return;
+    if (!requestId || !['MW_EMUGUI_SEND_GAME', 'MW_EMUGUI_RPC', 'MW_EMUGUI_ASSET', 'MW_EMUGUI_GET_CYRUNE_SETTINGS', 'MW_EMUGUI_GET_PORTAL_THEME'].includes(type)) return;
     let response;
     try {
       const registration = await registerArcade();
@@ -299,7 +302,10 @@ window.addEventListener('message', async event => {
           query: event.data.query && typeof event.data.query === 'object' ? event.data.query : {},
           body: event.data.body && typeof event.data.body === 'object' ? event.data.body : {}
         });
-      if (type === 'MW_EMUGUI_ASSET') message.path = String(event.data.path || '').slice(0, 2048);
+      if (type === 'MW_EMUGUI_ASSET') {
+        message.path = String(event.data.path || '').slice(0, 2048);
+        if (event.data.collectionId !== undefined) message.collectionId = String(event.data.collectionId).slice(0, 120);
+      }
       response = await browser.runtime.sendMessage(message);
     } catch (error) {
       response = { ok: false, error: error?.message || String(error) };

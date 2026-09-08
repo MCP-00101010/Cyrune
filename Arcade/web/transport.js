@@ -11,6 +11,10 @@
 
   global.addEventListener("message", (event) => {
     if (event.source !== global) return;
+    if (isArcadeMessage(event.data) && event.data._portalThemeChanged === true) {
+      global.dispatchEvent(new CustomEvent('cyrune:portal-theme-changed'));
+      return;
+    }
     if (isArcadeMessage(event.data) && event.data?._cyruneSettingsChanged === true) {
       global.dispatchEvent(new CustomEvent("cyrune:settings-revision", {
         detail: { revision: Number(event.data.revision || 0) },
@@ -112,7 +116,7 @@
   const api = Object.freeze({
     request,
     rpc: (payload) => request("MW_EMUGUI_RPC", payload),
-    asset: (path) => request("MW_EMUGUI_ASSET", { path }),
+    asset: (path, collectionId) => request("MW_EMUGUI_ASSET", { path, ...(collectionId ? {collectionId} : {}) }),
     sendGame: (payload) => request("MW_EMUGUI_SEND_GAME", payload),
     settings,
     optionalNetworkAllowed: () => settings.get()?.values?.privacy?.allowOptionalNetwork !== false,

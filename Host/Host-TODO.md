@@ -1,5 +1,23 @@
 # Cyrune Host TODO
 
+- Monitor 0.2.25: scrape retry/resume, cross-platform artwork, repeated collection switches and Game Boy picker use. Implementation details and validation: `../docs/reviews/arcade-implementation-2026-09-08.md`.
+
+- Monitor Host 0.2.24 installed emulator icons in Arcade's application shortcuts. Retain monitoring of source-scoped Game Boy shortcuts; SameBoy and VBA-M game launches are confirmed working by the user.
+
+- Monitor Host 0.2.22 Arcade/Portal Explorer activation parity after switching Arcade to direct Explorer startup.
+
+- Monitor Host 0.2.21 Open in Explorer restoration for minimized windows and file/folder targets after restarting the browser.
+
+- Monitor Host 0.2.20 per-game Portal delivery latency after removing unrelated collection/profile status work for native adapters.
+
+- Monitor Host 0.2.19 Hatari CFG isolation, cross-emulator save-disk leases and schema-4 policy migration between Hatari and STEem.
+
+- Monitor Host 0.2.18 concurrent first writes to new database lock files on Windows.
+
+- Monitor Host 0.2.17 private STEem profiles, mutable save-disk approvals, backups and persistent session leases. An interrupted start without a recorded child identity remains blocked for native review; add a verified recovery workflow before offering automatic unlock.
+
+- Monitor Host 0.2.16 Atari ST disk-set browsing, STEem SSE selection, multi-disk swaps and Portal defaults under the [Atari adapter contract](../docs/architecture/arcade-atari-adapter.md).
+
 - Monitor opening picker-created Spectrum shortcuts in inactive collections, including verified source reattachment.
 
 - Monitor Host 0.2.15 inactive Spectrum binding resolution and launch, Explorer selection visibility, Windows API game-file selection and folder opening, exact Spectrum hardware fallback with older Arcade services, and exact-default language/platform badges in Portal, including default changes and missing-default handling.

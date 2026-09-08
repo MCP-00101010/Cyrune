@@ -70,9 +70,58 @@ def test_scummvm_preview_returns_matches_and_keeps_platform_on_title_retry(tmp_p
     assert result["matches"][0]["candidate"]["platform"] == "PC"
     assert "Spectrum" not in result["matches"][0]["reason"]
     assert "fixture-key" not in json.dumps(result)
+    assert result["query"]["search_term"] == "Monkey Island"
+
+
+@pytest.mark.parametrize('provider_type,parameter', [('thegamesdb','name'), ('screenscraper','recherche')])
+def test_editable_search_reaches_provider_without_changing_game_or_retrying_title(tmp_path, monkeypatch, provider_type, parameter):
+    server = load_server()
+    configure_fixture(server, tmp_path)
+    game = server.get_library().get_game('jetpac')
+    original = (game.title, game.file_name, game.path)
+    provider = {'id':provider_type, 'name':provider_type, 'type':provider_type, 'enabled':True,
+                'configured':True, 'api_key':'fixture-key'}
+    requests = []
+    def respond(request, timeout):
+        requests.append(parse_qs(urlsplit(request.full_url).query))
+        return io.BytesIO(b'{"data":{"games":[]},"response":{}}')
+    monkeypatch.setattr(server, 'screenscraper_open' if provider_type == 'screenscraper' else 'urlopen', respond)
+    monkeypatch.setattr(server, 'configured_scrapers', lambda: {provider_type:provider})
+    monkeypatch.setattr(server, 'OPTIONAL_NETWORK_ALLOWED', lambda: True)
+    first = server.scrape_preview(game.id, provider_type)
+    assert first['query']['search_term'] == requests[-1][parameter][0]
+    requests.clear()
+    result = server.dispatch_arcade_api('POST', '/api/scrape-preview', data={
+        'game_id':game.id, 'provider':provider_type, 'search_term':'  Another Game v1.0  '})
+    assert result['ok'], result
+    assert result['query']['search_term'] == 'Another Game v1.0'
+    assert len(requests) == 1
+    assert requests[0][parameter] == ['Another Game v1.0']
+    assert (game.title, game.file_name, game.path) == original
+    assert '_search_term' not in provider
+    for invalid in ('', ' ', 'x'*501, [], 'bad\nquery'):
+        assert not server.scrape_preview(game.id, provider_type, invalid)['ok']
+    assert len(requests) == 1
 
 
 def test_provider_configuration_does_not_require_spectrum_filter():
     server = load_server()
     assert server.scraper_configured({"type": "thegamesdb", "api_key": "fixture-key", "platform_id": ""})
     assert not server.scraper_configured({"type": "thegamesdb", "api_key": "", "platform_id": "4913"})
+
+
+@pytest.mark.parametrize("scope,expected", [("current", "4937"), ("amiga", "4911"), ("all", None)])
+def test_explicit_search_platform_does_not_change_atari_game(tmp_path, monkeypatch, scope, expected):
+    server = load_server()
+    configure_fixture(server, tmp_path)
+    game = server.get_library().get_game("jetpac")
+    game.type, game.platform = "Atari ST", "atari-st"
+    provider = {"api_key": "fixture-key", "_search_platform": scope}
+    requests = []
+    def respond(request, timeout):
+        requests.append(parse_qs(urlsplit(request.full_url).query))
+        return io.BytesIO(b'{"data":{"games":[]}}')
+    monkeypatch.setattr(server, "urlopen", respond)
+    server.thegamesdb_request(game, provider, "Dungeon Master II")
+    assert requests[0].get("filter[platform]") == ([expected] if expected else None)
+    assert (game.type, game.platform) == ("Atari ST", "atari-st")

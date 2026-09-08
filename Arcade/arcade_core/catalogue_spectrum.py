@@ -51,7 +51,21 @@ class SpectrumEntry:
     artwork: tuple | None = None
 
 
+@dataclass(frozen=True)
+class ScrapedSpectrumEntry(SpectrumEntry):
+    """Retain pre-scrape family identity without changing other adapter records."""
+
+    family_title: str = ''
+
+
 class SpectrumSource:
+    media_formats = MEDIA_FORMATS
+    platform_id = 'zx-spectrum'
+    platform_label = 'ZX Spectrum'
+
+    def project_metadata(self, item):
+        return spectrum_metadata(item, strict_hardware=not self.browse)
+
     def __init__(self, collection_id: str, root: Path, registry: IdentityRegistry, *, browse=False):
         if not valid_id(collection_id, legacy=True):
             raise CatalogueError("invalid-request")
@@ -69,26 +83,18 @@ class SpectrumSource:
             value = read_object(metadata, MAX_METADATA_BYTES)
         except (OSError, PathConfinementError):
             raise CatalogueError("source-unavailable") from None
-        return spectrum_rows(value)
+        from arcade_core.shared_metadata import shared_rows
+        rows = spectrum_rows(value)
+        shared = shared_rows([item for _, _, item in rows])
+        return [(legacy, relative, item) for (legacy, relative, _), item in zip(rows, shared)]
 
     @snapshot_cached
     def _row_index(self):
         return {legacy: item for legacy, _relative, item in self._rows()}
 
     def artwork_target(self, item):
-        """Only this exact entry's existing local PNG; never fetch or title-match."""
-        for value in (item.get("loading_screen"), item.get("screenshot")):
-            try:
-                relative = relative_media(value)
-                if Path(relative).suffix.lower() != ".png":
-                    continue
-                path = ConfinedRoot(self.root).resolve(relative, require_exists=True)
-                signature = tuple(media_signature(path))
-                if 0 < signature[2] <= 4 * 1024 * 1024:
-                    return relative, signature
-            except (CatalogueError, OSError, PathConfinementError):
-                continue
-        return None
+        from arcade_core.entry_artwork import target
+        return target(self.root, getattr(self, 'runtime', None), item)
 
     def prepare(self, *, expected_revision: int, dry_run: bool = True, allow_managed_moves: bool = False) -> dict:
         """Explicitly pin metadata aliases; dry runs do not write any file."""
@@ -100,7 +106,7 @@ class SpectrumSource:
                 signature = media_signature(target)
             except (OSError, PathConfinementError):
                 raise CatalogueError("review-required") from None
-            if target.suffix.lower() not in MEDIA_FORMATS:
+            if target.suffix.lower() not in self.media_formats:
                 raise CatalogueError("unsupported-target")
             records.append({"legacyId": legacy, "relativePath": relative, "signature": signature})
         return self.registry.prepare(self.collection_id, self.root, records,
@@ -125,11 +131,11 @@ class SpectrumSource:
             try:
                 if self.browse:
                     # Browsing projects metadata; only Add/launch opens game media.
-                    availability = "available" if Path(relative).suffix.lower() in MEDIA_FORMATS else "unsupported"
+                    availability = "available" if Path(relative).suffix.lower() in self.media_formats else "unsupported"
                 else:
                     target = confined.resolve(relative, require_exists=True)
                     signature = tuple(media_signature(target))
-                    if target.suffix.lower() not in MEDIA_FORMATS:
+                    if target.suffix.lower() not in self.media_formats:
                         availability = "unsupported"
                     elif relative != identity["relativePath"] or list(signature) != identity["signature"]:
                         availability = "review-required"
@@ -139,15 +145,17 @@ class SpectrumSource:
                 availability = "review-required"
             base = {
                 "catalogueId": identity["catalogueId"], "sourceId": source["sourceId"],
-                "entryRevision": "", "title": "Unavailable entry", "platformId": "zx-spectrum",
-                "platformLabel": "ZX Spectrum", "hardwareLabel": "", "editionLabel": "",
+                "entryRevision": "", "title": "Unavailable entry", "platformId": self.platform_id,
+                "platformLabel": self.platform_label, "hardwareLabel": "", "editionLabel": "",
                 "targetKind": "media-file", "year": "", "publisher": "",
                 "availability": availability, "artworkRef": "",
             }
             detail = {"description": "", "languages": [], "countries": [], "suggestedTags": []}
             policy = ("", "")
+            family_title = ''
             try:
-                metadata = spectrum_metadata(item, strict_hardware=not self.browse)
+                metadata = self.project_metadata(item)
+                family_title = _text(item.get('scrape_family_title', metadata['title']), 160)
                 base.update({key: metadata[key] for key in BASE_TEXT})
                 detail.update({key: metadata[key] for key in (*DETAIL_TEXT, *DETAIL_LISTS)})
                 policy = (_text(item.get("default_emulator", ""), 120), _text(item.get("emulator_profile", ""), 120))
@@ -160,8 +168,8 @@ class SpectrumSource:
                 detail = {"description": "", "languages": [], "countries": [], "suggestedTags": []}
                 policy = ("", "")
             digest = _metadata_digest(item)
-            entries.append(SpectrumEntry(base, detail, legacy, self.collection_id, relative, signature, policy, digest,
-                                         self.artwork_target(item)))
+            entries.append(ScrapedSpectrumEntry(base, detail, legacy, self.collection_id, relative, signature, policy, digest,
+                                         self.artwork_target(item), family_title))
         return entries
 
     def resolve_native(self, entry: SpectrumEntry) -> Path:
@@ -188,7 +196,7 @@ class SpectrumSource:
             if ((identity["signature"] and signature != identity["signature"])
                     or (not self.browse and tuple(signature) != entry.signature)):
                 raise CatalogueError("entry-changed")
-            if target.suffix.lower() not in MEDIA_FORMATS:
+            if target.suffix.lower() not in self.media_formats:
                 raise CatalogueError("unsupported-target")
             return target
         except FileNotFoundError:

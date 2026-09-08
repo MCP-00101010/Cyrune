@@ -18,7 +18,7 @@ def test_scraper_service_routes_configured_providers_and_contains_errors():
         },
     )
 
-    assert service.preview("jetpac", "manual") == {"ok": True, "provider": "manual", "game": "jetpac"}
+    assert service.preview("jetpac", "manual") == {"ok": True, "provider": "manual", "game": "jetpac", "query": {"search_term": "", "search_platform": "current"}}
     assert service.preview("jetpac", "screen") == {"ok": False, "error": "offline"}
     assert service.preview("missing", "manual")["error"] == "Unknown game"
 

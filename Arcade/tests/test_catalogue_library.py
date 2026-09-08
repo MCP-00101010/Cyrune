@@ -213,3 +213,27 @@ def test_corrupt_library_key_is_not_silently_replaced(tmp_path):
     with pytest.raises(CatalogueError, match="review-required"):
         library.service()
     assert library.key_path.read_bytes() == before
+
+
+def test_unchanged_source_projection_survives_other_collection_metadata_edit(tmp_path):
+    library,_,root=fixture(tmp_path)
+    other=tmp_path/'other';other.mkdir()
+    write(other/'collection-metadata.json', read(root/'collection-metadata.json'))
+    config=read(library.config_path)
+    config['collections'].append({**config['collections'][0],'id':'other','root':str(other)})
+    write(library.config_path,config)
+    library.service().search()
+    before={source.collection_id:source for source in library.service()._sources}
+    metadata=read(root/'collection-metadata.json');metadata['games'][0]['title']='Updated title'
+    write(root/'collection-metadata.json',metadata)
+    library.service().search()
+    after={source.collection_id:source for source in library.service()._sources}
+    assert after['other'] is before['other']
+    assert after[config['collections'][0]['id']] is not before[config['collections'][0]['id']]
+
+
+def test_unknown_collection_adapter_never_falls_through_to_spectrum(tmp_path):
+    library,_,root=fixture(tmp_path)
+    config=read(library.config_path);config['collections'][0]['adapter']='future-console-v1'
+    write(library.config_path,config)
+    assert library._sources_for_library()==[]

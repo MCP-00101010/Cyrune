@@ -31,7 +31,9 @@ def selected(server):
     return next(game for game in server.get_library().games if game.platform == "dos")
 
 
-def test_apply_persists_exact_edition_metadata_and_artwork_without_changing_registration(setup):
+@pytest.mark.parametrize("artwork", ["https://cdn.thegamesdb.net/images/original/boxart/front/42-1.jpg",
+                                    "scraper-artwork/screenscraper/123/42/box-2D/wor"])
+def test_apply_persists_exact_edition_metadata_and_artwork_without_changing_registration(setup, artwork):
     server, collection, ini, _ = setup
     game = selected(server)
     before = ini.read_bytes()
@@ -42,14 +44,14 @@ def test_apply_persists_exact_edition_metadata_and_artwork_without_changing_regi
         "title": "The Secret of Monkey Island: Scraped", "publisher": "Fixture Publisher", "year": "1990-10-01",
         "genre": "Adventure", "description": "Scraped description", "scraper_source": "thegamesdb", "scraper_id": "42",
         "platform": "PC", "system": "128K", "language": "de", "path": "bad", "arguments": ["bad"]},
-        "remote_assets": {"loading_screen": "https://cdn.thegamesdb.net/images/original/boxart/front/42-1.jpg"}})
+        "remote_assets": {"loading_screen": artwork}})
     assert result["ok"]
     server.LIBRARY = None  # A fresh library reads the durable override.
     updated = server.get_library().get_game(game.id)
     assert updated.title.endswith(": Scraped")
     assert updated.publisher == "Fixture Publisher" and updated.genre == "Adventure"
     assert updated.description == "Scraped description" and updated.year == "1990-10-01"
-    assert updated.loading_screen.endswith("42-1.jpg")
+    assert updated.loading_screen == artwork
     assert (updated.platform, updated.system, updated.languages, updated.path, updated.file_name) == (
         original.platform, original.system, original.languages, original.path, original.file_name)
     assert server.get_library().get_game(other.id) == other

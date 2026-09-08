@@ -14,7 +14,21 @@ const bridge = (() => {
   let _extensionVersion = '';
   let _capabilities = new Set();
   let _protocols = {};
-  const CLIENT_PROTOCOLS = Object.freeze({ 'portal-relay': 1, 'component-settings': 2, 'arcade-catalogue': 1, 'arcade-scummvm': 1 });
+  let _themePublishQueue = Promise.resolve();
+  let _publishedTheme = '';
+  function _sharePortalTheme(json) {
+    if (!json || !_capabilities.has('portalTheme') || typeof createArcadeThemeProjection !== 'function') return;
+    try {
+      const theme = createArcadeThemeProjection(JSON.parse(json).settings || {});
+      const signature = JSON.stringify(theme);
+      _themePublishQueue = _themePublishQueue.then(async () => {
+        if (signature === _publishedTheme) return;
+        await _send('MW_PUBLISH_PORTAL_THEME', { theme });
+        _publishedTheme = signature;
+      }).catch(() => {}); // A theme handoff never turns a successful database operation into a failure.
+    } catch { /* An invalid snapshot is handled by the existing state boundary. */ }
+  }
+  const CLIENT_PROTOCOLS = Object.freeze({ 'portal-relay': 1, 'component-settings': 2, 'arcade-catalogue': 1, 'arcade-scummvm': 1, 'arcade-atari-st': 1, 'arcade-gameboy': 1 });
   let _catalogueEpoch = 0;
   const CATALOGUE_MESSAGES = new Set(['MW_SEARCH_ARCADE_CATALOGUE', 'MW_GET_ARCADE_CATALOGUE_ENTRY',
     'MW_GET_ARCADE_CATALOGUE_ARTWORK', 'MW_BIND_ARCADE_CATALOGUE_ENTRIES']);
@@ -74,7 +88,7 @@ const bridge = (() => {
     const advertised = protocols && typeof protocols === 'object' ? protocols : {};
     const missing = Object.entries(CLIENT_PROTOCOLS)
       // The staged catalogue is optional; older Relay must retain core Portal use.
-      .filter(([name, minimumVersion]) => !['arcade-catalogue', 'arcade-scummvm'].includes(name) && Number(advertised[name] || 0) < minimumVersion)
+      .filter(([name, minimumVersion]) => !['arcade-catalogue', 'arcade-scummvm', 'arcade-atari-st', 'arcade-gameboy'].includes(name) && Number(advertised[name] || 0) < minimumVersion)
       .map(([name, minimumVersion]) => `${name} v${minimumVersion}+`);
     if (missing.length) {
       const error = new Error(`Cyrune Relay is incompatible or outdated. Required: ${missing.join(', ')}. Reload Relay from this Cyrune checkout.`);
@@ -486,6 +500,7 @@ const bridge = (() => {
           expectedHash: options.expectedHash || ''
         }, { timeoutMs: LARGE_PAYLOAD_TIMEOUT_MS });
         _available = true;
+        if (res.ok !== false && res.conflict !== true) _sharePortalTheme(json);
         return {
           ok: res.ok !== false,
           conflict: res.conflict === true,
@@ -523,10 +538,12 @@ const bridge = (() => {
         if (_nativeAvailable) {
           const loaded = await _loadSharedStateChunked();
           _available = true;
+          _sharePortalTheme(loaded.json);
           return loaded;
         }
         const res = await _send('MW_LOAD', {}, { timeoutMs: LARGE_PAYLOAD_TIMEOUT_MS });
         _available = true;
+        _sharePortalTheme(res.json);
         return {
           json: res.json || null,
           fileInfo: res.fileInfo || null,

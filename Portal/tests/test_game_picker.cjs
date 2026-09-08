@@ -298,3 +298,11 @@ test('older catalogue participants can reject grouping while exact-entry browsin
   assert.equal(requests[1].payload.groupVersions, true);
   assert.equal(Object.hasOwn(requests[2].payload, 'groupVersions'), false);
 });
+
+
+test('Game Boy cartridge results retain variant labels in the picker', async () => {
+  const cartridge=game('advance',{platformId:'game-boy',platformLabel:'Game Boy',hardwareLabel:'GBA'});
+  const {picker}=harness({search:async()=>page([cartridge])});
+  await picker.search('', ['game-boy']);
+  assert.equal(picker.model.rows[0].hardwareLabel,'GBA');
+});

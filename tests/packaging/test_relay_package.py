@@ -74,12 +74,12 @@ def test_current_relay_matches_the_historic_eight_file_package_boundary():
         "popup/popup.html",
         "popup/popup.js",
     )
-    assert PACKAGE._validate_source(REPO / "Relay")["version"] == "1.1.9"
+    assert PACKAGE._validate_source(REPO / "Relay")["version"] == "1.1.12"
 
 
 def test_unsigned_build_is_deterministic_across_paths_with_spaces_and_unicode(tmp_path):
     first = make_source(tmp_path / "first checkout")
-    second = make_source(tmp_path / "Clean Cyrune Ω checkout")
+    second = make_source(tmp_path / "Clean Cyrune Î© checkout")
     first_result = PACKAGE.build_unsigned(first, tmp_path / "first artifacts")
     second_result = PACKAGE.build_unsigned(second, tmp_path / "second artifacts")
     assert first_result["sha256"] == second_result["sha256"]
@@ -150,7 +150,7 @@ def test_independent_component_versions_are_validated_without_forcing_equality(t
         manifest = json.loads((REPO / component / "component.json").read_text(encoding="utf-8"))
         manifest["version"] = version
         (directory / manifest["documents"]["todo"]).write_text("# TODO\n", encoding="utf-8")
-        (directory / manifest["documents"]["changelog"]).write_text(f"## [{version}] — today\n", encoding="utf-8")
+        (directory / manifest["documents"]["changelog"]).write_text(f"## [{version}] â€” today\n", encoding="utf-8")
         for relative in [manifest["icon"], manifest["entrypoint"]]:
             if relative:
                 target = directory / relative
@@ -171,7 +171,7 @@ def test_independent_component_versions_are_validated_without_forcing_equality(t
 
 
 def test_current_component_versions_and_changelogs_align():
-    assert VERSIONS.validate(REPO) == {"Portal": "0.12.17", "Widgets": "0.2.17", "Arcade": "0.2.28", "Relay": "1.1.9", "Host": "0.2.15", "Nexus": "0.3.0"}
+    assert VERSIONS.validate(REPO) == {"Portal": "0.12.21", "Widgets": "0.2.17", "Arcade": "0.2.57", "Relay": "1.1.12", "Host": "0.2.25", "Nexus": "0.3.0"}
 
 
 def test_current_relay_source_builds_and_round_trips_exactly(tmp_path):
@@ -180,6 +180,6 @@ def test_current_relay_source_builds_and_round_trips_exactly(tmp_path):
         Path(result["path"]),
         kind="unsigned",
         source=REPO / "Relay",
-        expected_version="1.1.9",
+        expected_version="1.1.12",
     )
     assert verified["sha256"] == result["sha256"]

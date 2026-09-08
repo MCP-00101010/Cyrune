@@ -11,7 +11,7 @@ globalThis.CyruneComponentRegistry = (() => {
   {
     "id": "portal",
     "name": "Portal",
-    "version": "0.12.17",
+    "version": "0.12.21",
     "kind": "page",
     "accent": "violet",
     "adapter": "portal",
@@ -32,7 +32,9 @@ globalThis.CyruneComponentRegistry = (() => {
       "portal-relay": 1,
       "component-settings": 2,
       "arcade-catalogue": 1,
-      "arcade-scummvm": 1
+      "arcade-scummvm": 1,
+      "arcade-atari-st": 1,
+      "arcade-gameboy": 1
     },
     "schemas": {
       "portableState": 5
@@ -71,7 +73,7 @@ globalThis.CyruneComponentRegistry = (() => {
   {
     "id": "arcade",
     "name": "Arcade",
-    "version": "0.2.28",
+    "version": "0.2.57",
     "kind": "page",
     "accent": "orange",
     "adapter": "arcade",
@@ -94,7 +96,9 @@ globalThis.CyruneComponentRegistry = (() => {
       "arcade-service": 1,
       "component-settings": 2,
       "arcade-catalogue": 1,
-      "arcade-scummvm": 1
+      "arcade-scummvm": 1,
+      "arcade-atari-st": 1,
+      "arcade-gameboy": 1
     },
     "schemas": {
       "arcadeState": 1,
@@ -105,7 +109,7 @@ globalThis.CyruneComponentRegistry = (() => {
   {
     "id": "relay",
     "name": "Relay",
-    "version": "1.1.9",
+    "version": "1.1.12",
     "kind": "extension",
     "accent": "blue",
     "adapter": "relay",
@@ -129,7 +133,9 @@ globalThis.CyruneComponentRegistry = (() => {
       "host-native": 2,
       "component-settings": 2,
       "arcade-catalogue": 1,
-      "arcade-scummvm": 1
+      "arcade-scummvm": 1,
+      "arcade-atari-st": 1,
+      "arcade-gameboy": 1
     },
     "schemas": {
       "manifest": 2
@@ -138,7 +144,7 @@ globalThis.CyruneComponentRegistry = (() => {
   {
     "id": "host",
     "name": "Host",
-    "version": "0.2.15",
+    "version": "0.2.25",
     "kind": "native-service",
     "accent": "green",
     "adapter": "host",
@@ -160,7 +166,9 @@ globalThis.CyruneComponentRegistry = (() => {
       "arcade-service": 1,
       "component-settings": 2,
       "arcade-catalogue": 1,
-      "arcade-scummvm": 1
+      "arcade-scummvm": 1,
+      "arcade-atari-st": 1,
+      "arcade-gameboy": 1
     },
     "schemas": {
       "hostConfig": 1,

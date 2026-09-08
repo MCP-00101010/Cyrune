@@ -7,45 +7,32 @@
     <meta name="morpheus-emugui" content="1">
     <title>Cyrune Arcade</title>
     <link rel="icon" type="image/svg+xml" href="assets/arcade.svg">
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="style.css?v=0.2.57">
   </head>
   <body>
     <main class="shell" id="shell">
       <aside class="sidebar" id="sidebar">
-        <div class="brand">
-          <div class="brand-mark">CA</div>
-          <div>
-            <h1>Cyrune Arcade</h1>
-            <div class="brand-status">
-              <p id="library-count">Loading library...</p>
-              <span id="arcade-version" class="arcade-version" title="Cyrune Arcade version">v0.2.28</span>
-            </div>
+        <section class="sidebar-card menu-card">
+          <h1>Cyrune Arcade</h1>
+          <div class="sidebar-meta-row">
+            <span id="library-count">Loading library...</span>
+            <button id="arcade-version" class="arcade-version" type="button" title="Settings" aria-label="Open Arcade settings">v0.2.57</button>
           </div>
-        </div>
-
-        <label class="search">
-          <span>Search</span>
-          <input id="search" type="search" autocomplete="off" placeholder="Search games">
-        </label>
-
-        <section class="filter-group">
-          <h2>Collection</h2>
-          <label class="select-filter">
-            <span>Platform</span>
-            <select id="platform-select" aria-label="Platform"></select>
-          </label>
-          <label class="select-filter">
-            <span>Select Collection</span>
-            <select id="collection-select"></select>
-          </label>
-          <details>
-            <summary>Collection maintenance</summary>
-            <button id="prepare-catalogue" class="secondary compact-button" type="button" disabled>Preserve IDs for relocation...</button>
-            <button id="catalogue-recovery" class="secondary compact-button" type="button">Recover interrupted change...</button>
-            <button id="catalogue-reattachment" class="secondary compact-button" type="button">Reconnect Collection...</button>
-          </details>
         </section>
-
+        <section class="sidebar-card platforms-card">
+          <h2>Platforms</h2>
+          <nav id="platform-grid" class="platform-grid" aria-label="Platforms"></nav>
+          <select id="platform-select" aria-label="Platform" hidden></select>
+        </section>
+        <section class="sidebar-card emulator-shortcuts-card" aria-label="Emulators">
+          <h2>Emulators</h2>
+          <div id="emulator-shortcuts" class="emulator-shortcuts"></div>
+          <p id="emulator-shortcuts-status" class="emulator-shortcuts-status" role="status" hidden></p>
+        </section>
+        <section class="sidebar-card filters-card" aria-label="Library filters">
+          <h2 class="card-title">Filters</h2>
+          <label class="search"><span>Search</span><input id="search" type="search" autocomplete="off" placeholder="Search games"></label>
+          <label class="select-filter collection-filter"><span>Collection</span><select id="collection-select" aria-label="Collection"></select></label>
         <section class="filter-group">
           <h2 class="section-title-row">View <span class="view-beacons"><span id="incoming-indicator" class="view-indicator incoming-indicator" hidden></span><span id="trash-indicator" class="view-indicator trash-indicator" hidden></span></span></h2>
           <label class="select-filter">
@@ -56,6 +43,10 @@
               <option value="recent">Recent</option>
             </select>
           </label>
+          <label class="select-filter"><span>Needs attention</span><select id="filter-cleanup">
+            <option value="">Any</option><option value="artwork">Missing artwork</option>
+            <option value="description">Missing description</option><option value="review">Needs scrape review</option>
+          </select></label>
           <label><input type="checkbox" id="filter-poks"> POKs available</label>
         </section>
 
@@ -87,16 +78,9 @@
           </label>
         </section>
 
-        <section class="filter-group">
-          <h2>Launch With</h2>
-          <select id="emulator"></select>
-          <button id="edit-emulators" class="secondary compact-button" type="button">Edit Emulators</button>
-          <button id="edit-scrapers" class="secondary compact-button" type="button">Metadata Providers</button>
+          <button id="clear-filters" class="secondary clear-filters" type="button">Clear Filters</button>
         </section>
-
-        <div class="sidebar-actions">
-          <button id="rebuild" class="secondary">Rebuild Index</button>
-        </div>
+        <select id="emulator" aria-label="Current emulator" hidden></select>
       </aside>
 
       <section class="content">
@@ -115,7 +99,7 @@
             </div>
             <button id="column-options" class="secondary" type="button">Columns</button>
             <button id="bulk-edit" class="secondary" disabled>Edit Selected</button>
-            <button id="clear-filters" class="secondary">Clear Filters</button>
+
           </div>
         </div>
 
@@ -148,7 +132,15 @@
 
     <script src="../../Nexus/client/component-settings.js"></script>
     <script src="transport.js"></script>
+    <script src="portal-theme.js"></script>
     <script src="portal-delivery.js"></script>
-    <script src="app.js"></script>
+    <script src="platforms.js?v=0.2.57"></script>
+    <script src="metadata-scraping.js?v=0.2.57"></script>
+    <script src="settings-ui.js?v=0.2.57"></script>
+    <script src="emulator-shortcuts.js?v=0.2.57"></script>
+    <script src="scrape-drafts.js"></script>
+    <script src="scrape-views.js"></script>
+    <script src="artwork.js"></script>
+    <script src="app.js?v=0.2.57"></script>
   </body>
 </html>

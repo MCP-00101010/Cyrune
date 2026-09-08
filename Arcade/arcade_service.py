@@ -20,7 +20,7 @@ from pathlib import Path
 from tkinter import filedialog
 from urllib.error import HTTPError, URLError
 from urllib.parse import unquote, urlencode, urlsplit
-from urllib.request import Request, urlopen
+from urllib.request import Request, build_opener, urlopen
 
 from arcade_core.collection_loading import (
     CollectionLoader,
@@ -54,8 +54,61 @@ from arcade_core.paths import ConfinedRoot, PathConfinementError, relative_to_ro
 from arcade_core.persistence import atomic_write_json, read_json_object
 from arcade_core.profiles import EmulatorProfileService
 from arcade_core.scraping import ScraperAdapter, ScraperService
+from arcade_core.scrape_platforms import platform_options, platform_override
+from arcade_core.screenscraper import (
+    ART_PREFIX as SCREENSCRAPER_ART_PREFIX,
+    ScreenScraperRedirectHandler,
+    RequestQuota,
+    artwork_parts as screenscraper_artwork_parts,
+    media_reference as screenscraper_media_reference,
+    system_id as screenscraper_system_id,
+)
 from arcade_core.secrets import SCRAPER_SECRET_FIELDS, ScraperSecretService
 from arcade_core.service import ReadOnlyArcadeService, ServiceContractError
+
+from arcade_core.tosec import (
+    ARTICLE_PREFIXES,
+    ARTICLE_SUFFIX_TO_PREFIX,
+    COUNTRY_NAMES,
+    COUNTRY_TO_DEFAULT_LANGUAGE,
+    LANGUAGE_ALIASES,
+    LANGUAGE_NAMES,
+    article_sort_title,
+    build_tosec_file_name,
+    build_tosec_flags,
+    build_tosec_tags,
+    clean_file_name,
+    clean_metadata_text,
+    dedupe,
+    display_title_from_tosec,
+    folder_letter,
+    format_languages,
+    is_country_token,
+    is_language_token,
+    is_metadata_tag,
+    is_placeholder_metadata_value,
+    normalize_code_values,
+    normalize_text_list,
+    normalize_title,
+    parse_country_tag,
+    parse_language_tag,
+    parse_report_language,
+    parse_system_tag,
+    parse_tosec_name,
+    tosec_title_from_display
+)
+
+from arcade_core.provider_metadata import (
+    choose_genre,
+    choose_localized_text,
+    extract_year,
+    gameYear_py,
+    nested_text,
+    screenscraper_assets,
+    screenscraper_candidate,
+    screenscraper_confidence,
+    simplified_scrape_title
+)
 
 LAUNCHER = Path(__file__).resolve().parent
 
@@ -93,10 +146,23 @@ CONFIG_FILE = DATA / "config.json"
 METADATA_FILE = COLLECTION / "collection-metadata.json"
 DEFAULT_EMULATORS = load_emulator_defaults(LAUNCHER / "defaults" / "emulators.json")
 
+from arcade_core.collection_cache import CollectionCache
+from arcade_core.file_cache import FileCache
+from arcade_core.summary_snapshots import SummarySnapshots
+SUMMARY_SNAPSHOTS = SummarySnapshots()
+COLLECTION_CACHE = CollectionCache()
+POK_CACHE = FileCache()
+from arcade_core.scrape_jobs import ScrapeJobs
+SCRAPE_JOBS = ScrapeJobs()
 JOB_SERVICE = BackgroundJobService()
 METADATA_SERVICE: MetadataService | None = None
 COLLECTION_JOB_LOCK = threading.RLock()
 TGDB_LOOKUP_CACHE: dict[tuple[str, str], dict[str, str]] = {}
+SCREENSCRAPER_LOCK = threading.Lock()
+SCREENSCRAPER_QUOTA = RequestQuota()
+from arcade_core.provider_threads import AccountThreads
+SCREENSCRAPER_THREADS = AccountThreads()
+screenscraper_open = build_opener(ScreenScraperRedirectHandler()).open
 STATE_LOCK = threading.RLock()
 DEFAULT_SCRAPERS = {
     "manual": {
@@ -117,7 +183,7 @@ DEFAULT_SCRAPERS = {
         "base_url": "https://api.screenscraper.fr/api2",
         "username": "",
         "developer_id": "",
-        "system_id": "135",
+        "system_id": "76",
         "softname": "DesasteronSpectrumLauncher",
         "preferred_language": "en",
         "preferred_region": "wor",
@@ -357,6 +423,12 @@ def get_catalogue_service():
 
 
 ARCADE_SCUMMVM_VERSION = 1
+ARCADE_ATARI_VERSION = 1
+ARCADE_GAMEBOY_VERSION = 1
+DISK_SET_LAUNCH = None
+GAME_PROPERTIES_SERVICE = None
+GAME_PROPERTIES_ACCESS = None
+GAME_PROPERTIES_APPROVE = None
 SCUMMVM_LAUNCH = None  # Host injects native process authority when loading this service.
 VERSION_APPROVE = None  # Explicit default selection only; Host owns approvals.
 
@@ -430,22 +502,34 @@ def resolve_scummvm_game_plan(collection_id, game_id, emulator_id="", profile_id
         return plan
 
 
-def resolve_catalogue_launch_plan(catalogue_id, entry_revision=None):
+def resolve_atari_game_plan(collection_id, game_id, emulator_id="", profile_id=""):
+    from arcade_core.catalogue_identity import CatalogueError
+    entry = catalogue_game_entry(collection_id, game_id)
+    if entry.base['targetKind'] != 'disk-set':
+        raise CatalogueError('unsupported-target')
+    plan = resolve_catalogue_launch_plan(entry.base['catalogueId'], atari_emulator_override=emulator_id)
+    if profile_id and profile_id != plan['profileId'] or emulator_id and emulator_id != plan['emulatorId']:
+        raise CatalogueError('configuration-required')
+    return plan
+
+
+def resolve_catalogue_launch_plan(catalogue_id, entry_revision=None, *, atari_emulator_override=''):
     """Private Host adapter, never exposed through Arcade API dispatchers."""
     from arcade_core.catalogue_identity import CatalogueError
     from arcade_core.catalogue_launch import resolve_plan
     lifecycle = get_library_catalogue()
     try:
-        return resolve_plan(lifecycle, catalogue_id, entry_revision)
+        return resolve_plan(lifecycle, catalogue_id, entry_revision, atari_emulator_override=atari_emulator_override)
     except CatalogueError:
         raise
     except Exception:
         raise CatalogueError("configuration-required") from None
 
 
-def launch_catalogue_plan(plan, *, launch_process, copy_profile):
+def launch_catalogue_plan(plan, *, launch_process, copy_profile, atari_emulator_override=''):
     from arcade_core.catalogue_launch import launch_plan
-    return launch_plan(sys.modules[__name__], plan, launch_process=launch_process, copy_profile=copy_profile)
+    return launch_plan(sys.modules[__name__], plan, launch_process=launch_process, copy_profile=copy_profile,
+                       atari_emulator_override=atari_emulator_override)
 
 
 class Library(GameLibrary):
@@ -462,8 +546,38 @@ class Library(GameLibrary):
 
     def rebuild(self, progress=None):
         with COLLECTION_JOB_LOCK:
+            COLLECTION_CACHE.invalidate(collection_cache_key())
             invalidate_catalogue()
-            return super().rebuild(progress)
+            result = super().rebuild(progress)
+            remember_library(self)
+            return result
+
+    def refresh_metadata(self, metadata, game_ids):
+        """Reparse edited collection rows without walking unrelated media/POKs."""
+        with COLLECTION_JOB_LOCK:
+            ids = set(game_ids)
+            if any(not self.get_game(gid) or self.get_game(gid).view != 'collection' for gid in ids):
+                return self.rebuild()
+            from arcade_core.shared_metadata import shared_rows, group_keys
+            rows = metadata.get('games', [])
+            if active_collection().get('adapter') == 'gameboy-cartridges-v1':
+                from arcade_core.catalogue_gameboy import effective_rows
+                rows = effective_rows(active_collection())
+            keys = group_keys(rows)
+            groups = {keys[gid] for gid in ids if gid in keys}
+            shared = [row for row in shared_rows(rows) if row['id'] in ids or keys.get(row['id']) in groups]
+            ids.update(row['id'] for row in shared)
+            games = load_metadata_games(self.poks_by_title_memory, load_favourites(), items=shared)
+            if {game.id for game in games} != ids:
+                return self.rebuild()
+            invalidate_catalogue()
+            COLLECTION_CACHE.invalidate(collection_cache_key())
+            with self._lock:
+                replacements = {game.id: game for game in games}
+                self.games = [replacements.get(game.id, game) for game in self.games]
+                self.game_by_id.update(replacements)
+                self._mark_import_matches(self.games)
+                self.poks_by_game_id = self.build_game_pok_links(self.games)
 
 
 def init_state() -> None:
@@ -566,14 +680,14 @@ def load_config() -> dict:
     lifecycle = get_catalogue_lifecycle()
     if lifecycle is not None:
         lifecycle.ensure_settled()
+    config = read_json_object(CONFIG_FILE, {})
     fallback = {
-        "collections": discover_collections(),
+        "collections": config['collections'] if isinstance(config.get('collections'), list) else discover_collections(),
         "default_collection": "desasteron",
         "emulators": deepcopy(DEFAULT_EMULATORS),
         "emulator_profiles": [],
         "scrapers": deepcopy(DEFAULT_SCRAPERS),
     }
-    config = read_json_object(CONFIG_FILE, fallback)
     expected_types = {
         "collections": list,
         "default_collection": str,
@@ -697,7 +811,7 @@ def scraper_configured(scraper: dict[str, object]) -> bool:
     if scraper.get("type") == "manual":
         return True
     if scraper.get("type") == "screenscraper":
-        return all(str(scraper.get(key, "")).strip() for key in ("username", "password", "system_id"))
+        return all(str(scraper.get(key, "")).strip() for key in ("username", "password", "developer_id", "developer_password"))
     if scraper.get("type") == "thegamesdb":
         return bool(str(scraper.get("api_key", "")).strip())
     return bool(scraper.get("configured", False))
@@ -710,6 +824,7 @@ def scrapers_payload() -> dict[str, object]:
         public["has_password"] = bool(str(scraper.get("password", "")).strip())
         public["has_developer_password"] = bool(str(scraper.get("developer_password", "")).strip())
         public["has_api_key"] = bool(str(scraper.get("api_key", "")).strip())
+        public["platform_options"] = platform_options(scraper.get("type"))
         providers.append(public)
     return {
         "providers": providers,
@@ -872,7 +987,7 @@ def pick_path(kind: str, title: str = "", initial: str = "") -> dict:
             if kind == "folder":
                 selected = filedialog.askdirectory(title=title or "Select folder", initialdir=initial_dir, parent=root)
             else:
-                filetypes = [
+                filetypes = [("ST save disk images", "*.st")] if kind == "save-disk" else [
                     ("Emulator/profile files", "*.exe *.ini *.cfg *.conf *.json *.reg"),
                     ("Executables", "*.exe"),
                     ("INI files", "*.ini"),
@@ -953,6 +1068,27 @@ def add_collection(root: str, name: str = "", writable: bool = False, auto_metad
     return get_collection_service().add(root, name, writable, auto_metadata)
 
 
+def collection_settings(method, data):
+    global LIBRARY
+    from arcade_core.collection_settings import settings_record, validate_settings
+    from arcade_core.catalogue_identity import _writer_lock
+    with COLLECTION_JOB_LOCK, _writer_lock(CONFIG_FILE):
+        config = load_config()
+        collection = next((row for row in config['collections'] if row['id'] == data.get('collection_id')), None)
+        if collection is None:
+            raise ValueError('Unknown collection')
+        if method == 'GET':
+            return {'ok': True, 'settings': settings_record(collection)}
+        updated = validate_settings(config, data, DATA, Path(__file__).resolve().parents[1])
+        if updated != collection:
+            config['collections'][config['collections'].index(collection)] = updated
+            save_config(config)
+            if active_collection()['id'] == updated['id']:
+                activate_collection(updated['id'])
+                LIBRARY = None
+        return {'ok': True, 'settings': settings_record(updated)}
+
+
 def active_collection() -> dict:
     return get_collection_service().active()
 
@@ -974,12 +1110,16 @@ def activate_collection(collection_id: str) -> dict:
 
 def current_collection_writable() -> bool:
     active = active_collection()
-    return active.get("adapter") != "scummvm-config-v1" and bool(active.get("writable", False))
+    from arcade_core.platforms import LIBRARIES, collection_platform
+    platform = LIBRARIES.get(collection_platform(active))
+    return bool(platform and not platform['presentationOverrides'] and active.get('writable', False))
 
 
 def current_collection_auto_metadata() -> bool:
     active = active_collection()
-    return active.get("adapter") != "scummvm-config-v1" and bool(active.get("writable", False) or active.get("auto_metadata", False))
+    from arcade_core.platforms import LIBRARIES, collection_platform
+    platform = LIBRARIES.get(collection_platform(active))
+    return bool(platform and not platform['presentationOverrides'] and (active.get('writable', False) or active.get('auto_metadata', False)))
 
 
 def start_index_job(title: str, work) -> str:
@@ -994,21 +1134,61 @@ def get_job(job_id: str) -> dict[str, object]:
     return JOB_SERVICE.get(job_id)
 
 
+def collection_cache_key():
+    return (str(DATA.resolve()), str(COLLECTION.resolve()), active_collection()['id'])
+
+
+def remember_library(library):
+    from arcade_core.game_properties import properties_path
+    collection = active_collection()
+    paths = [CONFIG_FILE, METADATA_FILE, COLLECTION, DATA / 'catalogue-transaction.json',
+             DATA / 'catalogue-proofs.json', properties_path(DATA, collection)]
+    if collection.get('adapter') == 'scummvm-config-v1':
+        from arcade_core.scummvm_overrides import ScummvmOverrides
+        paths.extend([collection['scummvm_config'], ScummvmOverrides(DATA, collection).path])
+    elif collection.get('adapter') == 'atari-st-disks-v1':
+        from arcade_core.atari_overrides import AtariOverrides
+        paths.append(AtariOverrides(DATA, collection).path)
+    paths.extend(Path(game.path).parent for game in library.games)
+    paths.extend(Path(pok.get('output_path', '')).parent for pok in library.pok_by_id.values())
+    paths.extend(COLLECTION / name for name in ('incoming', '_Deleted', 'Games', 'POKs'))
+    COLLECTION_CACHE.put(collection_cache_key(), library, paths)
+
+
 def start_select_collection_job(collection_id: str) -> str:
+    from arcade_core.catalogue_identity import CatalogueError
     config = load_config()
     target = next((item for item in config.get("collections", []) if item.get("id") == collection_id), None)
     title = f"Switching to {target.get('name')}" if target else "Switching Collection"
     def work(progress) -> None:
+        global LIBRARY
         with COLLECTION_JOB_LOCK:
             if target is None:
                 raise ValueError(f"Unknown collection: {collection_id}")
             previous_id = load_active_collection_id()
+            previous_library = LIBRARY
             selected = activate_collection(collection_id)
             update_state(lambda state: state.update({"active_collection_id": selected.get("id", "desasteron")}))
             try:
-                get_library().rebuild(progress)
+                cached = COLLECTION_CACHE.get(collection_cache_key())
+                if cached is not None:
+                    LIBRARY = cached
+                    favourites = load_favourites()
+                    for game in cached.games:
+                        game.favourite = game.id in favourites
+                    progress('cached', 0, 0, 'Loading saved library view...')
+                else:
+                    LIBRARY = None
+                    get_library()
+                progress('versions', 0, 0, 'Loading game versions...')
+                try:
+                    game_version_summaries([])
+                except CatalogueError as error:
+                    if error.code != 'unavailable':
+                        raise
             except Exception:
                 activate_collection(previous_id)
+                LIBRARY = previous_library
                 update_state(lambda state: state.update({"active_collection_id": previous_id}))
                 try:
                     get_library().rebuild()
@@ -1024,6 +1204,16 @@ def start_rebuild_job() -> str:
 
     def work(progress) -> None:
         with COLLECTION_JOB_LOCK:
+            if active_collection()['id'] != active['id']:
+                raise ValueError('The selected collection changed. Rebuild it again.')
+            if active.get('adapter') == 'atari-st-disks-v1':
+                from arcade_core.atari import refresh_index
+                progress('discovering', 0, 0, 'Checking for added disk images…')
+                refresh_index(active['root'], parse_tosec_name)
+            if active.get('adapter') == 'gameboy-cartridges-v1':
+                from arcade_core.gameboy import refresh_index
+                progress('discovering', 0, 0, 'Checking for added cartridges…')
+                refresh_index(active['root'], parse_tosec_name)
             get_library().rebuild(progress)
 
     return start_index_job(f"Rebuilding {active.get('name', 'Collection')}", work)
@@ -1034,7 +1224,7 @@ def load_favourites() -> set[str]:
 
 
 def load_poks() -> dict[tuple[str, str], list[dict[str, str]]]:
-    if active_collection().get("adapter") == "scummvm-config-v1":
+    if active_collection().get("adapter") in {"scummvm-config-v1", "atari-st-disks-v1", "gameboy-cartridges-v1"}:
         return {}
     if METADATA_FILE.exists():
         return load_metadata_poks()
@@ -1136,6 +1326,10 @@ def load_metadata_poks() -> dict[tuple[str, str], list[dict[str, str]]]:
 
 
 def parse_pok_file(path: Path) -> list[dict[str, object]]:
+    return POK_CACHE.read(path, _parse_pok_file)
+
+
+def _parse_pok_file(path: Path) -> list[dict[str, object]]:
     try:
         raw = path.read_bytes()
     except OSError:
@@ -1173,6 +1367,34 @@ def parse_pok_file(path: Path) -> list[dict[str, object]]:
 
 def load_games(poks: dict[tuple[str, str], list[dict[str, str]]], favourites: set[str], progress=None) -> list[Game]:
     collection = active_collection()
+    from arcade_core.platforms import collection_platform
+    if not collection_platform(collection) or collection.get('adapter', '') not in {'', 'spectrum-metadata-v1', 'scummvm-config-v1', 'atari-st-disks-v1', 'gameboy-cartridges-v1'}:
+        raise ValueError('This collection adapter is not supported. Check its platform settings.')
+    if collection.get('adapter') == 'gameboy-cartridges-v1':
+        from arcade_core.catalogue_gameboy import effective_rows
+        return load_metadata_games({}, favourites, items=effective_rows(collection))
+    if collection.get('adapter') == 'atari-st-disks-v1':
+        from arcade_core.atari import read_rows
+        from arcade_core.atari_overrides import AtariOverrides
+        rows = read_rows(COLLECTION)
+        overrides = AtariOverrides(DATA, collection).load()
+        shared = AtariOverrides.shared_values(rows, overrides)
+        from arcade_core.game_properties import read_properties
+        properties = read_properties(DATA, collection)['games']
+        games = load_metadata_games({}, favourites, items=[
+            {**row, **shared[game_id]}
+            for game_id, row in rows.items()])
+        for game in games:
+            row = rows[game.id]
+            game.type = 'Atari ST'
+            game.section = 'Atari ST'
+            game.platform = 'atari-st'
+            game.platform_options = (row['system'],)
+            game.language = format_languages(game.languages)
+            game.default_emulator = properties.get(game.id, {}).get('emulatorId', collection.get('default_emulator', ''))
+            game.emulator_profile = properties.get(game.id, {}).get('profileId', '')
+            game.version = ' / '.join(v for v in (row.get('version', ''), row.get('edition', ''), row.get('media_label', '')) if v)
+        return games
     if collection.get("adapter") == "scummvm-config-v1":
         from arcade_core.import_scummvm import scummvm_manifest, platform_presentation, PLATFORMS
         from arcade_core.scummvm_metadata import game_metadata
@@ -1220,10 +1442,17 @@ def import_match_summary(game: Game) -> dict[str, object]:
 
 
 def load_metadata_games(poks: dict[tuple[str, str], list[dict[str, str]]], favourites: set[str], *, root=None, items=None) -> list[Game]:
+    from arcade_core.index_paths import IndexPaths
+    with IndexPaths(COLLECTION if root is None else root) as paths:
+        return _load_metadata_games(poks, favourites, root=root, items=items, _paths=paths)
+
+
+def _load_metadata_games(poks: dict[tuple[str, str], list[dict[str, str]]], favourites: set[str], *, root=None, items=None, _paths=None) -> list[Game]:
     from arcade_core.game_presentation import language_codes
+    from arcade_core.shared_metadata import shared_rows
     games: list[Game] = []
-    collection_paths = ConfinedRoot(COLLECTION if root is None else root)
-    for item in (load_metadata().get("games", []) if items is None else items):
+    collection_paths = _paths
+    for item in (shared_rows(load_metadata().get("games", [])) if items is None else items):
         status = item.get("status", "Main")
         if status in {"Deleted", "Hidden"}:
             continue
@@ -1262,7 +1491,7 @@ def load_metadata_games(poks: dict[tuple[str, str], list[dict[str, str]]], favou
                 type=collection_type,
                 language=format_languages(languages)
                 or item.get("language", "")
-                or "English",
+                or ("" if collection_type == 'Game Boy' else "English"),
                 extension=item.get("format") or absolute.suffix.lower(),
                 path=str(absolute),
                 file_name=absolute.name,
@@ -1682,299 +1911,6 @@ def make_scanned_game(
     )
 
 
-LANGUAGE_NAMES = {
-    "AR": "Arabic",
-    "CS": "Czech",
-    "DA": "Danish",
-    "DE": "German",
-    "EL": "Greek",
-    "EN": "English",
-    "ES": "Spanish",
-    "FI": "Finnish",
-    "FR": "French",
-    "HR": "Croatian",
-    "HU": "Hungarian",
-    "IT": "Italian",
-    "JA": "Japanese",
-    "KO": "Korean",
-    "NL": "Dutch",
-    "NO": "Norwegian",
-    "PL": "Polish",
-    "PT": "Portuguese",
-    "RO": "Romanian",
-    "RU": "Russian",
-    "SK": "Slovak",
-    "SV": "Swedish",
-    "TR": "Turkish",
-    "UZ": "Uzbek",
-}
-
-
-COUNTRY_NAMES = {
-    "BR": "Brazil",
-    "CA": "Canada",
-    "CZ": "Czech Republic",
-    "DE": "Germany",
-    "ES": "Spain",
-    "FR": "France",
-    "GB": "United Kingdom",
-    "GR": "Greece",
-    "HR": "Croatia",
-    "HU": "Hungary",
-    "IT": "Italy",
-    "JP": "Japan",
-    "NL": "Netherlands",
-    "PL": "Poland",
-    "PT": "Portugal",
-    "RO": "Romania",
-    "RU": "Russia",
-    "SK": "Slovakia",
-    "TR": "Turkey",
-    "US": "United States",
-    "UZ": "Uzbekistan",
-}
-
-
-COUNTRY_TO_DEFAULT_LANGUAGE = {
-    "BR": "PT",
-    "CZ": "CS",
-    "DE": "DE",
-    "ES": "ES",
-    "FR": "FR",
-    "GR": "EL",
-    "HR": "HR",
-    "HU": "HU",
-    "IT": "IT",
-    "JP": "JA",
-    "NL": "NL",
-    "PL": "PL",
-    "PT": "PT",
-    "RO": "RO",
-    "RU": "RU",
-    "SK": "SK",
-    "TR": "TR",
-    "UZ": "UZ",
-}
-
-
-LANGUAGE_ALIASES = {
-    "gr": "EL",
-    "jp": "JA",
-}
-
-ARTICLE_SUFFIX_TO_PREFIX = {
-    "a": "A",
-    "an": "An",
-    "the": "The",
-    "de": "De",
-    "het": "Het",
-    "der": "Der",
-    "die": "Die",
-    "das": "Das",
-    "le": "Le",
-    "la": "La",
-    "les": "Les",
-    "l'": "L'",
-    "el": "El",
-    "los": "Los",
-    "las": "Las",
-    "il": "Il",
-    "lo": "Lo",
-    "gli": "Gli",
-    "i": "I",
-}
-
-ARTICLE_PREFIXES = tuple(sorted((value for value in ARTICLE_SUFFIX_TO_PREFIX.values() if value != "I"), key=len, reverse=True))
-
-
-def is_placeholder_metadata_value(value: object) -> bool:
-    return str(value or "").strip() in {"", "-", "?"}
-
-
-def parse_tosec_name(file_name: str) -> dict[str, object]:
-    stem = Path(file_name).stem
-    parentheses = re.findall(r"\(([^()]*)\)", stem)
-    brackets = re.findall(r"\[([^\[\]]*)\]", stem)
-    tosec_title = re.split(r"\s+\(", stem, maxsplit=1)[0].strip() or stem
-    title = display_title_from_tosec(tosec_title)
-    year = ""
-    publisher = ""
-    languages: list[str] = []
-    countries: list[str] = []
-    systems: list[str] = []
-
-    for i, tag in enumerate(parentheses):
-        clean = tag.strip()
-        upper = clean.upper()
-        system = parse_system_tag(clean)
-        if system:
-            systems.append(system)
-        if not year and re.fullmatch(r"\d{4}(?:-\d{2}(?:-\d{2})?)?|19XX|20XX", upper):
-            year = clean
-            if i + 1 < len(parentheses):
-                candidate = parentheses[i + 1].strip()
-                if not is_placeholder_metadata_value(candidate):
-                    publisher = candidate
-            continue
-        language = parse_language_tag(clean)
-        country = parse_country_tag(clean)
-        if language and is_metadata_tag(clean):
-            languages.extend(language)
-        if country and is_metadata_tag(clean):
-            countries.extend(country)
-
-    for tag in brackets:
-        language = parse_language_tag(tag)
-        country = parse_country_tag(tag)
-        if language and is_metadata_tag(tag):
-            languages.extend(language)
-        if country and is_metadata_tag(tag):
-            countries.extend(country)
-
-    return {
-        "title": title,
-        "tosec_title": tosec_title,
-        "sort_title": article_sort_title(title),
-        "year": year,
-        "publisher": publisher,
-        "system": " / ".join(dedupe(systems)),
-        "languages": tuple(dedupe(languages)),
-        "countries": tuple(dedupe(countries)),
-        "parentheses": tuple(parentheses),
-        "brackets": tuple(brackets),
-    }
-
-
-def display_title_from_tosec(title: str) -> str:
-    text = re.sub(r"\s+", " ", title).strip()
-    match = re.match(r"^(.+),\s*([A-Za-z]+'?)$", text)
-    if not match:
-        return text
-    base = match.group(1).strip()
-    suffix = match.group(2).strip().lower()
-    article = ARTICLE_SUFFIX_TO_PREFIX.get(suffix)
-    if not article:
-        return text
-    if article.endswith("'"):
-        return f"{article}{base}"
-    return f"{article} {base}"
-
-
-def tosec_title_from_display(title: str) -> str:
-    text = re.sub(r"\s+", " ", title).strip()
-    for article in ARTICLE_PREFIXES:
-        pattern = rf"(?i)^{re.escape(article)}(?:\s+|(?=[A-Z0-9]))(.+)$" if article.endswith("'") else rf"(?i)^{re.escape(article)}\s+(.+)$"
-        match = re.match(pattern, text)
-        if not match:
-            continue
-        base = match.group(1).strip()
-        if not base:
-            return text
-        suffix = article
-        return f"{base}, {suffix}"
-    return text
-
-
-def article_sort_title(title: str) -> str:
-    text = display_title_from_tosec(title)
-    for article in ARTICLE_PREFIXES:
-        pattern = rf"(?i)^{re.escape(article)}(?:\s+|(?=[A-Z0-9]))(.+)$" if article.endswith("'") else rf"(?i)^{re.escape(article)}\s+(.+)$"
-        match = re.match(pattern, text)
-        if match:
-            return match.group(1).strip() or text
-    return text
-
-
-def parse_system_tag(tag: str) -> str:
-    normalized = tag.strip().upper().replace(" ", "")
-    if re.fullmatch(r"(?:16|48|128)K", normalized):
-        return normalized
-    if re.fullmatch(r"(?:16|48|128)K-(?:16|48|128)K", normalized):
-        return normalized
-    return ""
-
-
-def parse_language_tag(tag: str) -> list[str]:
-    codes: list[str] = []
-    for token in re.split(r"[-_,+/ ]+", tag.strip()):
-        if not token:
-            continue
-        if not token.islower():
-            continue
-        lower = token.lower()
-        upper = LANGUAGE_ALIASES.get(lower, lower.upper())
-        if upper in LANGUAGE_NAMES:
-            codes.append(upper)
-    return codes
-
-
-def is_metadata_tag(tag: str) -> bool:
-    tokens = [token for token in re.split(r"[-_,+/ ]+", tag.strip()) if token]
-    if not tokens:
-        return False
-    return all(is_language_token(token) or is_country_token(token) for token in tokens)
-
-
-def is_language_token(token: str) -> bool:
-    if not token.islower():
-        return False
-    upper = LANGUAGE_ALIASES.get(token.lower(), token.upper())
-    return upper in LANGUAGE_NAMES
-
-
-def is_country_token(token: str) -> bool:
-    return len(token) == 2 and token.isupper() and token in COUNTRY_NAMES
-
-
-def parse_country_tag(tag: str) -> list[str]:
-    countries: list[str] = []
-    for token in re.split(r"[-_,+/ ]+", tag.strip()):
-        if len(token) != 2 or not token.isupper():
-            continue
-        if token in COUNTRY_NAMES:
-            countries.append(token)
-    return countries
-
-
-def parse_report_language(value: str) -> list[str]:
-    if not value:
-        return []
-    return parse_language_tag(value)
-
-
-def format_languages(codes: tuple[str, ...] | list[str]) -> str:
-    if not codes:
-        return ""
-    return " / ".join(LANGUAGE_NAMES.get(code, code) for code in codes)
-
-
-def dedupe(items: list[str]) -> list[str]:
-    seen: set[str] = set()
-    result: list[str] = []
-    for item in items:
-        if item not in seen:
-            seen.add(item)
-            result.append(item)
-    return result
-
-
-def folder_letter(title: str) -> str:
-    normalized = normalize_title(article_sort_title(title))
-    if not normalized:
-        return "0-9"
-    first = normalized[0].upper()
-    return first if "A" <= first <= "Z" else "0-9"
-
-
-def normalize_title(title: str) -> str:
-    import re
-
-    text = article_sort_title(title).lower().replace("&", " and ")
-    text = re.sub(r"['`]", "", text)
-    text = re.sub(r"[^a-z0-9]+", " ", text)
-    return re.sub(r"\s+", " ", text).strip()
-
-
 def stable_id(text: str) -> str:
     import hashlib
 
@@ -2020,12 +1956,40 @@ def _read_only_error() -> dict[str, object]:
     return {"ok": False, "error": "Selected collection is read-only"}
 
 
+def game_properties_service():
+    global GAME_PROPERTIES_SERVICE
+    if GAME_PROPERTIES_SERVICE is None:
+        from arcade_core.game_properties import GameProperties
+        if not callable(GAME_PROPERTIES_ACCESS) or not callable(GAME_PROPERTIES_APPROVE):
+            raise ValueError('Update and reload Cyrune Relay/Host to use game properties')
+        GAME_PROPERTIES_SERVICE = GameProperties(DATA, load_config, pick_path,
+            GAME_PROPERTIES_ACCESS, GAME_PROPERTIES_APPROVE)
+    return GAME_PROPERTIES_SERVICE
+
+
 def dispatch_arcade_api(method: object, path: object, query: object = None, data: object = None) -> dict[str, object]:
     """Route the existing UI API without coupling it to HTTP transport."""
     verb = str(method or "").strip().upper()
     route = str(path or "").strip()
     query = query if isinstance(query, dict) else {}
     data = data if isinstance(data, dict) else {}
+
+    if verb == 'GET' and route == '/api/scrape-job':
+        return scrape_job_result(query)
+
+    if route in {'/api/emulator-shortcuts', '/api/emulator-icon', '/api/launch-emulator'}:
+        return emulator_shortcut_request(verb, route, query if verb == 'GET' else data)
+
+    from arcade_core.collection_context import scoped, validate
+    parameters = query if verb == 'GET' else data
+    if scoped(verb, route) and 'collection_id' in parameters:
+        with COLLECTION_JOB_LOCK:
+            try:
+                validate(parameters['collection_id'], active_collection())
+            except ValueError as error:
+                return {'ok': False, 'code':'collection-changed', 'error':str(error)}
+            clean = {key:value for key,value in parameters.items() if key != 'collection_id'}
+            return dispatch_arcade_api(verb, route, clean if verb == 'GET' else query, clean if verb != 'GET' else data)
 
     recovery_routes = {f"/api/catalogue-recovery/{action}": action for action in ("status", "preview", "confirm")}
     if verb == "POST" and route in recovery_routes:
@@ -2038,33 +2002,105 @@ def dispatch_arcade_api(method: object, path: object, query: object = None, data
     from arcade_core.catalogue_identity import CatalogueError
     try:
         lifecycle = get_catalogue_lifecycle()
+        if route == '/api/collection-settings' and verb in {'GET', 'POST'}:
+            try:
+                return collection_settings(verb, query if verb == 'GET' else data)
+            except (ValueError, OSError) as error:
+                return {'ok': False, 'error': str(error)}
         if lifecycle is not None:
             lifecycle.ensure_settled()
         migrate_native_scraper_secrets()
     except CatalogueError:
         return {"ok": False, "code": "review-required", "error": "Catalogue recovery needs review. Open Catalogue Recovery before loading or changing the library."}
 
+    if route in {'/api/game-properties', '/api/game-properties/pick-save', '/api/game-properties/recover', '/api/game-properties/save-disk'}:
+        try:
+            with COLLECTION_JOB_LOCK:
+                service = game_properties_service()
+                if verb == 'GET' and route == '/api/game-properties':
+                    return service.preview(_api_query_value(query, 'collectionId'), _api_query_value(query, 'gameId'))
+                if verb == 'POST' and route == '/api/game-properties/save-disk':
+                    return service.disk_action(data)
+                if verb == 'POST' and route == '/api/game-properties/recover':
+                    if set(data) != {'collectionId', 'gameId'}:
+                        raise ValueError('Invalid recovery request')
+                    return service.recover(data['collectionId'], data['gameId'])
+                if verb == 'POST' and route == '/api/game-properties/pick-save':
+                    if set(data) != {'collectionId', 'gameId'}:
+                        raise ValueError('Invalid save disk selection')
+                    return service.pick(data['collectionId'], data['gameId'])
+                if verb == 'POST' and route == '/api/game-properties':
+                    result = service.save(data)
+                    # Launch settings do not change files, metadata or POK links.
+                    # Update the loaded row; catalogue policy stamps still refresh
+                    # independently before binding/default selection and launch.
+                    if LIBRARY is not None and active_collection()['id'] == data['collectionId']:
+                        game = LIBRARY.get_game(data['gameId'])
+                        if game:
+                            from dataclasses import replace
+                            LIBRARY.update_game_record(replace(game, default_emulator=result['settings']['emulatorId'],
+                                emulator_profile=result['settings']['profileId']))
+                    return result
+                raise ValueError('Invalid properties operation')
+        except (ValueError, OSError, CatalogueError) as error:
+            return {'ok': False, 'error': str(error)}
     if verb == "GET":
         if route == "/api/games":
-            view = _api_query_value(query, "view", "collection")
-            games = (
-                get_library().list_game_summaries(view)
-                if _api_query_value(query, "shape") == "summary"
-                else get_library().list_games(view)
-            )
-            if _api_query_value(query, "groupVersions") == "true":
-                try:
-                    game_version_summaries(games)
-                except CatalogueError as error:
-                    if error.code != "unavailable":
-                        return {"ok": False, "error": "Game versions could not be loaded.", "code": error.code}
-            return {"games": games}
+            from arcade_core.catalogue_identity import _writer_lock
+            with COLLECTION_JOB_LOCK:
+                care = metadata_care()
+                care_state = care.journal.load()
+                if care_state.get('pending'):
+                    with _writer_lock(care.journal.path):
+                        care_state = care.journal.settle()
+                        get_library().rebuild()
+                        if METADATA_SERVICE is not None:
+                            METADATA_SERVICE.clear_history()
+                view = _api_query_value(query, "view", "collection")
+                games = (
+                    get_library().list_game_summaries(view)
+                    if _api_query_value(query, "shape") == "summary"
+                    else get_library().list_games(view)
+                )
+                if _api_query_value(query, "groupVersions") == "true":
+                    try:
+                        game_version_summaries(games)
+                    except CatalogueError as error:
+                        if error.code != "unavailable":
+                            return {"ok": False, "error": "Game versions could not be loaded.", "code": error.code}
+                newly_indexed = metadata_notes().observe(row.id for row in get_library().games if row.view == 'collection')
+                reviews = care_state.get('reviews', {})
+                for row in games:
+                    game = get_library().get_game(row['id'])
+                    row['newly_indexed'] = row['id'] in newly_indexed
+                    row['cleanup'] = {'artwork': not bool(game.screenshot or game.loading_screen),
+                                      'description': not bool(game.description.strip()),
+                                      'review': bool(reviews.get(game.id))}
+                if _api_query_value(query, 'compact') == 'true':
+                    scope = (str(DATA.resolve()), str(COLLECTION.resolve()), active_collection()['id'], view, _api_query_value(query, 'groupVersions'))
+                    return {**SUMMARY_SNAPSHOTS.response(scope, games, _api_query_value(query, 'since')), 'collection_id':active_collection()['id']}
+                return {"games": games, "collection_id": active_collection()["id"]}
         if route == "/api/game-versions":
             entry = catalogue_game_entry(active_collection()["id"], _api_query_value(query, "game_id"))
-            return get_catalogue_service().versions(entry.base["catalogueId"])
+            service = get_catalogue_service()
+            result = service.versions(entry.base["catalogueId"])
+            # File labels belong to the Arcade-only view, never the portable catalogue.
+            for version in result['versions']:
+                indexed = service._by_id[version['catalogueId']]
+                version['gameId'] = indexed.legacy_id
+                version['collectionId'] = indexed.collection_id
+                if indexed.base['targetKind'] == 'disk-set':
+                    source = next(s for s in service._sources if s.collection_id == indexed.collection_id)
+                    version['imageFiles'] = [Path(p).name for p in source.rows[indexed.legacy_id]['disks']]
+                elif indexed.base['targetKind'] == 'media-file':
+                    version['imageFiles'] = [Path(indexed.relative_path).name]
+            return result
         if route == "/api/game":
             game = get_library().get_game(_api_query_value(query, "game_id"))
-            return {"game": asdict(game) if game else None}
+            result = asdict(game) if game else None
+            if result is not None:
+                result['scrape_provenance'] = metadata_notes().load()['provenance'].get(game.id, {})
+            return {"game": result}
         if route == "/api/collections":
             return collections_payload()
         if route == "/api/job":
@@ -2131,18 +2167,25 @@ def dispatch_arcade_api(method: object, path: object, query: object = None, data
         if route == "/api/open-explorer":
             return open_in_explorer(str(data.get("game_id", "")))
         if route == "/api/scrape-preview":
-            return scrape_preview(str(data.get("game_id", "")), str(data.get("provider", "manual")))
+            if data.get('background') is True:
+                return start_scrape_preview(data)
+            return scrape_preview(str(data.get("game_id", "")), str(data.get("provider", "manual")),
+                                  data.get("search_term"), data.get("search_platform", "current"))
+        if route == '/api/scrape-targets':
+            return scrape_targets(data.get('game_ids'))
         if route == "/api/rebuild":
             return {"ok": True, "job_id": start_rebuild_job()}
 
         writable_routes = {
-            "/api/rename", "/api/update-metadata", "/api/metadata-preview", "/api/metadata-undo", "/api/apply-scrape",
+            "/api/rename", "/api/update-metadata", "/api/metadata-preview", "/api/metadata-undo", "/api/apply-scrape", "/api/metadata-care",
             "/api/delete-bulk",
             "/api/delete", "/api/import-incoming", "/api/import-incoming-bulk", "/api/restore-trash",
             "/api/purge-trash", "/api/move-language",
         }
-        scummvm_scrape = route == "/api/apply-scrape" and active_collection().get("adapter") == "scummvm-config-v1"
-        if route in writable_routes and not current_collection_writable() and not scummvm_scrape:
+        from arcade_core.platforms import LIBRARIES, collection_platform
+        capabilities = LIBRARIES.get(collection_platform(active_collection()), {})
+        adapter_scrape = route in {"/api/apply-scrape", "/api/metadata-care"} and (capabilities.get("presentationOverrides", False) or capabilities.get('metadataWritable', False))
+        if route in writable_routes and not current_collection_writable() and not adapter_scrape:
             return _read_only_error()
         if route == "/api/rename":
             return rename_game(str(data.get("game_id", "")), str(data.get("name", "")))
@@ -2152,9 +2195,11 @@ def dispatch_arcade_api(method: object, path: object, query: object = None, data
             return preview_game_metadata(data.get("game_ids", []), data.get("changes", {}), bool(data.get("rename_files", False)))
         if route == "/api/metadata-undo":
             return undo_game_metadata()
+        if route == "/api/metadata-care":
+            return metadata_care_request(data)
         if route == "/api/apply-scrape":
             return apply_scrape_metadata(str(data.get("game_id", "")), data.get("candidate", {}),
-                                         data.get("assets", {}), data.get("remote_assets", {}))
+                                         data.get("assets", {}), data.get("remote_assets", {}), data.get('target_ids'), data.get('mode', 'replace'), data.get('undo_group', ''), data.get('search_options'))
         if route == "/api/delete":
             return delete_game(str(data.get("game_id", "")))
         if route == "/api/delete-bulk":
@@ -2173,7 +2218,15 @@ def dispatch_arcade_api(method: object, path: object, query: object = None, data
     raise ServiceContractError("Unsupported Cyrune Arcade API operation")
 
 
-def read_arcade_asset(relative_path: object, max_bytes: object = 4 * 1024 * 1024) -> dict[str, object]:
+def read_arcade_asset(relative_path: object, max_bytes: object = 4 * 1024 * 1024, collection_id=None) -> dict[str, object]:
+    if collection_id is not None:
+        with COLLECTION_JOB_LOCK:
+            from arcade_core.collection_context import validate
+            validate(collection_id, active_collection())
+            return read_arcade_asset(relative_path, max_bytes)
+
+    if str(relative_path or "").startswith(SCREENSCRAPER_ART_PREFIX):
+        return read_screenscraper_artwork(relative_path, max_bytes)
     relative = unquote(str(relative_path or "")).replace("\\", "/").lstrip("/")
     if not relative or "\x00" in relative:
         raise ServiceContractError("Asset path is invalid")
@@ -2196,9 +2249,6 @@ def read_arcade_asset(relative_path: object, max_bytes: object = 4 * 1024 * 1024
 dispatch_emugui_read = dispatch_arcade_read
 dispatch_emugui_api = dispatch_arcade_api
 read_emugui_asset = read_arcade_asset
-
-
-
 
 
 def emulator_payload() -> list[dict]:
@@ -2225,6 +2275,44 @@ def emulator_payload() -> list[dict]:
             }
         )
     return payload
+
+
+EMULATOR_ICON_READER = None  # Host provides installed-application icon extraction.
+EMULATOR_ICON_CACHE = {}
+
+
+def emulator_shortcut_request(verb, route, params):
+    from arcade_core import emulator_shortcuts
+    try:
+        with COLLECTION_JOB_LOCK:
+            collection = active_collection()
+            if params.get('collection_id') != collection['id']:
+                raise ValueError('The platform changed. Select an emulator from the current platform.')
+            allowed = {'collection_id'} if route == '/api/emulator-shortcuts' else {'collection_id', 'emulator_id'}
+            if set(params) - allowed:
+                raise ValueError('Invalid emulator shortcut request.')
+            emulators = configured_emulators(include_hidden=True)
+            if verb == 'GET' and route == '/api/emulator-shortcuts':
+                return {'shortcuts': emulator_shortcuts.shortcuts(collection, emulators, expand_config_path)}
+            identifier = params.get('emulator_id')
+            if verb == 'POST' and route == '/api/launch-emulator':
+                return emulator_shortcuts.launch(collection, emulators, identifier, expand_config_path, launch_visible)
+            if verb != 'GET' or route != '/api/emulator-icon':
+                raise ValueError('Invalid emulator shortcut operation.')
+            _, path = emulator_shortcuts.executable(collection, emulators, identifier, expand_config_path)
+            stat = path.stat()
+            key = (str(path), stat.st_size, stat.st_mtime_ns)
+        # Icon extraction must not hold the collection-change lock.
+        if key not in EMULATOR_ICON_CACHE:
+            icon = EMULATOR_ICON_READER(str(path)) if callable(EMULATOR_ICON_READER) else ''
+            if not isinstance(icon, str) or len(icon) > 700000 or not icon.startswith('data:image/png;base64,'):
+                icon = ''
+            if len(EMULATOR_ICON_CACHE) >= 64:
+                EMULATOR_ICON_CACHE.pop(next(iter(EMULATOR_ICON_CACHE)))
+            EMULATOR_ICON_CACHE[key] = icon
+        return {'icon': EMULATOR_ICON_CACHE[key]}
+    except (ValueError, OSError) as error:
+        return {'ok': False, 'error': str(error)}
 
 
 def set_favourite(game_id: str, favourite: bool) -> None:
@@ -2360,8 +2448,8 @@ def _bound_spectrum_game(collection_id, game_id):
     """Resolve a legacy native binding without changing Arcade's active library."""
     service = get_catalogue_service()
     entry = catalogue_game_entry(collection_id, game_id)
-    if entry.base['platformId'] != 'zx-spectrum':
-        raise ValueError('The saved game is not a Spectrum target')
+    if entry.base['platformId'] not in {'zx-spectrum', 'game-boy'}:
+        raise ValueError('The saved game is not a supported cartridge or Spectrum target')
     source = next(source for source in service._sources if source.collection_id == collection_id)
     item = source._row_index().get(game_id)
     games = load_metadata_games({}, set(), root=source.root, items=[item] if item else [])
@@ -2386,6 +2474,15 @@ def launch_bound_game(collection_id, game_id, emulator_id, profile_id=''):
 
 def launch_game(game_id: str, emulator_id: str, launch_action: str = "", force_new: bool = False, profile_id: str = "") -> dict:
     collection = active_collection()
+    if collection.get('adapter') == 'atari-st-disks-v1':
+        if not callable(DISK_SET_LAUNCH):
+            return {'ok': False, 'error': 'Atari launch requires Cyrune Host'}
+        from arcade_core.catalogue_identity import CatalogueError
+        try:
+            plan = resolve_atari_game_plan(collection['id'], game_id, emulator_id, profile_id)
+            return {'ok': bool(DISK_SET_LAUNCH(plan, atari_emulator_override=emulator_id)), 'title': plan['public']['title']}
+        except CatalogueError as error:
+            return {'ok': False, 'error': 'The selected emulator does not support this Atari edition or disk format.' if error.code == 'unsupported-target' else 'The Atari disk set, emulator or selected configuration is unavailable.'}
     if collection.get("adapter") == "scummvm-config-v1":
         if not callable(SCUMMVM_LAUNCH):
             return {"ok": False, "error": "ScummVM launch requires Cyrune Host"}
@@ -2470,38 +2567,57 @@ def get_metadata_service() -> MetadataService:
     return METADATA_SERVICE
 
 
+def metadata_notes():
+    from arcade_core.metadata_notes import MetadataNotes
+    return MetadataNotes(DATA, active_collection())
+
+
+def metadata_care():
+    from arcade_core.metadata_care import MetadataCare
+    return MetadataCare(sys.modules[__name__])
+
+
 @_catalogue_serialized
-def apply_scrape_metadata(game_id: str, candidate: object, assets: object | None = None, remote_assets: object | None = None) -> dict:
-    global LIBRARY
-    collection = active_collection()
-    if collection.get("adapter") == "scummvm-config-v1":
-        from arcade_core.import_scummvm import scummvm_manifest
-        from arcade_core.scummvm_overrides import ScummvmOverrides, TEXT_FIELDS, ART_FIELDS
-        if not isinstance(candidate, dict):
-            return {"ok": False, "error": "Missing scrape candidate"}
-        if any(key in candidate and not isinstance(candidate[key], str) for key in TEXT_FIELDS):
-            return {"ok": False, "error": "Scraped metadata fields must be text"}
-        game = get_library().get_game(game_id)
-        manifest = scummvm_manifest(collection["id"], COLLECTION, Path(collection["scummvm_config"]))
-        row = next((row for row in manifest["entries"] if row["id"] == game_id), None)
-        if not game or not row:
-            return {"ok": False, "error": "Unknown game"}
-        values = {key: clean_metadata_text(candidate[key], max_len=limit)
-                  for key, limit in TEXT_FIELDS.items() if candidate.get(key)}
-        values = {key: value for key, value in values.items() if value}
-        images = remote_assets if isinstance(remote_assets, dict) else {}
-        for key in ART_FIELDS:
-            value = images.get(key) or candidate.get(key)
-            if value:
-                values[key] = value
-        if not values:
-            return {"ok": False, "error": "Scrape candidate has no usable metadata"}
-        values = ScummvmOverrides(DATA, collection).save(game_id, row["target"], values)
-        updated = {**asdict(game), **values}
-        updated.update(title_key=normalize_title(updated["title"]), sort_title=article_sort_title(updated["title"]))
-        LIBRARY = None
-        return {"ok": True, "game": updated}
-    return get_metadata_service().apply_scrape(game_id, candidate, remote_assets)
+def apply_scrape_metadata(game_id: str, candidate: object, assets: object | None = None, remote_assets: object | None = None,
+                          target_ids: object = None, mode='replace', undo_group='', search_options=None) -> dict:
+    from arcade_core.metadata_care import MetadataCareError
+    from arcade_core.scrape_preferences import ScrapePreferences, validate
+    try:
+        care = metadata_care()
+        if search_options is not None:
+            search_options = validate(search_options)
+            if search_options['provider'] not in configured_scrapers():
+                raise ValueError('Unknown search provider.')
+            preferences = ScrapePreferences(DATA, active_collection())
+            preferences.load()  # Validate existing storage before metadata changes.
+            _, members = care.members(game_id)
+        result = care.apply(game_id, candidate, remote_assets, target_ids, mode, undo_group)
+        if search_options is not None and result.get('ok'):
+            try:
+                preferences.record([row.id for row in members], search_options)
+            except (OSError, ValueError):
+                result.setdefault('warnings', []).append('Metadata saved, but the search choices could not be remembered.')
+        result['game'] = asdict(get_library().get_game(game_id))
+        return result
+    except MetadataCareError as error:
+        return {'ok': False, 'error': str(error)}
+
+
+@_catalogue_serialized
+def metadata_care_request(data):
+    try:
+        care = metadata_care()
+        if data.get('action') == 'undo':
+            reverted = list((care.journal.load().get('undo') or {}).get('after', {}))
+            count = care.journal.undo()
+            metadata_notes().clear(reverted)
+            get_library().rebuild()
+            if METADATA_SERVICE is not None:
+                METADATA_SERVICE.clear_history()
+            return {'ok': True, 'restored_count': count}
+        return care.protection(str(data.get('game_id', '')), data.get('protected_fields'), data.get('changes'))
+    except (ValueError, OSError) as error:
+        return {'ok': False, 'error': str(error)}
 
 
 def scrape_candidate_changes(candidate: dict, assets: dict, remote_assets: dict) -> dict:
@@ -2522,8 +2638,127 @@ def undo_game_metadata() -> dict:
     return get_metadata_service().undo_last()
 
 
-def scrape_preview(game_id: str, provider_id: str = "manual") -> dict:
-    return get_scraper_service().preview(game_id, provider_id)
+def start_scrape_preview(data):
+    from arcade_core.scrape_groups import folder_members
+    from arcade_core.scrape_text import review
+    import hashlib
+    game = get_library().get_game(str(data.get('game_id', '')))
+    if not game:
+        return {'ok':False, 'error':'Unknown game'}
+    game = deepcopy(game)
+    collection_id = active_collection()['id']
+    members = [row.id for row in folder_members(get_library(), COLLECTION, game)]
+    providers = deepcopy(configured_scrapers())
+    provider_id = str(data.get('provider', 'manual'))
+    provider = providers.get(provider_id, {})
+    # Hash configuration only in memory; no credential-bearing cache keys or raw responses persist.
+    from arcade_core.collection_cache import stamp
+    media_revision = stamp(game.path) if game.type == 'Game Boy' else None
+    cache_key = hashlib.sha256(json.dumps([media_revision, provider, collection_id, str(COLLECTION.resolve()), sorted(members), game.id, game.title, game.year, game.publisher, game.platform,
+        data.get('search_term'), data.get('search_platform', 'current')], sort_keys=True).encode()).hexdigest()
+    provider['_collection_root'] = str(COLLECTION.resolve())
+    adapters = get_scraper_service()._adapters
+    def work():
+        service = ScraperService(get_game=lambda _:game, provider_config=lambda:providers, adapters=adapters,
+                                optional_network_allowed=lambda:bool(OPTIONAL_NETWORK_ALLOWED()))
+        result = service.preview(game.id, provider_id, data.get('search_term'), data.get('search_platform', 'current'))
+        result['target_ids'] = members
+        result['needs_review'], result['review_reason'] = review(result)
+        if game.type == 'ScummVM' and game.platform == 'unknown' and data.get('search_platform', 'current') == 'current':
+            result['needs_review'] = True
+        result['collection_id'] = collection_id
+        result['game_id'] = game.id
+        return result
+    return SCRAPE_JOBS.start(collection_id, work, cache_key=cache_key, refresh=data.get('refresh') is True)
+
+
+def cached_artwork_path(reference):
+    from arcade_core.entry_artwork import target, location
+    found = target(COLLECTION, DATA, {'loading_screen':reference})
+    if not found:
+        return None
+    try:
+        path = location(COLLECTION, DATA, found[0])[1]
+        return path if 0 < path.stat().st_size <= 4 * 1024 * 1024 else None
+    except OSError:
+        return None
+
+
+def start_artwork_job(reference, collection_id=None):
+    collection_id = collection_id or active_collection()['id']
+    from arcade_core.collection_context import validate
+    validate(collection_id, active_collection())
+    if not screenscraper_artwork_parts(reference):
+        return read_arcade_asset(reference, collection_id=collection_id)
+    return SCRAPE_JOBS.start(collection_id, lambda:read_screenscraper_artwork(reference, 4 * 1024 * 1024))
+
+
+def scrape_job_result(query):
+    collection_id = str(query.get('collection_id', ''))
+    payload = SCRAPE_JOBS.get(str(query.get('id', '')), collection_id)
+    result = payload.get('result', {})
+    if payload.get('status') == 'done' and 'needs_review' in result:
+        with COLLECTION_JOB_LOCK:
+            if active_collection()['id'] == collection_id:
+                metadata_care().journal.review(result.get('target_ids', []), result['needs_review'])
+    return payload
+
+
+def scrape_preview(game_id: str, provider_id: str = "manual", search_term: object = None,
+                   search_platform: object = "current") -> dict:
+    from arcade_core.scrape_groups import folder_members
+    game = get_library().get_game(game_id)
+    if not game:
+        return {'ok': False, 'error': 'Unknown game'}
+    members = folder_members(get_library(), COLLECTION, game)
+    result = get_scraper_service().preview(game_id, provider_id, search_term, search_platform)
+    result['target_ids'] = [row.id for row in members]
+    if len(members) > 1:
+        result['warnings'] = [f'Metadata and artwork will update all {len(members)} versions in this game folder.',
+                              *result.get('warnings', [])]
+    if game.type == 'ScummVM' and game.platform == 'unknown' and search_platform == 'current':
+        result['warnings'] = ['This registration has no platform specified. Review the platform of each result from All platforms.',
+                              *result.get('warnings', [])]
+    if provider_id != 'manual':
+        from arcade_core.metadata_care import needs_review
+        result['needs_review'] = bool(result.get('ok') is False or needs_review(result) or
+                 (game.type == 'ScummVM' and game.platform == 'unknown' and search_platform == 'current'))
+        metadata_care().journal.review([member.id for member in members], result['needs_review'])
+    return result
+
+
+@_catalogue_serialized
+def scrape_targets(game_ids):
+    """Plan bounded review rows without exposing folder or registration authority."""
+    from arcade_core.scrape_groups import folder_members, MAX_SCRAPE_TARGETS
+    if (not isinstance(game_ids, list) or not 1 <= len(game_ids) <= 100 or
+            any(not isinstance(key, str) for key in game_ids)):
+        return {'ok': False, 'error': 'Select between 1 and 100 games.'}
+    library = get_library()
+    selected = [library.get_game(key) for key in dict.fromkeys(game_ids)]
+    if any(not game or game.view != 'collection' for game in selected):
+        return {'ok': False, 'error': 'Only collection games can be scraped.'}
+    families = {}
+    if active_collection().get('adapter') == 'scummvm-config-v1':
+        summaries = game_version_summaries(library.list_game_summaries('collection'))
+        families = {row['id']: row.get('version_group', row['id']) for row in summaries}
+        wanted = {families[game.id] for game in selected}
+        selected = [game for game in library.games if families.get(game.id) in wanted]
+    from arcade_core.scrape_preferences import ScrapePreferences, for_members
+    searches = ScrapePreferences(DATA, active_collection()).load()
+    seen, targets = set(), []
+    for game in selected:
+        if game.id in seen:
+            continue
+        members = folder_members(library, COLLECTION, game)
+        seen.update(row.id for row in members)
+        targets.append({**{key: getattr(game, key) for key in ('id', 'title', 'type', 'system', 'platform', 'language', 'version', 'year', 'publisher')},
+                        'target_ids': [row.id for row in members], 'scrape_count': len(members),
+                        'scrape_searches': for_members(searches, members, game),
+                        'search_key': stable_id(str([families.get(game.id, game.id), game.platform, game.title, game.year, game.publisher]))})
+        if len(targets) > MAX_SCRAPE_TARGETS or len(seen) > MAX_SCRAPE_TARGETS:
+            return {'ok': False, 'error': 'Too many versions. Select fewer games for this batch.'}
+    return {'ok': True, 'games': targets}
 
 
 def get_scraper_service() -> ScraperService:
@@ -2540,44 +2775,73 @@ def get_scraper_service() -> ScraperService:
 
 
 def screenscraper_scrape_preview(game: Game, provider: dict[str, object]) -> dict:
-    data = screenscraper_request(game, provider)
-    game_data = (data.get("response") or {}).get("jeu") if isinstance(data.get("response"), dict) else None
-    if not isinstance(game_data, dict):
-        return {
-            "ok": True,
-            "provider": scraper_public_identity(provider),
-            "game": import_match_summary(game),
-            "query": scrape_identity(game),
-            "matches": [],
-            "warnings": ["ScreenScraper returned no game match."],
-        }
-    candidate = screenscraper_candidate(game_data, provider)
-    candidate["scraper_source"] = "screenscraper"
-    candidate["scraper_id"] = str(game_data.get("id") or game_data.get("gameid") or "")
+    title = str(provider.get("_search_term", game.title))
+    identified = None
+    if provider.get('_collection_root') and game.type == 'Game Boy' and '_search_term' not in provider and provider.get('_search_platform', 'current') == 'current':
+        from arcade_core.cartridge_hashes import fingerprints
+        try:
+            hashes = fingerprints(provider['_collection_root'], game.path)
+            raw, _ = screenscraper_api_request(provider, 'jeuInfos.php', {**hashes, 'systemeid':screenscraper_system_id(game, provider)}, 4 * 1024 * 1024)
+            response = json.loads(raw).get('response', {})
+            SCREENSCRAPER_THREADS.update(provider, response.get('ssuser'))
+            with SCREENSCRAPER_LOCK:
+                SCREENSCRAPER_QUOTA.update(response.get('ssuser'))
+            possible = response.get('jeu')
+            if isinstance(possible, dict) and isinstance(possible.get('rom'), dict) and str(possible['rom'].get('romsha1', '')).lower() == hashes['sha1']:
+                identified = possible
+        except (OSError, ValueError) as error:
+            if hasattr(error, 'retry_after'):
+                raise
+    data = {} if identified else screenscraper_request(game, provider, title)
+    rows = [identified] if identified else data.get('response', {}).get('jeux') or []
+    if not rows and "_search_term" not in provider:
+        fallback = simplified_scrape_title(title)
+        if fallback and fallback != title:
+            title = fallback
+            data = screenscraper_request(game, provider, title)
+            rows = data.get("response", {}).get("jeux") or []
+    if not isinstance(rows, list):
+        raise ValueError("ScreenScraper returned an invalid game list")
+    matches = []
+    system_id = screenscraper_system_id(game, provider)
+    for game_data in rows[:30]:
+        if not isinstance(game_data, dict):
+            continue
+        system = game_data.get("systeme") or {}
+        if not isinstance(system, dict) or (system_id and str(system.get("id") or "") != system_id):
+            continue
+        candidate = screenscraper_candidate(game_data, provider)
+        if not candidate["title"]:
+            continue
+        candidate["scraper_source"] = "screenscraper"
+        candidate["scraper_id"] = str(game_data.get("id") or game_data.get("gameid") or "")
+        matches.append({
+            "match_id": candidate["scraper_id"] or "screenscraper",
+            "confidence": 100 if identified else screenscraper_confidence(game, candidate, provider.get('_search_term')),
+            "identity": "rom-sha1" if identified else "title",
+            "reason": "Exact cartridge identification (SHA-1)." if identified else ("ScreenScraper title search for the chosen platform." if system_id else "ScreenScraper title search across platforms."),
+            "candidate": candidate,
+            "assets": scrape_asset_targets(game),
+            "remote_assets": screenscraper_assets(game_data, provider),
+        })
+    matches.sort(key=lambda match: match["confidence"], reverse=True)
     return {
         "ok": True,
         "provider": scraper_public_identity(provider),
         "game": import_match_summary(game),
-        "query": scrape_identity(game),
-        "matches": [
-            {
-                "match_id": candidate["scraper_id"] or "screenscraper",
-                "confidence": screenscraper_confidence(game, candidate),
-                "reason": "ScreenScraper game lookup by filename and configured Spectrum system id.",
-                "candidate": candidate,
-                "assets": scrape_asset_targets(game),
-                "remote_assets": screenscraper_assets(game_data, provider),
-            }
-        ],
+        "query": {**scrape_identity(game), "lookup_title": title, "system_id": system_id},
+        "matches": matches,
+        "warnings": (["Showing up to 30 provider results. Refine the title or platform if needed."] if len(rows) >= 30 else [])
+                    if matches else ["ScreenScraper returned no game match for this title and platform. Try All platforms or edit the search term."],
     }
 
 
 def thegamesdb_scrape_preview(game: Game, provider: dict[str, object]) -> dict:
     platform_id = thegamesdb_platform_id(game, provider)
-    data = thegamesdb_request(game, provider, game.title)
+    query_title = provider.get("_search_term", game.title)
+    data = thegamesdb_request(game, provider, query_title)
     games = (((data.get("data") or {}).get("games")) if isinstance(data.get("data"), dict) else []) or []
-    query_title = game.title
-    if not games:
+    if not games and "_search_term" not in provider:
         fallback_title = simplified_scrape_title(game.title)
         if fallback_title and fallback_title != game.title:
             data = thegamesdb_request(game, provider, fallback_title)
@@ -2589,14 +2853,14 @@ def thegamesdb_scrape_preview(game: Game, provider: dict[str, object]) -> dict:
     image_base = thegamesdb_image_base(includes)
     image_lookup: dict = {}
     image_warning = ""
-    game_ids = [str(row.get("id") or "") for row in games[:8] if isinstance(row, dict) and row.get("id")]
+    game_ids = [str(row.get("id") or "") for row in games[:30] if isinstance(row, dict) and row.get("id")]
     if game_ids:
         try:
             image_lookup = thegamesdb_images_request(provider, game_ids)
         except ValueError as exc:
             image_warning = str(exc)
     matches = []
-    for row in games[:8]:
+    for row in games[:30]:
         if not isinstance(row, dict):
             continue
         candidate = thegamesdb_candidate(row, includes, provider)
@@ -2608,9 +2872,9 @@ def thegamesdb_scrape_preview(game: Game, provider: dict[str, object]) -> dict:
         matches.append(
             {
                 "match_id": candidate["scraper_id"] or stable_id(candidate.get("title", "")),
-                "confidence": screenscraper_confidence(game, candidate),
+                "confidence": screenscraper_confidence(game, candidate, provider.get('_search_term')),
                 "reason": (f"TheGamesDB title lookup filtered by platform {platform_id}." if platform_id
-                           else "TheGamesDB title lookup across platforms; original system is unspecified or unsupported."),
+                           else "TheGamesDB title lookup across platforms."),
                 "candidate": candidate,
                 "assets": scrape_asset_targets(game),
                 "remote_assets": remote_assets,
@@ -2623,20 +2887,18 @@ def thegamesdb_scrape_preview(game: Game, provider: dict[str, object]) -> dict:
         "game": import_match_summary(game),
         "query": {**scrape_identity(game), "lookup_title": query_title},
         "matches": matches,
-        "warnings": ([image_warning] if image_warning else []) if matches else ["TheGamesDB returned no game match."],
+        "warnings": (([image_warning] if image_warning else []) +
+                     (["Showing up to 30 provider results. Refine the title or platform if needed."] if len(games) >= 30 else []))
+                    if matches else ["TheGamesDB returned no game match. Try All platforms or edit the search term."],
     }
 
 
 def thegamesdb_platform_id(game: Game, provider: dict[str, object]) -> str:
-    if game.type != "ScummVM":
-        # Retain the existing Spectrum setting, including user overrides.
-        return str(provider.get("platform_id", "")).strip()
-    # Native adapter platform IDs, not display badges (Steam is not an OS).
-    # Provider IDs: https://thegamesdb.net/browse.php (2026-09-07).
-    return {
-        "dos": "1", "windows": "1", "amiga": "4911", "atari-st": "4937",
-        "macintosh": "37", "fm-towns": "4932",
-    }.get(game.platform, "")
+    override = platform_override(provider, "thegamesdb")
+    if override is not None:
+        return override
+    from arcade_core.platforms import provider_platform
+    return provider_platform(game, 'thegamesdb', provider)
 
 
 def thegamesdb_request(game: Game, provider: dict[str, object], title: str) -> dict:
@@ -2688,32 +2950,25 @@ def thegamesdb_images_request(provider: dict[str, object], game_ids: list[str]) 
         raise ValueError(f"TheGamesDB image lookup returned invalid JSON: {exc}")
 
 
-def simplified_scrape_title(title: str) -> str:
-    text = re.sub(r"\bv\d+(?:\.\d+)*\b", "", title, flags=re.IGNORECASE)
-    text = re.sub(r"\b(?:demo|preview|beta|alpha|final|release|remake)\b$", "", text, flags=re.IGNORECASE)
-    text = re.sub(r"\s+", " ", text).strip(" -_")
-    return text
-
-
 def thegamesdb_candidate(row: dict, includes: dict, provider: dict[str, object]) -> dict[str, str]:
     publisher_names = lookup_tgdb_names(row.get("publishers"), includes.get("publishers"), provider, "publishers")
     developer_names = lookup_tgdb_names(row.get("developers"), includes.get("developers"), provider, "developers")
     genre_names = lookup_tgdb_names(row.get("genres"), includes.get("genres"), provider, "genres")
     platform_names = lookup_tgdb_names(row.get("platform"), includes.get("platform"))
-    release_date = clean_metadata_text(row.get("release_date") or row.get("release_date_eu") or row.get("release_date_us") or "", max_len=24)
+    release_date = nested_text(row.get("release_date") or row.get("release_date_eu") or row.get("release_date_us") or "", max_len=24)
     return {
-        "title": clean_metadata_text(row.get("game_title") or row.get("title") or row.get("name") or ""),
+        "title": nested_text(row.get("game_title") or row.get("title") or row.get("name") or ""),
         "year": release_date or extract_year(row.get("release_date") or row.get("release_date_eu") or row.get("release_date_us") or ""),
         "publisher": publisher_names[0] if publisher_names else "",
         "genre": ", ".join(genre_names),
         "developer": ", ".join(developer_names),
         "platform": platform_names[0] if platform_names else "",
-        "region": clean_metadata_text(row.get("region") or row.get("release_region") or ""),
-        "players": clean_metadata_text(row.get("players") or "", max_len=24),
-        "coop": clean_metadata_text(row.get("coop") or "", max_len=24),
-        "rating": clean_metadata_text(row.get("rating") or "", max_len=80),
+        "region": nested_text(row.get("region") or row.get("release_region") or ""),
+        "players": nested_text(row.get("players") or "", max_len=24),
+        "coop": nested_text(row.get("coop") or "", max_len=24),
+        "rating": nested_text(row.get("rating") or "", max_len=80),
         "youtube_id": clean_youtube_id(row.get("youtube") or row.get("youtube_id") or ""),
-        "description": clean_metadata_text(row.get("overview") or "", max_len=2000),
+        "description": nested_text(row.get("overview") or "", max_len=2000),
         "screenshot": "",
         "loading_screen": "",
     }
@@ -2847,17 +3102,14 @@ def thegamesdb_direct_image_base(data: dict) -> str:
     return ""
 
 
-def screenscraper_request(game: Game, provider: dict[str, object]) -> dict:
-    base_url = normalize_scraper_base_url(provider.get("base_url"), "https://www.screenscraper.fr/api2")
-    path = Path(game.path)
+def screenscraper_api_request(provider: dict[str, object], endpoint: str, query: dict, max_bytes: int):
+    base_url = normalize_scraper_base_url(provider.get("base_url"), "https://api.screenscraper.fr/api2")
     params = {
         "softname": str(provider.get("softname") or "DesasteronSpectrumLauncher"),
         "ssid": str(provider.get("username", "")),
         "sspassword": str(provider.get("password", "")),
         "output": "json",
-        "systemeid": str(provider.get("system_id", "")),
-        "romtype": "rom",
-        "romnom": game.file_name,
+        **query,
     }
     developer_id = str(provider.get("developer_id", "")).strip()
     developer_password = str(provider.get("developer_password", "")).strip()
@@ -2865,22 +3117,89 @@ def screenscraper_request(game: Game, provider: dict[str, object]) -> dict:
         params["devid"] = developer_id
     if developer_password:
         params["devpassword"] = developer_password
-    if path.exists():
-        params["romtaille"] = str(path.stat().st_size)
-    url = f"{base_url}/jeuInfos.php?{urlencode(params)}"
-    request = Request(url, headers={"User-Agent": "DesasteronSpectrumLauncher/0.1"})
+    url = f"{base_url}/{endpoint}?{urlencode(params)}"
+    request = Request(url, headers={"User-Agent": "CyruneArcade"})
     try:
-        with urlopen(request, timeout=30) as response:
-            raw = response.read(1024 * 1024 * 4).decode("utf-8", errors="replace")
+        with SCREENSCRAPER_THREADS.request(provider):
+            with SCREENSCRAPER_LOCK:
+                SCREENSCRAPER_QUOTA.before_request()
+            timeout = 60 if endpoint == "jeuRecherche.php" and "systemeid" not in query else 20
+            with screenscraper_open(request, timeout=timeout) as response:
+                raw = response.read(max_bytes + 1)
+                content_type = str(getattr(response, "headers", {}).get("Content-Type", "")).split(";", 1)[0].strip().lower()
     except HTTPError as exc:
-        detail = exc.read(4096).decode("utf-8", errors="replace")
-        raise ValueError(f"ScreenScraper HTTP {exc.code}: {detail[:240]}")
-    except URLError as exc:
-        raise ValueError(f"ScreenScraper request failed: {exc.reason}")
+        # Never echo provider bodies or request URLs: both can contain secrets.
+        if exc.code == 404 and endpoint in {"jeuRecherche.php", "jeuInfos.php"}:
+            return b'{"response":{"jeux":[]}}', "application/json"
+        with SCREENSCRAPER_LOCK:
+            SCREENSCRAPER_QUOTA.failed(exc.code)
+        explanation = {401: "The service is restricted to active members; check your account or try later.",
+                       403: "Check the approved developer credentials.",
+                       423: "The API is temporarily closed; try again later.",
+                       426: "The scraper application was blocked; check its approval and version.",
+                       429: "Request/thread limit reached; wait one minute before retrying.",
+                       430: "Daily request quota reached; try again later.",
+                       431: "Daily unmatched-game quota reached; try again tomorrow.",
+                       503: "The service is busy; try again later."}.get(exc.code, "The request failed; try again later.")
+        if exc.code in (429, 430, 431):
+            from arcade_core.screenscraper import QuotaPause
+            raise QuotaPause(f"ScreenScraper HTTP {exc.code}: {explanation}", 60 if exc.code == 429 else 3600) from None
+        raise ValueError(f"ScreenScraper HTTP {exc.code}: {explanation}") from None
+    except (URLError, OSError):
+        raise ValueError("ScreenScraper connection failed or timed out; try again later.") from None
+    if not raw or len(raw) > max_bytes:
+        raise ValueError("ScreenScraper response is empty or exceeds the size limit")
+    return raw, content_type
+
+
+def screenscraper_request(game: Game, provider: dict[str, object], title: str | None = None) -> dict:
+    system_id = screenscraper_system_id(game, provider)
+    raw, _ = screenscraper_api_request(provider, "jeuRecherche.php", {
+        **({"systemeid": system_id} if system_id else {}),
+        "recherche": title if title is not None else provider.get("_search_term", game.title),
+    }, 4 * 1024 * 1024)
     try:
-        return json.loads(raw)
-    except json.JSONDecodeError as exc:
-        raise ValueError(f"ScreenScraper returned invalid JSON: {exc}")
+        data = json.loads(raw)
+    except (json.JSONDecodeError, UnicodeError):
+        raise ValueError("ScreenScraper returned a non-JSON response; check API credentials, approval and quota.") from None
+    if not isinstance(data, dict) or not isinstance(data.get("response"), dict):
+        raise ValueError("ScreenScraper returned an invalid response; check API credentials, approval and quota.")
+    SCREENSCRAPER_THREADS.update(provider, data["response"].get("ssuser"))
+    with SCREENSCRAPER_LOCK:
+        SCREENSCRAPER_QUOTA.update(data["response"].get("ssuser"))
+    return data
+
+
+def read_screenscraper_artwork(reference: object, max_bytes: object) -> dict[str, object]:
+    parts = screenscraper_artwork_parts(reference)
+    if not parts:
+        raise ServiceContractError("ScreenScraper artwork reference is invalid")
+    from arcade_core.artwork_cache import ArtworkCache
+    limit = max(1, min(4 * 1024 * 1024, int(max_bytes or 0)))
+    cached = ArtworkCache(DATA).read(reference, limit)
+    if cached is not None:
+        return {'dataUrl':'data:image/png;base64,' + base64.b64encode(cached).decode('ascii'), 'contentType':'image/png'}
+    if not OPTIONAL_NETWORK_ALLOWED():
+        raise ServiceContractError("Optional network access is disabled in Cyrune Nexus")
+    provider = configured_scrapers().get("screenscraper", {})
+    if not provider.get("enabled") or not provider.get("configured"):
+        raise ServiceContractError("ScreenScraper is disabled or not configured")
+    system_id, game_id, media_type, region = parts
+    limit = max(1, min(4 * 1024 * 1024, int(max_bytes or 0)))
+    from arcade_core.artwork_cache import ArtworkCache
+    cache = ArtworkCache(DATA)
+    raw = cache.read(reference, limit)
+    if raw is None:
+        raw, content_type = screenscraper_api_request(provider, "mediaJeu.php", {
+            "systemeid": system_id, "jeuid": game_id,
+            "media": media_type + (f"({region})" if region != "none" else ""),
+            "outputformat": "png", "maxwidth": "1000", "maxheight": "1000",
+        }, limit)
+        if content_type != "image/png" or not raw.startswith(b"\x89PNG\r\n\x1a\n"):
+            raise ServiceContractError("ScreenScraper did not return a supported image")
+        cache.write(reference, raw)
+    encoded = base64.b64encode(raw).decode("ascii")
+    return {"dataUrl": f"data:image/png;base64,{encoded}", "contentType": "image/png"}
 
 
 def scraper_public_identity(provider: dict[str, object]) -> dict[str, object]:
@@ -2889,133 +3208,6 @@ def scraper_public_identity(provider: dict[str, object]) -> dict[str, object]:
         "name": provider.get("name", ""),
         "type": provider.get("type", ""),
     }
-
-
-def screenscraper_candidate(game_data: dict, provider: dict[str, object]) -> dict[str, str]:
-    language = str(provider.get("preferred_language") or "en").lower()
-    region = str(provider.get("preferred_region") or "wor").lower()
-    title = choose_localized_text(game_data.get("noms"), region, language) or clean_metadata_text(game_data.get("nom", ""))
-    date = choose_localized_text(game_data.get("dates"), region, language) or clean_metadata_text(game_data.get("date", ""))
-    publisher = nested_text(game_data.get("editeur")) or nested_text(game_data.get("publisher"))
-    genre = choose_genre(game_data.get("genres"), language)
-    description = choose_localized_text(game_data.get("synopsis"), region, language) or choose_localized_text(game_data.get("descriptif"), region, language)
-    return {
-        "title": title,
-        "year": extract_year(date),
-        "publisher": publisher,
-        "genre": genre,
-        "description": description,
-        "screenshot": "",
-        "loading_screen": "",
-    }
-
-
-def screenscraper_confidence(game: Game, candidate: dict[str, str]) -> int:
-    score = 20
-    if normalize_title(candidate.get("title", "")) == game.title_key:
-        score += 55
-    elif normalize_title(candidate.get("title", "")) in game.title_key or game.title_key in normalize_title(candidate.get("title", "")):
-        score += 35
-    if candidate.get("year") and candidate.get("year") == gameYear_py(game.year):
-        score += 15
-    if candidate.get("publisher") and normalize_title(candidate.get("publisher", "")) == normalize_title(game.publisher):
-        score += 10
-    return max(0, min(100, score))
-
-
-def gameYear_py(value: str) -> str:
-    match = re.search(r"\d{4}|19XX|20XX", str(value or ""), re.IGNORECASE)
-    return match.group(0).upper() if match else ""
-
-
-def extract_year(value: object) -> str:
-    return gameYear_py(str(value or ""))
-
-
-def nested_text(value: object) -> str:
-    if isinstance(value, str):
-        return clean_metadata_text(value)
-    if isinstance(value, dict):
-        for key in ("text", "nom", "name"):
-            if value.get(key):
-                return clean_metadata_text(value.get(key))
-    return ""
-
-
-def choose_localized_text(value: object, region: str = "wor", language: str = "en") -> str:
-    rows = value if isinstance(value, list) else []
-    if isinstance(value, dict):
-        rows = [value]
-    if not rows:
-        return nested_text(value)
-    preferred_regions = [region, "wor", "eu", "us", "gb", "ss", "jp", "fr", "de"]
-    preferred_languages = [language, "en", "de", "fr"]
-    for key, preferred in (("region", preferred_regions), ("langue", preferred_languages), ("language", preferred_languages)):
-        for wanted in preferred:
-            for row in rows:
-                if isinstance(row, dict) and str(row.get(key, "")).lower() == wanted:
-                    text = nested_text(row)
-                    if text:
-                        return text
-    for row in rows:
-        text = nested_text(row)
-        if text:
-            return text
-    return ""
-
-
-def choose_genre(value: object, language: str = "en") -> str:
-    rows = value if isinstance(value, list) else []
-    if isinstance(value, dict):
-        rows = [value]
-    for row in rows:
-        if not isinstance(row, dict):
-            continue
-        text = choose_localized_text(row.get("noms") or row.get("genres"), language=language)
-        if text:
-            return text
-        for key in ("text", "nomcourt", "nom"):
-            if row.get(key):
-                return clean_metadata_text(row.get(key), max_len=80)
-    return ""
-
-
-def screenscraper_assets(game_data: dict, provider: dict[str, object]) -> dict[str, str]:
-    language = str(provider.get("preferred_language") or "en").lower()
-    region = str(provider.get("preferred_region") or "wor").lower()
-    medias = game_data.get("medias")
-    return {
-        "screenshot": find_media_url(medias, ("ss", "screenshot", "screen"), region, language),
-        "loading_screen": find_media_url(medias, ("sstitle", "titlescreen", "screenmarquee", "loading"), region, language),
-    }
-
-
-def find_media_url(value: object, type_tokens: tuple[str, ...], region: str, language: str) -> str:
-    rows = value if isinstance(value, list) else []
-    if isinstance(value, dict):
-        rows = [value]
-    preferred_regions = [region, "wor", "eu", "us", "gb", "ss", "fr", "de"]
-    preferred_languages = [language, "en", "de", "fr"]
-    matches: list[tuple[int, str]] = []
-    for row in rows:
-        if not isinstance(row, dict):
-            continue
-        media_type = " ".join(str(row.get(key, "")) for key in ("type", "typemedia", "nom", "parent")).lower()
-        if not any(token in media_type for token in type_tokens):
-            continue
-        url = clean_metadata_text(row.get("url") or row.get("media") or row.get("download"), max_len=500)
-        if not url:
-            continue
-        rank = 50
-        row_region = str(row.get("region", "")).lower()
-        row_language = str(row.get("langue", row.get("language", ""))).lower()
-        if row_region in preferred_regions:
-            rank -= preferred_regions.index(row_region) * 4
-        if row_language in preferred_languages:
-            rank -= preferred_languages.index(row_language) * 2
-        matches.append((rank, url))
-    matches.sort(key=lambda item: item[0])
-    return matches[0][1] if matches else ""
 
 
 def manual_scrape_preview(game: Game, provider: dict[str, object]) -> dict:
@@ -3067,8 +3259,8 @@ def scrape_identity(game: Game) -> dict[str, object]:
 def scrape_asset_targets(game: Game) -> dict[str, str]:
     base = clean_asset_path(f"{folder_letter(game.title)}/{stable_id(game.id)}")
     return {
-        "screenshot": collection_relative(collection_asset_root() / "screenshots" / f"{base}.png"),
-        "loading_screen": collection_relative(collection_asset_root() / "loading-screens" / f"{base}.png"),
+        "screenshot": f"_assets/scraped/screenshots/{base}.png",
+        "loading_screen": f"_assets/scraped/loading-screens/{base}.png",
     }
 
 
@@ -3094,7 +3286,7 @@ def apply_metadata_values(game: Game, item: dict, changes: dict) -> None:
     title = clean_metadata_text(changes.get("title", old_title), allow_empty=False)
     year = clean_metadata_text(changes.get("date", changes.get("year", item.get("year", game.year))), max_len=16)
     publisher = clean_metadata_text(changes.get("publisher", item.get("publisher", game.publisher)))
-    system = clean_system_value(changes.get("system", item.get("system") or game.system))
+    system = game.system if game.type == 'Game Boy' else clean_system_value(changes.get("system", item.get("system") or game.system))
     collection_type = item.get("type", game.type or "Official") or "Official"
     version = clean_metadata_text(changes.get("version", item.get("version", "")), max_len=40)
     demo = clean_metadata_text(changes.get("demo", item.get("demo", "")), max_len=40)
@@ -3106,6 +3298,8 @@ def apply_metadata_values(game: Game, item: dict, changes: dict) -> None:
     genre = clean_metadata_text(changes.get("genre", item.get("genre", getattr(game, "genre", ""))), max_len=80)
     developer = clean_metadata_text(changes.get("developer", item.get("developer", getattr(game, "developer", ""))), max_len=160)
     platform = clean_metadata_text(changes.get("platform", item.get("platform", getattr(game, "platform", ""))), max_len=80)
+    if game.type == 'Game Boy':
+        platform = game.platform
     region = clean_metadata_text(changes.get("region", item.get("region", getattr(game, "region", ""))), max_len=80)
     players = clean_metadata_text(changes.get("players", item.get("players", getattr(game, "players", ""))), max_len=24)
     coop = clean_metadata_text(changes.get("coop", item.get("coop", getattr(game, "coop", ""))), max_len=24)
@@ -3120,6 +3314,8 @@ def apply_metadata_values(game: Game, item: dict, changes: dict) -> None:
     languages = normalize_code_values(changes.get("languages", item.get("languages", list(game.languages))), LANGUAGE_NAMES)
     countries = normalize_code_values(changes.get("countries", item.get("countries", list(game.countries))), COUNTRY_NAMES)
     tags = normalize_text_list(changes.get("tags", item.get("tags", [])))
+    if game.type == 'Game Boy':
+        tags = list(dict.fromkeys([game.system, *tags]))
     hardware = normalize_text_list(item.get("hardware", []))
     dump_flags = normalize_text_list(changes.get("dump_flags", item.get("dump_flags", [])))
     more_info = normalize_text_list(changes.get("more_info", item.get("more_info", [])))
@@ -3189,6 +3385,12 @@ def apply_metadata_changes(game: Game, item: dict, changes: dict, rename_files: 
     old_title_key = item.get("title_key") or game.title_key
     old_system = item.get("system") or game.system
     old_memory = item.get("memory") or game.memory
+    from arcade_core.metadata_care import FIELDS
+    protected = set(item.get('protected_fields', []))
+    protected.update('year' if key == 'date' else key for key, value in changes.items()
+                     if ('year' if key == 'date' else key) in FIELDS
+                     and str(value) != str(getattr(game, 'year' if key == 'date' else key, '')))
+    item['protected_fields'] = sorted(protected)
     apply_metadata_values(game, item, changes)
 
     if rename_files:
@@ -3302,87 +3504,6 @@ def observed_import_directory(letter: str, metadata: dict | None = None) -> Path
         return None
 
 
-def build_tosec_file_name(source: Path, item: dict, old_title: str) -> str:
-    title = clean_file_name(tosec_title_from_display(str(item.get("title") or old_title))) or source.stem
-    tags = build_tosec_tags(source, item)
-    flags = build_tosec_flags(item)
-    suffix = source.suffix
-    version = clean_file_name(str(item.get("version", "")))
-    demo = clean_file_name(str(item.get("demo", "")))
-    title_version = f"{title} {version}".strip() if version else title
-    raw_tag_text = "".join(f"({clean_file_name(tag)})" for tag in tags if clean_file_name(tag))
-    tag_text = f" {raw_tag_text}" if raw_tag_text else ""
-    if demo:
-        tag_text = f" ({demo}){tag_text}"
-    flag_text = "".join(f"[{clean_file_name(flag)}]" for flag in flags if clean_file_name(flag))
-    return f"{title_version}{tag_text}{flag_text}{suffix}"
-
-
-def build_tosec_tags(source: Path, item: dict) -> list[str]:
-    parsed = parse_tosec_name(source.name)
-    existing = list(item.get("tosec_tags") or parsed["parentheses"])
-    old_year = str(parsed.get("year") or "").strip()
-    old_publisher = str(parsed.get("publisher") or "").strip()
-    managed: list[str] = []
-    for tag in existing:
-        clean = str(tag).strip()
-        if is_placeholder_metadata_value(clean):
-            continue
-        if old_year and clean == old_year:
-            continue
-        if old_publisher and clean == old_publisher:
-            continue
-        if parse_system_tag(clean) or is_metadata_tag(clean) or clean.lower() == "ulaplus":
-            continue
-        if clean in {
-            str(item.get("video", "")),
-            str(item.get("copyright_status", "")),
-            str(item.get("development_status", "")),
-            str(item.get("media_type", "")),
-            str(item.get("media_label", "")),
-            str(item.get("demo", "")),
-        }:
-            continue
-        managed.append(clean)
-
-    tags: list[str] = []
-    if item.get("year"):
-        tags.append(str(item["year"]))
-    if item.get("publisher"):
-        tags.append(str(item["publisher"]))
-    if item.get("system"):
-        tags.append(str(item["system"]).upper())
-    if item.get("video"):
-        tags.append(str(item["video"]).upper())
-    countries = normalize_code_values(item.get("countries", []), COUNTRY_NAMES)
-    languages = normalize_code_values(item.get("languages", []), LANGUAGE_NAMES)
-    if countries:
-        tags.append("-".join(countries))
-    if languages:
-        tags.append("-".join(code.lower() for code in languages))
-    for key in ("copyright_status", "development_status", "media_type", "media_label"):
-        if item.get(key):
-            tags.append(str(item[key]))
-    if any(str(value).lower() == "ulaplus" for value in item.get("hardware", [])):
-        tags.append("ULAPlus")
-    tags.extend(managed)
-    return dedupe(tags)
-
-
-def build_tosec_flags(item: dict) -> list[str]:
-    existing = [str(flag).strip() for flag in item.get("flags", []) if str(flag).strip()]
-    explicit = normalize_text_list(item.get("dump_flags", [])) + normalize_text_list(item.get("more_info", []))
-    return dedupe(explicit or existing)
-
-
-def clean_metadata_text(value: object, default: str = "", max_len: int = 120, allow_empty: bool = True) -> str:
-    text = str(value if value is not None else default).strip()
-    text = re.sub(r"\s+", " ", text)
-    if not text and not allow_empty:
-        text = default
-    return text[:max_len]
-
-
 def clean_youtube_id(value: object) -> str:
     text = clean_metadata_text(value, max_len=240)
     if not text:
@@ -3408,33 +3529,6 @@ def clean_system_value(value: object) -> str:
     if parse_system_tag(text):
         return parse_system_tag(text)
     return text[:32] or "48K"
-
-
-def normalize_code_values(value: object, allowed: dict[str, str]) -> list[str]:
-    if isinstance(value, str):
-        raw_values = re.split(r"[,;/\s]+", value)
-    elif isinstance(value, list | tuple):
-        raw_values = [str(item) for item in value]
-    else:
-        raw_values = []
-    codes: list[str] = []
-    for raw in raw_values:
-        code = raw.strip().upper()
-        if not code:
-            continue
-        if code in allowed:
-            codes.append(code)
-    return dedupe(codes)
-
-
-def normalize_text_list(value: object) -> list[str]:
-    if isinstance(value, str):
-        raw_values = re.split(r"[,;]+", value)
-    elif isinstance(value, list | tuple):
-        raw_values = [str(item) for item in value]
-    else:
-        raw_values = []
-    return dedupe([clean_metadata_text(item, max_len=60) for item in raw_values if clean_metadata_text(item)])
 
 
 def delete_game(game_id: str) -> dict:
@@ -3788,14 +3882,6 @@ def update_metadata_game(game_id: str, **updates: object) -> None:
 
 def relative_collection_path(path: Path) -> Path:
     return relative_to_root(COLLECTION, path)
-
-
-def clean_file_name(name: str) -> str:
-    cleaned = name.strip().replace("/", "-").replace("\\", "-")
-    cleaned = cleaned.strip(" .")
-    for char in '<>:"|?*':
-        cleaned = cleaned.replace(char, "-")
-    return cleaned
 
 
 def unique_path(path: Path) -> Path:

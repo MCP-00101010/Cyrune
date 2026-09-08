@@ -106,6 +106,14 @@ def _hash_media(path):
 
 
 def validate_plan(plan):
+    if isinstance(plan, dict) and plan.get('adapterId') in {'steem', 'hatari'}:
+        name = '_cyrune_host_atari_plan'
+        if name not in sys.modules:
+            spec = importlib.util.spec_from_file_location(name, Path(__file__).with_name('atari_plan.py'))
+            module = importlib.util.module_from_spec(spec)
+            sys.modules[name] = module
+            spec.loader.exec_module(module)
+        return sys.modules[name].validate(plan, sys.modules[__name__])
     """Independently bound and verify Arcade's private native decision."""
     if isinstance(plan, dict) and plan.get("adapterId") == "scummvm":
         return scummvm_module().validate(plan, sys.modules[__name__])
@@ -126,7 +134,9 @@ def validate_plan(plan):
     root, media, executable, cwd = (_path(plan[field]) for field in ("root", "media", "executable", "cwd"))
     if not root.is_dir() or not media.is_relative_to(root) or media == root:
         raise BindingError("source-unavailable")
-    if media.suffix.lower() not in {".tap", ".tzx", ".z80", ".sna", ".szx"}:
+    cartridge = isinstance(plan.get('public'), dict) and plan['public'].get('systemId') == 'game-boy'
+    formats = {'.gb', '.gbc', '.gba'} if cartridge else {'.tap', '.tzx', '.z80', '.sna', '.szx'}
+    if media.suffix.lower() not in formats or cartridge and plan['adapterId'] != 'generic':
         raise BindingError("unsupported-target")
     if not cwd.is_dir() or executable.suffix.lower() in {".bat", ".cmd", ".ps1", ".sh"}:
         raise BindingError("configuration-required")
@@ -150,12 +160,15 @@ def validate_plan(plan):
     public = plan["public"]
     if not isinstance(public, dict) or set(public) != {"title", "systemId", "systemName"}:
         raise BindingError("review-required")
-    if not _text(public["title"], 160) or public["systemId"] != "zx-spectrum" or public["systemName"] != "ZX Spectrum":
+    expected_system = ('game-boy', 'Game Boy') if cartridge else ('zx-spectrum', 'ZX Spectrum')
+    if not _text(public["title"], 160) or (public['systemId'], public['systemName']) != expected_system:
         raise BindingError("review-required")
     if not isinstance(plan["game"], dict) or set(plan["game"]) != {"title", "system"}:
         raise BindingError("review-required")
     _text(plan["game"]["title"], 160)
     _text(plan["game"]["system"], 80)
+    if cartridge and plan['game']['system'] != {'.gb': 'GB', '.gbc': 'GBC', '.gba': 'GBA'}[media.suffix.lower()]:
+        raise BindingError('unsupported-target')
     values = {"file": str(media), "file_dir": str(media.parent), "file_name": media.name,
               "collection_root": str(root), "pok_file": "", "title": plan["game"]["title"], "system": plan["game"]["system"]}
     rendered = []
@@ -255,7 +268,7 @@ class CatalogueBindings:
         return value
 
     def _validate(self, value):
-        if type(value.get("schemaVersion")) is not int or value["schemaVersion"] not in (1, 2):
+        if type(value.get("schemaVersion")) is not int or value["schemaVersion"] not in (1, 2, 3, 4):
             raise BindingError("unsupported-protocol")
         if set(value) != {"schemaVersion", "revision", "bindings", "receipts"} or type(value["revision"]) is not int or value["revision"] < 0:
             raise BindingError("review-required")
@@ -266,7 +279,7 @@ class CatalogueBindings:
             if isinstance(entry, dict) and entry.get("mode") == "scummvm-entry-v1":
                 fields = {"mode", "sourceId", "catalogueId", "targetDigest", "config", "directory", "directoryIdentity",
                           "executable", "executableSignature", "cwd"}
-                if value["schemaVersion"] != 2 or not KEY.fullmatch(key) or set(entry) != fields:
+                if value["schemaVersion"] not in (2, 3, 4) or not KEY.fullmatch(key) or set(entry) != fields:
                     raise BindingError("review-required")
                 for field in ("sourceId", "catalogueId"):
                     if not isinstance(entry[field], str) or not ID.fullmatch(entry[field]):
@@ -294,7 +307,7 @@ class CatalogueBindings:
             signature = entry["executableSignature"]
             if not isinstance(signature, list) or len(signature) != 4 or any(type(n) is not int or n < 0 for n in signature):
                 raise BindingError("review-required")
-            if entry["adapterId"] not in ("generic", "eightyone", "spectaculator", "spectaculator_stub"):
+            if entry["adapterId"] not in ("generic", "eightyone", "spectaculator", "spectaculator_stub", "steem", "hatari") or entry['adapterId'] == 'steem' and value['schemaVersion'] < 3 or entry['adapterId'] == 'hatari' and value['schemaVersion'] != 4:
                 raise BindingError("review-required")
         if len(encoded(receipts)) > MAX_RECEIPTS_BYTES:
             raise BindingError("busy")
@@ -343,7 +356,7 @@ class CatalogueBindings:
         steps = [runner.MigrationStep("01-create-binding-store", create)]
         return runner.run_migration("host-catalogue-bindings", 0, 1, steps, self.path.with_suffix(".migration.json"), dry_run=dry_run)
 
-    def bind(self, session, request, *, deadline=None, allow_scummvm=False):
+    def bind(self, session, request, *, deadline=None, allow_scummvm=False, allow_atari=False, allow_gameboy=False):
         self._session(session)
         request = _request(request)
         digest = hashlib.sha256(encoded(request)).hexdigest()
@@ -381,6 +394,10 @@ class CatalogueBindings:
                         plan = self._resolve(catalogue_id, selection["entryRevision"])
                         if plan.get("adapterId") == "scummvm" and not allow_scummvm:
                             raise BindingError("unsupported-target")
+                        if plan.get('public', {}).get('systemId') == 'game-boy' and not allow_gameboy:
+                            raise BindingError('unsupported-protocol')
+                        if plan.get('adapterId') in {'steem', 'hatari'} and not allow_atari:
+                            raise BindingError('unsupported-target')
                         approval = validate_plan(plan)
                         if plan["catalogueId"] != catalogue_id or plan["entryRevision"] != selection["entryRevision"]:
                             raise BindingError("entry-changed")
@@ -409,7 +426,11 @@ class CatalogueBindings:
             retained = set(before["bindings"]) | {result["key"] for result in results if result["key"]}
             state["bindings"] = {key: value for key, value in state["bindings"].items() if key in retained}
             if any(value["mode"] == "scummvm-entry-v1" for value in state["bindings"].values()):
-                state["schemaVersion"] = 2
+                state["schemaVersion"] = max(state['schemaVersion'], 2)
+            if any(value.get('adapterId') in {'steem', 'hatari'} for value in state['bindings'].values()):
+                state['schemaVersion'] = max(state['schemaVersion'], 3)
+            if any(value.get('adapterId') == 'hatari' for value in state['bindings'].values()):
+                state['schemaVersion'] = 4
             receipts[request["requestId"]] = {"digest": digest, "results": results}
             state["revision"] += 1
             self._validate(state)
@@ -447,7 +468,7 @@ class CatalogueBindings:
                     public = presentation[result["catalogueId"]] if presentation is not None else self._present(result["catalogueId"])
                     title = _text(public["title"], 160)
                     platform = public.get("platformId")
-                    platforms = scummvm_module().PLATFORMS
+                    platforms = {**scummvm_module().PLATFORMS, 'game-boy':'Game Boy'}
                     if not title or not isinstance(platform, str) or platform not in platforms:
                         raise BindingError("review-required")
                     item.update(ok=True, game={"gameKey": result["key"], "state": "ready", "title": title,
@@ -492,7 +513,7 @@ class CatalogueBindings:
                 state = self.load()
                 before = deepcopy(state)
                 if game_key:
-                    if game_key not in state["bindings"] or state["bindings"][game_key]["mode"] != "scummvm-entry-v1":
+                    if game_key not in state["bindings"] or (state['bindings'][game_key]['mode'] != 'scummvm-entry-v1' and state['bindings'][game_key].get('adapterId') not in {'steem', 'hatari'}):
                         raise BindingError("binding-forgotten")
                     key = game_key
                 else:
@@ -515,7 +536,7 @@ class CatalogueBindings:
                             if result["key"] == key:
                                 result.update(key="", code="binding-forgotten")
             state["bindings"][key] = approval
-            state["schemaVersion"] = 2
+            state["schemaVersion"] = max(state['schemaVersion'], 4 if approval.get('adapterId') == 'hatari' else 3 if approval.get('adapterId') == 'steem' else 2)
             state["revision"] += 1
             self._validate(state)
             if len(encoded(state)) > MAX_STORE_BYTES:
@@ -525,6 +546,28 @@ class CatalogueBindings:
                 raise BindingError("entry-changed")
             self._write(self.path, state)
             return key
+
+    def refresh_atari_policy(self, plan):
+        """Explicit Arcade Properties Save may update existing exact-entry approvals."""
+        if plan.get('adapterId') not in {'steem', 'hatari'}:
+            raise BindingError('unsupported-target')
+        with self._lock():
+            approval = validate_plan(plan)
+            before = self.load()
+            after = deepcopy(before)
+            for key, row in after['bindings'].items():
+                if row.get('adapterId') in {'steem', 'hatari'} and row['sourceId'] == plan['sourceId'] and row['catalogueId'] == plan['catalogueId']:
+                    after['bindings'][key] = approval
+            if after != before:
+                with self._resolve_scope():
+                    if self._resolve(plan['catalogueId'], plan['entryRevision']) != plan:
+                        raise BindingError('entry-changed')
+                after['revision'] += 1
+                if approval['adapterId'] == 'hatari':
+                    after['schemaVersion'] = 4
+                self._validate(after)
+                self._write(self.path, after)
+            return before, after
 
     def launch(self, key):
         with self._lock():

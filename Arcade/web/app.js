@@ -1,4 +1,4 @@
-const ARCADE_VERSION = '0.2.28';
+const ARCADE_VERSION = '0.2.57';
 
 const state = {
   games: [],
@@ -13,6 +13,7 @@ const state = {
   activeCollection: null,
   recentIds: new Set(),
   multiFilters: {},
+  excludedFilters: {},
   openFilterKey: "",
   sortRules: [{ key: "title", dir: "asc" }],
   view: "all",
@@ -23,10 +24,14 @@ let listClickTimer = 0;
 let draggedColumnKey = "";
 let virtualFrame = 0;
 let filterFrame = 0;
+let detailRenderGeneration = 0;
 let virtualRange = { start: -1, end: -1, columns: -1 };
-const extensionAssetCache = new Map();
+const extensionAssetCache = globalThis.ArcadeArtwork.create({
+  scope:() => state.activeCollection?.id || '',
+  revision:() => state.metadataGeneration || 0,
+  request:(path, collectionId) => globalThis.ArcadeTransport.asset(path, collectionId)
+});
 const requestArcadeRpc = globalThis.ArcadeTransport.rpc;
-const requestArcadeAsset = globalThis.ArcadeTransport.asset;
 const sendArcadeGame = globalThis.ArcadeTransport.sendGame;
 let portalDeliveryDraft = null;
 const arcadeCyruneSettings = globalThis.ArcadeTransport.settings;
@@ -134,7 +139,7 @@ const COLUMN_DEFS = [
   { key: "recent", label: "Recent", sort: "recent", width: 78, visible: false, render: (game) => (state.recentIds.has(game.id) ? statusIcon("recent", "Recent", "↻") : "") },
 ];
 const COLUMN_MAP = new Map(COLUMN_DEFS.map((column) => [column.key, column]));
-const COLLECTION_PLATFORMS = Object.freeze({'zx-spectrum': 'ZX Spectrum', scummvm: 'ScummVM'});
+const COLLECTION_PLATFORMS = Object.freeze(Object.fromEntries(Object.entries(globalThis.ArcadePlatforms.libraries).map(([id, platform]) => [id, platform.label])));
 
 state.ui = loadUiState();
 
@@ -153,14 +158,8 @@ const els = {
   details: document.querySelector("#details"),
   search: document.querySelector("#search"),
   emulator: document.querySelector("#emulator"),
-  editEmulators: document.querySelector("#edit-emulators"),
-  editScrapers: document.querySelector("#edit-scrapers"),
   collectionSelect: document.querySelector("#collection-select"),
   platformSelect: document.querySelector("#platform-select"),
-  prepareCatalogue: document.querySelector("#prepare-catalogue"),
-  catalogueRecovery: document.querySelector("#catalogue-recovery"),
-  catalogueReattachment: document.querySelector("#catalogue-reattachment"),
-  rebuild: document.querySelector("#rebuild"),
   bulkEdit: document.querySelector("#bulk-edit"),
   importSelectTools: document.querySelector("#import-select-tools"),
   columnOptions: document.querySelector("#column-options"),
@@ -170,6 +169,7 @@ const els = {
   clearFilters: document.querySelector("#clear-filters"),
   filterPoks: document.querySelector("#filter-poks"),
   filterView: document.querySelector("#filter-view"),
+  filterCleanup: document.querySelector("#filter-cleanup"),
   incomingIndicator: document.querySelector("#incoming-indicator"),
   trashIndicator: document.querySelector("#trash-indicator"),
   filterSystem: document.querySelector("#filter-system"),
@@ -186,7 +186,7 @@ const els = {
 
 if (els.version) {
   els.version.textContent = `v${ARCADE_VERSION}`;
-  els.version.setAttribute('aria-label', `Cyrune Arcade version ${ARCADE_VERSION}`);
+  els.version.setAttribute('aria-label', `Open Arcade settings, version ${ARCADE_VERSION}`);
 }
 
 function columnSettings(value = {}) {
@@ -207,6 +207,9 @@ function loadUiState() {
   try { parsed = JSON.parse(localStorage.getItem(UI_STORAGE_KEY) || '{}') || {}; } catch (_) { /* Use defaults. */ }
   return {
     ...columnSettings(parsed),
+    platformFilters: Object.fromEntries(Object.keys(COLLECTION_PLATFORMS)
+      .map(key => [key, filterSettings(parsed.platformFilters?.[key])])),
+    scraperProvider: typeof parsed.scraperProvider === 'string' && /^[a-z0-9_-]{1,64}$/i.test(parsed.scraperProvider) ? parsed.scraperProvider : '',
     legacyColumns: columnSettings(parsed.legacyColumns || parsed),
     platformColumns: Object.fromEntries(Object.keys(COLLECTION_PLATFORMS)
       .filter(key => parsed.platformColumns?.[key] && typeof parsed.platformColumns[key] === 'object')
@@ -220,11 +223,47 @@ function loadUiState() {
 
 function saveUiState() {
   if (state.columnPlatform) state.ui.platformColumns[state.columnPlatform] = columnSettings(state.ui);
-  localStorage.setItem(UI_STORAGE_KEY, JSON.stringify(state.ui));
+  try { localStorage.setItem(UI_STORAGE_KEY, JSON.stringify(state.ui)); } catch (_) { /* Keep preferences in memory if storage is unavailable. */ }
+}
+
+function filterSettings(value = {}) {
+  value = value && typeof value === 'object' ? value : {};
+  const keys = ['system', 'language', 'country', 'year', 'publisher', 'tag'];
+  const choices = field => Object.fromEntries(keys.map(key => [key, Array.isArray(value[field]?.[key])
+    ? [...new Set(value[field][key].filter(item => typeof item === 'string' && item.length <= 200).slice(0, 200))] : []]));
+  return {search:typeof value.search === 'string' ? value.search.slice(0, 500) : '',
+    multiFilters:choices('multiFilters'), excludedFilters:choices('excludedFilters'),
+    cleanup:['artwork','description','review'].includes(value.cleanup) ? value.cleanup : '',
+    poks:['include','exclude'].includes(value.poks) ? value.poks : 'neutral',
+    view:['all','favourites','recent','new','incoming','trash'].includes(value.view) ? value.view : 'all'};
+}
+
+function rememberPlatformFilters() {
+  if (!state.filterPlatform) return;
+  state.ui.platformFilters[state.filterPlatform] = filterSettings({search:els.search.value,
+    multiFilters:state.multiFilters, excludedFilters:state.excludedFilters,
+    poks:els.filterPoks.dataset.filterState, view:els.filterView.value, cleanup:els.filterCleanup?.value});
+  saveUiState();
+}
+
+function restorePlatformFilters(platform) {
+  if (state.filterPlatform === platform) return;
+  rememberPlatformFilters();
+  const saved = filterSettings(state.ui.platformFilters[platform]);
+  state.filterPlatform = platform;
+  els.search.value = saved.search;
+  if (els.filterCleanup) els.filterCleanup.value = saved.cleanup;
+  state.multiFilters = saved.multiFilters;
+  state.excludedFilters = saved.excludedFilters;
+  state.openFilterKey = '';
+  setFilterCheckbox(els.filterPoks, saved.poks, 'POKs');
+  // Build this collection's available views before selecting the stored view.
+  renderViewOptions();
+  els.filterView.value = [...els.filterView.options].some(option => option.value === saved.view) ? saved.view : 'all';
 }
 
 function collectionPlatform(collection) {
-  return collection?.platform_id || (collection?.adapter === 'scummvm-config-v1' ? 'scummvm' : 'zx-spectrum');
+  return globalThis.ArcadePlatforms.collection(collection);
 }
 
 function restorePlatformColumns(platform) {
@@ -240,7 +279,19 @@ function restorePlatformColumns(platform) {
 function visibleColumns() {
   return state.ui.columnOrder
     .map((key) => COLUMN_MAP.get(key))
-    .filter((column) => column && state.ui.columnVisibility[column.key]);
+    .filter((column) => column && platformColumnAvailable(column.key) && state.ui.columnVisibility[column.key]);
+}
+
+function platformColumnAvailable(key) {
+  return key !== 'poks' || Boolean(globalThis.ArcadePlatforms.libraries[collectionPlatform(state.activeCollection)]?.poks);
+}
+
+function platformEmulatorTypes(collection = state.activeCollection) {
+  return globalThis.ArcadePlatforms.libraries[collectionPlatform(collection)]?.emulators || [];
+}
+
+function platformEmulators(collection = state.activeCollection) {
+  return state.emulators.filter(emu => platformEmulatorTypes(collection).includes(emu.type || 'generic'));
 }
 
 function renderLayout() {
@@ -257,6 +308,10 @@ function renderLayout() {
 }
 
 function toggleSidebar(which) {
+  if (which === 'details' && window.innerWidth <= 1100) {
+    els.shell.classList.toggle('mobile-details-open');
+    return;
+  }
   if (which === "sidebar") {
     state.ui.sidebarCollapsed = !state.ui.sidebarCollapsed;
   } else {
@@ -431,19 +486,56 @@ async function api(path, options = {}) {
       throw new Error("The Cyrune Arcade request body is invalid.");
     }
   }
+  const collectionRoutes = new Set('games game game-versions poks recent scrape-targets scrape-preview apply-scrape metadata-care update-metadata favourite favourites-bulk game-version-default launch open-pok open-explorer rename metadata-preview metadata-undo delete delete-bulk import-incoming import-incoming-bulk restore-trash purge-trash move-language rebuild'.split(' ').map(name => '/api/' + name));
+  const collectionId = options.collectionId || state.activeCollection?.id;
+  if (collectionId && collectionRoutes.has(target.pathname)) {
+    if (String(options.method || 'GET').toUpperCase() === 'GET') target.searchParams.set('collection_id', collectionId);
+    else if (!('collection_id' in body)) body.collection_id = collectionId;
+  }
+  if (target.pathname === '/api/games' && target.searchParams.get('shape') === 'summary') {
+    target.searchParams.set('compact', 'true');
+    if (state.summaryRevision && collectionId === state.summaryCollection) target.searchParams.set('since', state.summaryRevision);
+  }
+  const summaryBase = target.searchParams.has('since') ? [...state.games] : [];
+  if (target.pathname === "/api/scrape-preview") body.background = true;
   const response = await requestArcadeRpc({
     method: String(options.method || "GET").toUpperCase(),
     path: target.pathname,
     query: Object.fromEntries(target.searchParams.entries()),
     body: body && typeof body === "object" ? body : {},
   });
-  const payload = response.result || {};
+  let payload = response.result || {};
+  if (target.pathname === '/api/scrape-preview' && payload.job_id) {
+    const deadline = Date.now() + 180000;
+    while (true) {
+      if (Date.now() > deadline) throw new Error('Scraper request timed out. Search again.');
+      await new Promise(resolve => setTimeout(resolve, 250));
+      const job = await api('/api/scrape-job?id=' + encodeURIComponent(payload.job_id) + '&collection_id=' + encodeURIComponent(collectionId || body.collection_id || ''));
+      if (job.status === 'done') {payload = job.result || {}; break;}
+    }
+  }
   if (payload.ok === false && payload.cancelled !== true) {
     const error = new Error(payload.error || "Request failed");
     error.payload = payload;
     throw error;
   }
+  if (target.pathname === '/api/games' && payload.revision) {
+    if (payload.delta && payload.collection_id !== state.summaryCollection) throw Error('The library changed. Reload Arcade.');
+    const rows = new Map(payload.delta ? summaryBase.map(game => [game.id, game]) : []);
+    for (const id of payload.removed || []) rows.delete(id);
+    for (const game of payload.games || []) rows.set(game.id, {...payload.defaults, ...game});
+    for (const [id, revision] of Object.entries(payload.entry_revisions || {})) {
+      if (rows.has(id)) rows.set(id, {...rows.get(id), entry_revision:revision});
+    }
+    payload.games = [...rows.values()];
+  }
   return payload;
+}
+
+function acceptSummaryPayload(payload) {
+  if (payload.unchanged && payload.collection_id === state.summaryCollection && payload.revision === state.summaryRevision) return;
+  if (payload.revision) {state.summaryRevision = payload.revision; state.summaryCollection = payload.collection_id;}
+  replaceGameSummaries(payload.games);
 }
 
 async function init() {
@@ -468,7 +560,7 @@ async function init() {
     }
   }
   const gamesPayload = await api("/api/games?view=all&shape=summary&groupVersions=true");
-  replaceGameSummaries(gamesPayload.games);
+  acceptSummaryPayload(gamesPayload);
   applyFilters();
 
   const [collectionsPayload, emulatorsPayload, profilesPayload, recentPayload] = await Promise.all([
@@ -484,21 +576,28 @@ async function init() {
   state.recentIds = new Set(recentPayload.recent.map((item) => item.game_id));
   renderCollections();
   renderEmulators();
-  renderCounts();
+  applyFilters();
   if (webHubHandoff.gameId && state.games.some((game) => game.id === webHubHandoff.gameId)) {
     await selectGame(webHubHandoff.gameId);
   }
 }
 
 function bindEvents() {
-  els.prepareCatalogue.addEventListener("click", showCataloguePreparationModal);
-  els.catalogueRecovery.addEventListener("click", showCatalogueRecoveryModal);
-  els.catalogueReattachment.addEventListener("click", showCatalogueReattachmentModal);
+  els.version.addEventListener('click', () => showArcadeSettings());
+  document.querySelector('#platform-grid').addEventListener('click', async event => {
+    const button = event.target.closest('[data-platform]');
+    if (!button) return;
+    if (![...els.platformSelect.options].some(option => option.value === button.dataset.platform)) {
+      showArcadeSettings(button.dataset.platform); return;
+    }
+    els.platformSelect.value = button.dataset.platform;
+    els.platformSelect.dispatchEvent(new Event('change'));
+  });
   els.search.addEventListener("input", scheduleFilterApply);
   document.addEventListener("click", hideContextMenu);
   window.addEventListener("blur", hideContextMenu);
-  [els.filterPoks].forEach((input) => input.addEventListener("change", applyFilters));
-  [els.filterView].forEach((select) => {
+  bindFilterCheckbox(els.filterPoks, 'neutral', 'POKs', applyFilters);
+  [els.filterView, els.filterCleanup].filter(Boolean).forEach((select) => {
     select.addEventListener("change", applyFilters);
   });
   els.emulator.addEventListener("change", () => {
@@ -516,7 +615,7 @@ function bindEvents() {
     const choices = state.collections.filter(collection => collectionPlatform(collection) === platform && collection.available !== false);
     const selected = choices.find(collection => collection.id === state.ui.platformCollections[platform]) || choices[0];
     if (selected) await selectCollection(selected.id);
-    else renderCollections();
+    else { renderCollections(); showArcadeSettings(platform); }
   });
 
   els.collectionSelect.addEventListener("pointerdown", refreshCollectionsForDropdown);
@@ -524,10 +623,12 @@ function bindEvents() {
 
   els.clearFilters.addEventListener("click", () => {
     els.search.value = "";
+    if (els.filterCleanup) els.filterCleanup.value = "";
     [els.filterPoks].forEach((input) => {
-      input.checked = false;
+      setFilterCheckbox(input, 'neutral', 'POKs');
     });
     state.multiFilters = {};
+    state.excludedFilters = {};
     state.openFilterKey = "";
     state.selectedIds.clear();
     [els.filterSystem, els.filterLanguage, els.filterCountry, els.filterYear, els.filterPublisher, els.filterTag].forEach((combo) => {
@@ -538,19 +639,9 @@ function bindEvents() {
     applyFilters();
   });
 
-  els.rebuild.addEventListener("click", async () => {
-    await withBusy("Rebuilding Index", "Scanning the selected collection...", async () => {
-      const payload = await api("/api/rebuild", { method: "POST", body: "{}" });
-      await waitForJob(payload.job_id);
-      await reloadGames();
-    });
-  });
-
   els.bulkEdit.addEventListener("click", handleBulkAction);
   els.importSelectTools?.addEventListener("click", handleImportSelectTools);
   els.columnOptions.addEventListener("click", showColumnOptionsModal);
-  els.editEmulators.addEventListener("click", showEmulatorProfileModal);
-  els.editScrapers.addEventListener("click", showScraperSettingsModal);
   els.toggleSidebar.addEventListener("click", () => toggleSidebar("sidebar"));
   els.toggleDetails.addEventListener("click", () => toggleSidebar("details"));
   els.list.addEventListener("click", handleListClick);
@@ -618,8 +709,11 @@ async function waitForJob(jobId) {
 
 async function reloadGames() {
   const selectedId = state.selected?.id || "";
+  const generation = state.collectionViewGeneration || 0;
+  const requestGeneration = state.reloadGeneration = (state.reloadGeneration || 0) + 1;
   const payload = await api("/api/games?view=all&shape=summary&groupVersions=true");
-  replaceGameSummaries(payload.games);
+  if (generation !== (state.collectionViewGeneration || 0) || requestGeneration !== state.reloadGeneration) return;
+  acceptSummaryPayload(payload);
   const validIds = new Set(state.games.map((game) => game.id));
   state.selectedIds = new Set([...state.selectedIds].filter((id) => validIds.has(id)));
   state.selected = selectedId ? state.gamesById.get(selectedId) || null : null;
@@ -631,6 +725,7 @@ async function reloadGames() {
 }
 
 function replaceGameSummaries(games) {
+  state.metadataGeneration = (state.metadataGeneration || 0) + 1;
   state.games = Array.isArray(games) ? games : [];
   state.gamesById = new Map(state.games.map((game) => [game.id, game]));
   state.gameDetails.clear();
@@ -642,16 +737,20 @@ function replaceGameSummaries(games) {
   }
 }
 
-function groupedGameRows(games) {
+function groupedGameRows(games, filters = null) {
   const seen = new Set();
   return games.flatMap(game => {
     const key = game.version_group || game.id;
     if (seen.has(key)) return [];
     seen.add(key);
-    const members = state.versionGroups?.get(key) || [game];
-    const primary = members.find(row => row.id === game.default_version) || members[0];
+    const family = state.versionGroups?.get(key) || [game];
+    const members = family.filter(row => !filters || !matchesExcludedFilters(row, '', filters));
+    if (!members.length) return [];
+    const launch = family.find(row => row.id === game.default_version) || family[0];
     const union = field => [...new Set(members.flatMap(row => row[field] || []).filter(Boolean))];
-    return [{ ...primary, languages: union('languages'), countries: union('countries'),
+    // Keep the title and details attached to the same edition, even when filters hide it.
+    return [{ ...launch,
+      version_count:members.length, languages: union('languages'), countries: union('countries'),
       version_systems: union('system'), version_editions: union('version'),
       version_platforms: union('platform_options'),
       favourite: members.some(row => row.favourite) }];
@@ -686,6 +785,11 @@ function renderPlatformIcons(game) {
   const values = game.version_platforms?.length ? game.version_platforms
     : game.platform_options?.length ? game.platform_options
     : game.version_systems?.length ? game.version_systems : [game.system || game.memory || ''];
+  if (game.type === 'Atari ST') {
+    const order = ['ST', 'STe', 'TT', 'Falcon'];
+    const systems = [...new Set(values)].filter(value => order.includes(value)).sort((a,b) => order.indexOf(a)-order.indexOf(b));
+    return `<span class="game-platform-icons">${systems.map(system => `<span class="game-system-badge" title="Atari ${system}">${system}</span>`).join('')}</span>`;
+  }
   const hardware = [...new Set(values.flatMap(value => /^(?:16|48|128)K(?:-(?:16|48|128)K)?$/i.test(String(value))
     ? String(value).toUpperCase().split('-') : []))].sort((a, b) => parseInt(a) - parseInt(b));
   if (hardware.length) return `<span class="game-platform-icons">${hardware.map(system =>
@@ -706,7 +810,195 @@ function renderPlatformIcons(game) {
   ).join('')}</span>`;
 }
 
+async function loadGameDialogVersions(game, collectionId) {
+  const result = await api(`/api/game-versions?game_id=${encodeURIComponent(game.id)}`);
+  if (state.activeCollection?.id !== collectionId) throw new Error('The collection changed. Reopen the game dialog.');
+  return { ...result, versions: result.versions.map(version => {
+    const summary = state.games.find(row => row.catalogue_id === version.catalogueId);
+    return { ...version, gameId: version.gameId || summary?.id || '',
+      collectionId: version.collectionId || collectionId,
+      imageFiles: version.imageFiles?.length ? version.imageFiles : summary?.type !== 'ScummVM' && summary?.file_name ? [summary.file_name] : [] };
+  }) };
+}
+
+async function showGameProperties(game) {
+  const collectionId = state.activeCollection.id;
+  const previousFocus = document.activeElement;
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = `<section class="modal game-properties-modal" role="dialog" aria-modal="true" aria-labelledby="game-properties-title">
+    <header><h2 id="game-properties-title">Properties</h2><p>${escapeHtml(game.title)}</p></header>
+    <p class="meta" data-prop-provenance></p>
+    <label class="property-field">Game version<select data-prop-version></select></label>
+    <div data-prop-images class="property-image-files" aria-label="Disk image filenames"></div>
+    <label class="property-default"><input type="checkbox" data-prop-default> Use this version as the default in Arcade and Portal</label>
+    <fieldset class="property-section"><legend>Game disks</legend><p class="meta">These disk settings apply with either emulator.</p><div class="property-grid">
+      <label class="property-field">Drive B<select data-prop-drive></select></label>
+      <label class="property-field">Save disk<select data-prop-disk></select></label>
+    </div></fieldset>
+    <fieldset class="property-section"><legend>Default launch</legend><div class="property-grid">
+      <label class="property-field">Emulator<select data-prop-emulator></select></label>
+      <label class="property-field">Emulator profile<select data-prop-profile></select></label>
+    </div></fieldset>
+    <p class="meta">Create or import a disk to add it immediately to this game’s Safe Disks folder. Save applies your launch settings.</p>
+    <details data-prop-history hidden><summary>Save disk backups</summary>
+      <div class="property-backups"><label class="property-field">Backup<select data-prop-backup></select></label>
+        <button class="secondary" data-prop-restore>Restore selected backup</button></div>
+    </details>
+    <p data-prop-status role="status" aria-live="polite">Loading properties…</p>
+    <footer class="property-footer"><button data-prop-recover class="secondary" hidden>Recover interrupted save</button><button class="secondary" data-prop-cancel>Cancel</button><button data-prop-save>Save</button></footer>
+  </section>`;
+  document.body.appendChild(overlay);
+  const el = name => overlay.querySelector('[data-prop-' + name + ']');
+  void loadGameDetails(game.id).then(details => {const note = details?.scrape_provenance; if (overlay.isConnected && state.activeCollection.id === collectionId) el('provenance').textContent = note?.scraped_at ? `Metadata: ${note.provider || 'Manual'} · ${note.platform || game.system} · ${note.scraped_at.slice(0,10)}` : '';}).catch(() => {});
+  let data = null, busy = true, dirty = false, selectedDisk = '';
+  const controls = () => [...overlay.querySelectorAll('button,input,select')];
+  const refreshEnabled = () => {
+    controls().forEach(control => { control.disabled = busy || !data || data.recoveryRequired; });
+    el('version').disabled = busy || dirty;
+    el('cancel').disabled = busy;
+    el('recover').disabled = busy || !data;
+    el('save').disabled = busy || !data || data.recoveryRequired;
+    el('restore').disabled ||= !el('backup').value;
+    overlay.setAttribute('aria-busy', String(busy));
+  };
+  const dismiss = () => { if (!busy) { overlay.remove(); previousFocus?.focus(); } };
+  const profiles = (selected = '') => {
+    const emulator = data.emulators.find(row => row.id === el('emulator').value);
+    el('profile').innerHTML = '<option value="">Emulator defaults</option>' + (emulator?.profiles || []).map(row => `<option value="${escapeHtml(row.id)}">${escapeHtml(row.name)}</option>`).join('');
+    if (selected && !(emulator?.profiles || []).some(row => row.id === selected)) {
+      el('profile').insertAdjacentHTML('beforeend', `<option value="${escapeHtml(selected)}">Missing saved profile</option>`);
+    }
+    el('profile').value = selected;
+  };
+  const backups = () => {
+    const disk = data.saveDisks.find(row => row.name === selectedDisk);
+    el('backup').innerHTML = '<option value="">Select a backup</option>' + (disk?.backups || []).map(row => `<option value="${escapeHtml(row.id)}">${escapeHtml(row.label)}</option>`).join('');
+    el('history').hidden = !disk?.backups?.length;
+    if (el('history').hidden) el('history').open = false;
+  };
+  const disks = (selected = '') => {
+    selectedDisk = selected;
+    el('disk').innerHTML = '<option value="">Select a save disk</option>' + data.saveDisks.map(row => `<option value="${escapeHtml(row.name)}">${escapeHtml(row.name)}</option>`).join('');
+    if (selected && !data.saveDisks.some(row => row.name === selected)) {
+      el('disk').insertAdjacentHTML('beforeend', `<option value="${escapeHtml(selected)}">Unavailable: ${escapeHtml(selected)}</option>`);
+    }
+    el('disk').insertAdjacentHTML('beforeend', '<option disabled role="separator">────────────────────</option><option value="@create">Create empty save disk</option><option value="@import">Import save disk…</option>');
+    el('disk').value = selected;
+    backups();
+  };
+  const load = async () => {
+    busy = true; data = null; refreshEnabled();
+    try {
+      data = await api(`/api/game-properties?collectionId=${encodeURIComponent(collectionId)}&gameId=${encodeURIComponent(el('version').value)}`);
+      if (!overlay.isConnected) return;
+      el('recover').hidden = !data.recoveryRequired;
+      const settings = data.settings;
+      el('images').replaceChildren(...data.gameDisks.map(row => {
+        const item = document.createElement('div'); item.textContent = row.filename || row.name; return item;
+      }));
+      el('emulator').innerHTML = data.emulators.map(row => `<option value="${escapeHtml(row.id)}">${escapeHtml(row.name)}</option>`).join('');
+      el('emulator').value = settings.emulatorId;
+      profiles(settings.profileId);
+      el('drive').innerHTML = '<option value="empty">Empty</option>' + data.gameDisks.map(row => `<option value="${escapeHtml(row.id)}">${escapeHtml(row.name + (row.filename ? ' — ' + row.filename : ''))}</option>`).join('') + '<option value="save">Save disk</option>';
+      el('drive').value = settings.driveB;
+      disks(settings.saveDisk); el('default').checked = false; dirty = false;
+      el('status').textContent = data.recoveryRequired ? 'An earlier save was interrupted. Recover it before making changes.' : '';
+    } catch (error) { data = null; el('status').textContent = error.message; }
+    finally { busy = false; refreshEnabled(); }
+  };
+  const runDiskAction = async action => {
+    if (!data || busy || data.recoveryRequired) return;
+    busy = true; refreshEnabled();
+    el('status').textContent = action === 'create' ? 'Creating save disk…' : action === 'import' ? 'Choose a save disk to import…' : 'Restoring backup…';
+    try {
+      const request = {collectionId, gameId:data.gameId, action};
+      if (action === 'import') {
+        const picked = await api('/api/game-properties/pick-save', {method:'POST', body:JSON.stringify({collectionId, gameId:data.gameId})});
+        if (picked.cancelled) { el('status').textContent = ''; return; }
+        request.token = picked.token;
+        el('status').textContent = 'Importing save disk…';
+      } else if (action === 'restore') {
+        request.name = selectedDisk; request.backup = el('backup').value;
+      }
+      const result = await api('/api/game-properties/save-disk', {method:'POST', body:JSON.stringify(request)});
+      // Refresh the disk choices without committing or replacing the user's
+      // emulator/profile draft, default checkbox or original settings revision.
+      data.saveDisks = result.saveDisks;
+      disks(result.selectedDisk);
+      if (action !== 'restore') { el('drive').value = 'save'; dirty = true; }
+      const verb = action === 'create' ? 'Created' : action === 'import' ? 'Imported' : 'Restored';
+      el('status').textContent = `${verb} ${result.selectedDisk}.${action !== 'restore' ? ' Selected for drive B.' : ''}`;
+    } catch (error) { el('status').textContent = error.message; }
+    finally { busy = false; refreshEnabled(); el('disk').focus(); }
+  };
+  el('version').addEventListener('change', load);
+  overlay.addEventListener('input', event => {
+    if ([el('version'),el('disk'),el('backup')].includes(event.target) || busy) return;
+    dirty = true; refreshEnabled();
+  });
+  el('emulator').addEventListener('change', () => profiles());
+  el('disk').addEventListener('change', () => {
+    const choice = el('disk').value;
+    if (choice === '@create' || choice === '@import') {
+      el('disk').value = selectedDisk;
+      void runDiskAction(choice.slice(1));
+      return;
+    }
+    selectedDisk = choice;
+    if (choice) el('drive').value = 'save';
+    dirty = true; backups(); refreshEnabled();
+  });
+  el('backup').addEventListener('change', refreshEnabled);
+  el('restore').addEventListener('click', () => void runDiskAction('restore'));
+  el('save').addEventListener('click', async () => {
+    if (!data || busy) return;
+    busy = true; refreshEnabled(); el('status').textContent = 'Saving properties…';
+    try {
+      await api('/api/game-properties', {method:'POST', body:JSON.stringify({collectionId, gameId:data.gameId, revision:data.revision,
+        settings:{emulatorId:el('emulator').value, profileId:el('profile').value, driveB:el('drive').value, saveDisk:selectedDisk},
+        diskAction:{kind:'none'}, makeDefault:el('default').checked})});
+      if (state.activeCollection?.id === collectionId) await reloadGames();
+      busy = false; dismiss();
+    } catch (error) { el('status').textContent = error.message; }
+    finally { busy = false; refreshEnabled(); }
+  });
+  el('recover').addEventListener('click', async () => {
+    busy = true; refreshEnabled();
+    try {
+      await api('/api/game-properties/recover', {method:'POST', body:JSON.stringify({collectionId, gameId:data.gameId})});
+      await load();
+    } catch (error) { el('status').textContent = error.message; }
+    finally { busy = false; refreshEnabled(); }
+  });
+  el('cancel').addEventListener('click', dismiss);
+  overlay.addEventListener('click', event => { if (event.target === overlay) dismiss(); });
+  overlay.addEventListener('keydown', event => {
+    if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); dismiss(); }
+    if (event.key === 'Tab') {
+      const focusable = [...overlay.querySelectorAll('button,input,select,summary')].filter(control => !control.disabled && control.getClientRects().length);
+      if (!focusable.length) { event.preventDefault(); return; }
+      if (event.shiftKey && document.activeElement === focusable[0] || !event.shiftKey && document.activeElement === focusable.at(-1)) {
+        event.preventDefault(); focusable[event.shiftKey ? focusable.length-1 : 0].focus();
+      }
+    }
+  });
+  refreshEnabled();
+  try {
+    const result = await loadGameDialogVersions(game, collectionId);
+    if (!overlay.isConnected) return;
+    if (!result.versions.length || result.versions.some(row => !row.gameId || row.collectionId !== collectionId)) {
+      throw new Error('Game versions need to refresh. Reload Relay and Arcade, then reopen Properties.');
+    }
+    el('version').innerHTML = result.versions.map(row => `<option value="${escapeHtml(row.gameId)}">${escapeHtml(row.imageFiles[0] || row.label)}</option>`).join('');
+    if (!result.versions.some(row => row.gameId === game.id)) throw new Error('This game version is no longer available. Reopen Properties.');
+    el('version').value = game.id;
+    await load(); el('version').focus();
+  } catch (error) { busy = false; el('status').textContent = error.message; refreshEnabled(); }
+}
+
 async function showGameVersions(game) {
+  const collectionId = state.activeCollection.id;
   const previousFocus = document.activeElement;
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay';
@@ -736,12 +1028,18 @@ async function showGameVersions(game) {
   });
   close.focus();
   const load = async () => {
-    const result = await api(`/api/game-versions?game_id=${encodeURIComponent(game.id)}`);
+    const result = await loadGameDialogVersions(game, collectionId);
     if (!overlay.isConnected) return;
     list.replaceChildren();
     for (const version of result.versions) {
       const row = document.createElement('div'); row.className = 'game-version-row';
-      const label = document.createElement('span'); label.className = 'game-version-label'; label.textContent = version.label;
+      const label = document.createElement('span'); label.className = 'game-version-label';
+      for (const filename of version.imageFiles || []) {
+        const file = document.createElement('span'); file.className = 'game-version-filename'; file.textContent = filename;
+        label.appendChild(file);
+      }
+      const description = document.createElement('span'); description.className = 'game-version-description'; description.textContent = version.label;
+      label.appendChild(description);
       const marker = document.createElement('strong'); marker.textContent = version.isDefault ? 'Default' : '';
       const launch = document.createElement('button'); launch.textContent = 'Launch';
       const makeDefault = document.createElement('button'); makeDefault.className = 'secondary';
@@ -754,6 +1052,7 @@ async function showGameVersions(game) {
               catalogueId: version.catalogueId, entryRevision: version.entryRevision }) });
             await reloadGames(); await load(); status.textContent = 'Default saved for Arcade and Portal.';
           } else {
+            await reloadGames();
             const target = state.games.find(row => row.catalogue_id === version.catalogueId && row.entry_revision === version.entryRevision);
             if (!target) throw new Error('The library changed. Close this window and try again.');
             await selectGame(target.id);
@@ -775,7 +1074,9 @@ async function showGameVersions(game) {
 }
 
 async function reloadCollections() {
+  const generation = state.collectionViewGeneration || 0;
   const payload = await api("/api/collections");
+  if (generation !== (state.collectionViewGeneration || 0)) return;
   state.collections = payload.collections;
   state.activeCollection = payload.active;
   renderCollections();
@@ -783,6 +1084,7 @@ async function reloadCollections() {
 }
 
 async function refreshCollectionsForDropdown() {
+  if (state.collectionSwitchPending) return;
   try {
     await reloadCollections();
   } catch (_error) {
@@ -806,22 +1108,25 @@ function renderFilterCombo(combo, options = null, label = "", allLabel = "") {
     combo.dataset.allLabel = allLabel;
     combo._options = options;
   }
-  const available = combo._options || [];
-  const selected = new Set((state.multiFilters[key] || []).filter((value) => available.some((option) => option.value === value)));
-  state.multiFilters[key] = [...selected];
-  const buttonLabel = selected.size
-    ? [...selected]
-        .map((value) => available.find((option) => option.value === value)?.label || value)
-        .join(", ")
-    : combo.dataset.allLabel || allLabel;
+  const selected = new Set(selectedFilterValues(key));
+  const excluded = new Set(state.excludedFilters[key] || []);
+  // Keep active choices accessible even when another filter reduces their count to zero.
+  const available = [...(combo._options || [])];
+  for (const value of [...selected, ...excluded]) {
+    if (!available.some(option => option.value === value)) available.push({value, label: LANGUAGE_NAMES[value] || COUNTRY_NAMES[value] || value, count:0});
+  }
+  const optionLabel = value => available.find(option => option.value === value)?.label || value;
+  const buttonLabel = [...selected].map(optionLabel).concat([...excluded].map(value => `Exclude ${optionLabel(value)}`)).join(', ')
+    || combo.dataset.allLabel || allLabel;
   const openClass = state.openFilterKey === key ? " open" : "";
   combo.innerHTML = `
     <button type="button" class="filter-combo-button">${escapeHtml(buttonLabel)}</button>
     <div class="filter-combo-panel">
+      <small class="filter-help">Click: Any / Include / Exclude</small>
       ${available
         .map((option) => {
           const checked = selected.has(option.value) ? " checked" : "";
-          const count = option.count ? ` (${option.count})` : "";
+          const count = ` (${option.count || 0})`;
           return `
             <label>
               <input type="checkbox" value="${escapeHtml(option.value)}"${checked}>
@@ -842,12 +1147,34 @@ function renderFilterCombo(combo, options = null, label = "", allLabel = "") {
     state.openFilterKey = isOpen ? key : "";
   });
   combo.querySelectorAll("input[type='checkbox']").forEach((checkbox) => {
-    checkbox.addEventListener("change", () => {
-      const values = [...combo.querySelectorAll("input[type='checkbox']:checked")].map((input) => input.value);
-      state.multiFilters[key] = values;
+    bindFilterCheckbox(checkbox, excluded.has(checkbox.value) ? 'exclude' : selected.has(checkbox.value) ? 'include' : 'neutral', optionLabel(checkbox.value), () => {
+      const value = checkbox.value;
+      state.multiFilters[key] = [...selected].filter(item => item !== value);
+      state.excludedFilters[key] = [...excluded].filter(item => item !== value);
+      if (checkbox.dataset.filterState === 'include') state.multiFilters[key].push(value);
+      if (checkbox.dataset.filterState === 'exclude') state.excludedFilters[key].push(value);
       state.openFilterKey = key;
       applyFilters();
+      [...combo.querySelectorAll('input')].find(input => input.value === value)?.focus({preventScroll:true});
     });
+  });
+}
+
+function setFilterCheckbox(input, mode, label) {
+  input.dataset.filterState = mode;
+  input.classList.add('filter-tristate');
+  input.checked = mode === 'include';
+  input.indeterminate = mode === 'exclude';
+  input.setAttribute('aria-label', `${label}: ${mode === 'neutral' ? 'unrestricted' : mode}. Click or press Space to cycle any, include, exclude.`);
+  input.title = `${label}: ${mode === 'neutral' ? 'unrestricted' : mode}. Click to cycle any, include, exclude.`;
+}
+
+function bindFilterCheckbox(input, mode, label, changed) {
+  setFilterCheckbox(input, mode, label);
+  input.addEventListener('change', () => {
+    const next = {neutral:'include', include:'exclude', exclude:'neutral'}[input.dataset.filterState];
+    setFilterCheckbox(input, next, label);
+    changed();
   });
 }
 
@@ -930,21 +1257,45 @@ function fileExtension(fileName) {
 }
 
 async function selectCollection(collectionId) {
+  if (state.collectionSwitchPending) return;
   const selected = state.collections.find(collection => collection.id === collectionId);
   if (!selected || selected.available === false || selected.id === state.activeCollection?.id) { renderCollections(); return; }
+  state.collectionSwitchPending = true;
+  state.collectionViewGeneration = (state.collectionViewGeneration || 0) + 1;
   try {
+    rememberPlatformFilters();
     await withBusy(`Switching to ${selected.name || 'collection'}`, 'Starting index...', async () => {
       const payload = await api('/api/select-collection', {method: 'POST', body: JSON.stringify({collection_id: selected.id})});
       await waitForJob(payload.job_id);
-      state.selected = null; state.selectedIds.clear(); state.multiFilters = {};
-      els.filterView.value = 'all';
-      await reloadCollections(); await reloadGames();
+      els.busyMessage.textContent = 'Loading game list...';
+      setBusyProgress(null);
+      state.selected = null; state.selectedIds.clear();
+      const [collections, games] = await Promise.all([
+        api('/api/collections'), api('/api/games?view=all&shape=summary&groupVersions=true', {collectionId:selected.id})
+      ]);
+      acceptSummaryPayload(games);
+      state.filtered = [];
+      state.collections = collections.collections;
+      state.activeCollection = collections.active;
+      els.library.scrollTop = 0;
+      renderCollections(); renderEmulators(); applyFilters();
+      await renderDetails();
     });
-  } finally { renderCollections(); }
+  } catch (error) {
+    // The native switch may have completed before the list request failed.
+    // Resync its identity and clear stale rows before enabling game actions.
+    state.selected = null; state.selectedIds.clear();
+    replaceGameSummaries([]); state.filtered = [];
+    try { await reloadCollections(); } catch (_) { /* Keep the recovery message visible. */ }
+    renderList();
+    els.details.innerHTML = `<div class="empty-state">${escapeHtml(error.message || 'The collection could not be loaded.')} Reload Arcade to retry.</div>`;
+  } finally { state.collectionSwitchPending = false; renderCollections(); }
 }
 
 function renderCollections() {
+  els.filterPoks.closest('label').hidden = !platformColumnAvailable('poks');
   const platform = collectionPlatform(state.activeCollection);
+  restorePlatformFilters(platform);
   restorePlatformColumns(platform);
   if (state.activeCollection?.id) {
     state.ui.platformCollections[platform] = state.activeCollection.id;
@@ -969,8 +1320,53 @@ function renderCollections() {
     els.collectionSelect.value = state.activeCollection.id;
   }
   renderViewOptions();
-  const active = state.collections.find((collection) => collection.id === state.activeCollection?.id);
-  els.prepareCatalogue.disabled = !active?.available || !active?.writable;
+  renderPlatformNavigation(platform);
+}
+
+const ARCADE_NAV_ICONS = Object.freeze(Object.fromEntries(Object.entries(globalThis.ArcadePlatforms.libraries).map(([id, platform]) => [id, platform.icon])));
+
+function renderNavigationIcon(id, size = 40) {
+  const source = ARCADE_NAV_ICONS[id];
+  if (!source) return '';
+  return id === 'atari-st'
+    ? `<svg class="platform-native-icon" width="${size}" height="${size}" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M8 3h2v6c0 6-3 10-8 12v-3c4-2 6-5 6-9ZM14 3h2v6c0 4 2 7 6 9v3c-5-2-8-6-8-12ZM11 3h2v18h-2Z"/></svg>`
+    : `<img src="${source}" alt="" width="${size}" height="${size}">`;
+}
+
+function renderPlatformNavigation(platform) {
+  const grid = document.querySelector('#platform-grid');
+  if (!grid) return;
+  const focused = grid.contains(document.activeElement) ? document.activeElement.closest('[data-platform]')?.dataset.platform : null;
+  grid.innerHTML = Object.entries(COLLECTION_PLATFORMS).map(([id, name]) =>
+    `<button type="button" class="platform-slot" data-platform="${id}" aria-pressed="${id === platform}" title="${name}">
+      ${renderNavigationIcon(id)}<span>${name}</span></button>`).join('');
+  if (focused) [...grid.querySelectorAll('[data-platform]')].find(button => button.dataset.platform === focused)?.focus({preventScroll:true});
+}
+
+function showArcadeSettings(platform = 'general') {
+  globalThis.ArcadeSettingsUI.open({platform, platforms:COLLECTION_PLATFORMS, renderIcon:renderNavigationIcon,
+    collections:() => state.collections, active:() => state.activeCollection, version:ARCADE_VERSION,
+    api, escapeHtml, pickPathInto,
+    layout:() => ({sidebar:!state.ui.sidebarCollapsed, details:!state.ui.detailsCollapsed}),
+    saveLayout:value => {
+      state.ui.sidebarCollapsed = !value.sidebar; state.ui.detailsCollapsed = !value.details;
+      saveUiState(); renderLayout(); scheduleVirtualRender();
+    },
+    saved:async () => { await reloadCollections(); state.selected = null; state.selectedIds.clear(); await reloadGames(); },
+    action:async (action, collection) => {
+      if (action === 'emulators') return showEmulatorProfileModal(collection);
+      if (action === 'providers') return showScraperSettingsModal();
+      if (action === 'recovery') return showCatalogueRecoveryModal();
+      if (action === 'reconnect') return showCatalogueReattachmentModal();
+      if (action === 'add') return showAddCollectionModal();
+      await selectCollection(collection.id);
+      if (action === 'prepare') return showCataloguePreparationModal();
+      if (action === 'rebuild') await withBusy('Rebuilding Index', 'Scanning the selected collection...', async () => {
+        const payload = await api('/api/rebuild', {method:'POST', body:'{}'});
+        await waitForJob(payload.job_id); await reloadGames();
+      });
+    }
+  });
 }
 
 function renderViewOptions() {
@@ -990,6 +1386,7 @@ function renderViewOptions() {
     <option value="all">All Games</option>
     <option value="favourites">Favourites</option>
     <option value="recent">Recent</option>
+    <option value="new">Newly indexed (14 days)</option>
     ${incomingOption}
     ${trashOption}
   `;
@@ -1019,8 +1416,7 @@ function renderViewBeacon(element, count, badge, label, titleSuffix) {
 
 function renderEmulators() {
   const previous = state.emulatorCollection === state.activeCollection?.id ? els.emulator.value : '';
-  const scummvm = collectionPlatform(state.activeCollection) === 'scummvm';
-  const emulators = state.emulators.filter(emu => (emu.type === 'scummvm') === scummvm);
+  const emulators = platformEmulators();
   els.emulator.innerHTML = emulators
     .map((emu) => {
       const label = emu.available ? emu.name : `${emu.name} (missing)`;
@@ -1031,14 +1427,21 @@ function renderEmulators() {
   els.emulator.value = [collectionDefault, previous].find(id => emulators.some(emu => emu.id === id))
     || emulators.find(emu => emu.available)?.id || emulators[0]?.id || '';
   state.emulatorCollection = state.activeCollection?.id;
+  if (globalThis.ArcadeEmulatorShortcuts) {
+    state.emulatorShortcuts ||= globalThis.ArcadeEmulatorShortcuts.create({
+      container: document.querySelector('#emulator-shortcuts'), status: document.querySelector('#emulator-shortcuts-status'),
+      api, collectionId: () => state.activeCollection?.id
+    });
+    void state.emulatorShortcuts.refresh();
+  }
 }
 
-function showEmulatorProfileModal() {
+function showEmulatorProfileModal(collection = state.activeCollection) {
   const overlay = document.createElement("div");
   overlay.className = "modal-overlay";
-  const spectrumEmulators = state.emulators.map(cloneEmulator);
+  const spectrumEmulators = platformEmulators(collection).map(cloneEmulator);
   const editableEmulators = Object.fromEntries(spectrumEmulators.map((emu) => [emu.id, cloneEmulator(emu)]));
-  let selectedEmulatorId = spectrumEmulators[0]?.id || "eightyone";
+  let selectedEmulatorId = spectrumEmulators.find(emu => emu.id === els.emulator.value)?.id || spectrumEmulators[0]?.id || '';
   overlay.innerHTML = `
     <div class="modal emulator-modal">
       <div class="modal-scroll">
@@ -1057,14 +1460,14 @@ function showEmulatorProfileModal() {
             <button class="secondary" data-action="add-emulator" type="button">Add Emulator</button>
           </div>
           <label>
-            <span>Default for ${escapeHtml(state.activeCollection?.name || "active collection")}</span>
+            <span>Default for ${escapeHtml(collection?.name || "active collection")}</span>
             <select id="collection-default-emulator">
               <option value="">No default</option>
-              ${spectrumEmulators.map((emu) => `<option value="${escapeHtml(emu.id)}"${state.activeCollection?.default_emulator === emu.id ? " selected" : ""}>${escapeHtml(emu.name || emu.id)}</option>`).join("")}
+              ${spectrumEmulators.map((emu) => `<option value="${escapeHtml(emu.id)}"${collection?.default_emulator === emu.id ? " selected" : ""}>${escapeHtml(emu.name || emu.id)}</option>`).join("")}
             </select>
           </label>
           <div id="selected-emulator-settings"></div>
-          <section class="emulator-card">
+          <section class="emulator-card" ${collectionPlatform(collection) !== 'zx-spectrum' ? 'hidden' : ''}>
             <h3>Managed Profiles</h3>
             <p>Imported profiles are copied into the launcher and selected by launch rules.</p>
             <div id="managed-profile-list" class="managed-profile-list"></div>
@@ -1092,7 +1495,7 @@ function showEmulatorProfileModal() {
   const emulatorSelect = overlay.querySelector("#spectrum-emulator-select");
   const renderSelectedEmulator = () => {
     const emulator = editableEmulators[selectedEmulatorId] || { id: selectedEmulatorId };
-    selectedSettings.innerHTML = emulatorProfileCard(selectedEmulatorId, emulatorDisplayName(selectedEmulatorId), emulator);
+    selectedSettings.innerHTML = selectedEmulatorId ? emulatorProfileCard(selectedEmulatorId, emulator.name || emulatorDisplayName(selectedEmulatorId), emulator) : '<p>No emulator configured for this platform. Add one to continue.</p>';
     renderManagedProfiles(overlay, selectedEmulatorId);
   };
   const syncSelectedEmulator = () => {
@@ -1102,6 +1505,7 @@ function showEmulatorProfileModal() {
     }
   };
   renderSelectedEmulator();
+  emulatorSelect.value = selectedEmulatorId;
   emulatorSelect.addEventListener("change", () => {
     try {
       syncSelectedEmulator();
@@ -1141,7 +1545,7 @@ function showEmulatorProfileModal() {
         selectedEmulatorId = emulator.id;
         emulatorSelect.value = emulator.id;
         renderSelectedEmulator();
-      });
+      }, collection);
       return;
     }
     if (button.dataset.action === "delete-emulator") {
@@ -1216,7 +1620,7 @@ function showEmulatorProfileModal() {
         method: "POST",
         body: JSON.stringify({
           emulators,
-          collection_id: state.activeCollection?.id || "",
+          collection_id: collection?.id || "",
           default_emulator: overlay.querySelector("#collection-default-emulator")?.value || "",
         }),
       });
@@ -1311,15 +1715,15 @@ function screenscraperSettingsFields(provider) {
       <option value="true"${provider.enabled ? " selected" : ""}>Enabled</option>
       <option value="false"${provider.enabled ? "" : " selected"}>Disabled</option>
     </select></label>
-    <label><span>System ID</span><input data-scraper-provider="screenscraper" data-scraper-field="system_id" type="text" value="${escapeHtml(provider.system_id || "135")}" placeholder="135"></label>
+    <label><span>Spectrum System ID (Atari/ScummVM automatic)</span><input data-scraper-provider="screenscraper" data-scraper-field="system_id" type="text" value="${escapeHtml(provider.system_id === "135" ? "76" : provider.system_id || "76")}" placeholder="76"></label>
     <label><span>Softname</span><input data-scraper-provider="screenscraper" data-scraper-field="softname" type="text" value="${escapeHtml(provider.softname || "DesasteronSpectrumLauncher")}"></label>
     <label><span>Language</span><input data-scraper-provider="screenscraper" data-scraper-field="preferred_language" type="text" value="${escapeHtml(provider.preferred_language || "en")}" placeholder="en"></label>
     <label><span>Region</span><input data-scraper-provider="screenscraper" data-scraper-field="preferred_region" type="text" value="${escapeHtml(provider.preferred_region || "wor")}" placeholder="wor"></label>
     <label class="wide"><span>Base URL</span><input data-scraper-provider="screenscraper" data-scraper-field="base_url" type="text" value="${escapeHtml(provider.base_url || "https://api.screenscraper.fr/api2")}"></label>
     <label><span>Username</span><input data-scraper-provider="screenscraper" data-scraper-field="username" type="text" value="${escapeHtml(provider.username || "")}"></label>
     <label><span>Password${provider.has_password ? " (saved)" : ""}</span><input data-scraper-provider="screenscraper" data-scraper-field="password" type="password" value="" placeholder="${provider.has_password ? "Leave blank to keep saved password" : ""}"></label>
-    <label><span>Developer ID (optional)</span><input data-scraper-provider="screenscraper" data-scraper-field="developer_id" type="text" value="${escapeHtml(provider.developer_id || "")}"></label>
-    <label><span>Developer Password${provider.has_developer_password ? " (saved)" : ""} (optional)</span><input data-scraper-provider="screenscraper" data-scraper-field="developer_password" type="password" value="" placeholder="${provider.has_developer_password ? "Leave blank to keep saved password" : ""}"></label>
+    <label><span>Developer ID</span><input data-scraper-provider="screenscraper" data-scraper-field="developer_id" type="text" value="${escapeHtml(provider.developer_id || "")}"></label>
+    <label><span>Developer Password${provider.has_developer_password ? " (saved)" : ""}</span><input data-scraper-provider="screenscraper" data-scraper-field="developer_password" type="password" value="" placeholder="${provider.has_developer_password ? "Leave blank to keep saved password" : ""}"></label>
   `;
 }
 
@@ -1496,12 +1900,12 @@ function emulatorProfileCard(id, title, emulator) {
       <div class="emulator-card-title"><h3>${escapeHtml(title)}</h3>${deleteButton}</div>
       <div class="emulator-grid">
         <label><span>Name</span><input data-field="name" type="text" value="${escapeHtml(emulator.name || title)}"></label>
-        <label><span>Launch Adapter</span><select data-field="type"${(emulator.built_in || adapter === "scummvm") ? " disabled" : ""}>
-          ${["generic", "eightyone", "spectaculator", "scummvm"].map((value) => `<option value="${value}"${adapter === value ? " selected" : ""}>${value}</option>`).join("")}
+        <label><span>Launch Adapter</span><select data-field="type"${(emulator.built_in || ["scummvm", "steem", "hatari"].includes(adapter)) ? " disabled" : ""}>
+          ${platformEmulatorTypes().map((value) => `<option value="${value}"${adapter === value ? " selected" : ""}>${value}</option>`).join("")}
         </select></label>
         <label><span>Supported Extensions</span><input data-field="supported_extensions" type="text" value="${escapeHtml(extensions)}"></label>
         <label class="wide"><span>Executable Path</span>${pathPickerInput("path", emulator.path || "", "file")}</label>
-        ${adapter === "scummvm" ? '<div class="meta wide">Uses each game’s registered ScummVM target and existing settings.</div>' : `
+        ${["scummvm", "steem", "hatari"].includes(adapter) ? '<div class="meta wide">Uses the selected game edition and the emulator’s existing settings.</div>' : `
         <label class="wide"><span>Working Directory</span>${pathPickerInput("working_dir", emulator.working_dir || "", "folder")}</label>
         <label class="wide"><span>Launch Arguments (JSON array)</span><textarea data-field="arguments" data-format="arguments">${escapeHtml(formatArgumentList(emulator.arguments || ["{file}"]))}</textarea></label>
         <div class="meta wide">Allowed placeholders: {file}, {file_dir}, {file_name}, {collection_root}, {pok_file}, {system}, {title}. Arguments are passed directly without a shell.</div>`}
@@ -1570,7 +1974,7 @@ function readEmulatorProfileForm(root, id) {
   return result;
 }
 
-function showAddEmulatorModal(onAdd) {
+function showAddEmulatorModal(onAdd, collection = state.activeCollection) {
   const overlay = document.createElement("div");
   overlay.className = "modal-overlay";
   overlay.innerHTML = `
@@ -1580,7 +1984,7 @@ function showAddEmulatorModal(onAdd) {
       <div class="profile-edit-grid">
         <label><span>ID</span><input id="add-emulator-id" type="text" placeholder="snes9x"></label>
         <label><span>Name</span><input id="add-emulator-name" type="text" placeholder="Snes9x"></label>
-        <label><span>Launch Adapter</span><select id="add-emulator-type"><option value="generic">generic</option><option value="eightyone">eightyone</option><option value="spectaculator">spectaculator</option></select></label>
+        <label><span>Launch Adapter</span><select id="add-emulator-type">${platformEmulatorTypes(collection).map(type => `<option value="${type}">${type}</option>`).join('')}</select></label>
         <label><span>Extensions</span><input id="add-emulator-extensions" type="text" placeholder=".smc, .sfc"></label>
         <label class="wide"><span>Executable Path</span>${pathPickerInput("add-emulator-path", "", "file")}</label>
         <label class="wide"><span>Working Directory</span>${pathPickerInput("add-emulator-working-dir", "", "folder")}</label>
@@ -1621,7 +2025,7 @@ function showAddEmulatorModal(onAdd) {
       path: overlay.querySelector('[data-field="add-emulator-path"]').value.trim(),
       working_dir: overlay.querySelector('[data-field="add-emulator-working-dir"]').value.trim(),
       supported_extensions: overlay.querySelector("#add-emulator-extensions").value,
-      arguments: ["{file}"],
+      arguments: ['scummvm', 'steem', 'hatari'].includes(overlay.querySelector('#add-emulator-type').value) ? [] : ['{file}'],
       built_in: false,
     });
     overlay.remove();
@@ -1629,14 +2033,21 @@ function showAddEmulatorModal(onAdd) {
 }
 
 function applyFilters() {
+  els.filterPoks.closest('label').hidden = !platformColumnAvailable('poks');
   const filters = activeFiltersSnapshot();
   renderMetadataFilters(filters);
   renderViewOptions();
-  state.filtered = groupedGameRows(state.games.filter((game) => matchesActiveFilters(game, "", filters)));
+  state.filtered = groupedGameRows(state.games.filter((game) => matchesActiveFilters(game, "", filters)), filters);
+  const visible = new Map(state.filtered.map(game => [game.version_group || game.id, game]));
+  state.selectedIds = new Set([...state.selectedIds].map(id => {
+    const game = state.gamesById.get(id);
+    return visible.get(game?.version_group || id)?.id;
+  }).filter(Boolean));
   sortFilteredGames();
   renderList();
   renderCounts();
   updateSortHeaders();
+  rememberPlatformFilters();
 }
 
 function scheduleFilterApply() {
@@ -1650,6 +2061,7 @@ function scheduleFilterApply() {
 function activeFiltersSnapshot() {
   return {
     query: els.search.value.trim().toLowerCase(),
+    cleanup: els.filterCleanup?.value || "",
     system: new Set(selectedFilterValues("system")),
     language: new Set(selectedFilterValues("language")),
     country: new Set(selectedFilterValues("country")),
@@ -1657,26 +2069,39 @@ function activeFiltersSnapshot() {
     publisher: new Set(selectedFilterValues("publisher")),
     tag: new Set(selectedFilterValues("tag")),
     view: els.filterView.value || "all",
-    poks: els.filterPoks.checked,
+    poks: platformColumnAvailable('poks') ? els.filterPoks.dataset.filterState || (els.filterPoks.checked ? 'include' : 'neutral') : 'neutral',
+    excluded: Object.fromEntries(Object.entries(state.excludedFilters).map(([key, values]) => [key, new Set(values)])),
   };
 }
 
 function matchesActiveFilters(game, excludeKey = "", filters = activeFiltersSnapshot()) {
   if (filters.query && !matchesQuery(game, filters.query)) return false;
+  if (filters.cleanup && !game.cleanup?.[filters.cleanup]) return false;
   if (excludeKey !== "system" && filters.system.size && !filters.system.has(game.system)) return false;
   if (excludeKey !== "language" && filters.language.size && !intersects(gameLanguageCodes(game), filters.language)) return false;
   if (excludeKey !== "country" && filters.country.size && !intersects(game.countries || [], filters.country)) return false;
   if (excludeKey !== "year" && filters.year.size && !filters.year.has(gameYear(game))) return false;
   if (excludeKey !== "publisher" && filters.publisher.size && !filters.publisher.has(game.publisher)) return false;
   if (excludeKey !== "tag" && filters.tag.size && !intersects(gameTags(game), filters.tag)) return false;
-  if (filters.poks && !game.has_poks) return false;
+  if ((filters.poks === 'include' || filters.poks === true) && !game.has_poks) return false;
+  if (matchesExcludedFilters(game, excludeKey, filters)) return false;
   if (excludeKey === "view") return true;
   if (filters.view === "all" && ["incoming", "trash"].includes(game.view)) return false;
   if (filters.view === "favourites" && !game.favourite) return false;
   if (filters.view === "recent" && !state.recentIds.has(game.id)) return false;
+  if (filters.view === "new" && !game.newly_indexed) return false;
   if (filters.view === "incoming" && game.view !== "incoming") return false;
   if (filters.view === "trash" && game.view !== "trash") return false;
   return true;
+}
+
+function matchesExcludedFilters(game, excludeKey, filters) {
+  if (filters.poks === 'exclude' && game.has_poks) return true;
+  const exclusions = Object.entries(filters.excluded || {}).filter(([key, excluded]) => key !== excludeKey && excluded.size);
+  if (!exclusions.length) return false;
+  const values = {system:[game.system], language:gameLanguageCodes(game), country:game.countries || [],
+    year:[gameYear(game)], publisher:[game.publisher], tag:gameTags(game)};
+  return exclusions.some(([key, excluded]) => intersects(values[key] || [], excluded));
 }
 
 function filteredForCounts(excludeKey, filters) {
@@ -1772,7 +2197,7 @@ function renderCounts() {
   const incomingSelected = selectedGames.some((game) => game.view === "incoming");
   const trashSelected = selectedGames.some((game) => game.view === "trash");
   els.bulkEdit.textContent = incomingSelected ? "Incoming Actions" : trashSelected ? "Bin Actions" : "Bulk Actions";
-  els.bulkEdit.disabled = !selectedCount || !state.activeCollection?.writable;
+  els.bulkEdit.disabled = !selectedCount;
   const visibleIds = state.filtered.map((game) => game.id);
   const checkedVisible = visibleIds.filter((id) => state.selectedIds.has(id)).length;
   if (els.selectVisible) {
@@ -1782,11 +2207,16 @@ function renderCounts() {
   renderImportSelectTools();
   const bits = [];
   if (els.search.value.trim()) bits.push(`search "${els.search.value.trim()}"`);
-  if (els.filterPoks.checked) bits.push("POKs");
+  if (platformColumnAvailable('poks') && els.filterPoks.dataset.filterState !== 'neutral') {
+    if (els.filterPoks.dataset.filterState === 'exclude') bits.push('exclude POKs');
+    else if (els.filterPoks.checked) bits.push('POKs');
+  }
   if (els.filterView.value === "favourites") bits.push("favourites");
   if (els.filterView.value === "recent") bits.push("recent");
   if (els.filterView.value === "incoming") bits.push("incoming");
   if (els.filterView.value === "trash") bits.push("bin");
+  const cleanupLabel = {artwork:'missing artwork', description:'missing description', review:'needs scrape review'}[els.filterCleanup?.value];
+  if (cleanupLabel) bits.push(cleanupLabel);
   bits.push(...filterSummary("system"));
   bits.push(...filterSummary("language", LANGUAGE_NAMES));
   bits.push(...filterSummary("country", COUNTRY_NAMES));
@@ -1856,8 +2286,8 @@ function handleBulkAction() {
 
 function showCollectionBulkModal(games) {
   if (!games.length) return;
-  const favouriteAddGames = games.filter((game) => !game.favourite);
-  const favouriteRemoveGames = games.filter((game) => game.favourite);
+  const favouriteAddGames = games.filter((game) => !isGameFavourite(game));
+  const favouriteRemoveGames = games.filter((game) => isGameFavourite(game));
   const overlay = document.createElement("div");
   overlay.className = "modal-overlay";
   overlay.innerHTML = `
@@ -1865,13 +2295,14 @@ function showCollectionBulkModal(games) {
       <h2>Bulk Actions</h2>
       <p>${games.length.toLocaleString()} collection game${games.length === 1 ? "" : "s"} selected.</p>
       <div class="modal-actions">
-        <button data-action="metadata">Edit Metadata</button>
+        <button data-action="metadata" ${state.activeCollection?.writable ? '' : 'disabled'}>Edit Metadata</button>
+        <button data-action="scrape" ${canScrapeMetadata() ? '' : 'disabled'}>Scrape Metadata</button>
         ${!webHubHandoff.rebindGameKey ? '<button class="secondary" data-action="send-selected-webhub">Send selected games to Portal</button>' : ''}
-        <button class="secondary" data-action="set-country">Set Country</button>
-        <button class="secondary" data-action="set-language">Set Language</button>
+        <button class="secondary" data-action="set-country" ${state.activeCollection?.writable ? '' : 'disabled'}>Set Country</button>
+        <button class="secondary" data-action="set-language" ${state.activeCollection?.writable ? '' : 'disabled'}>Set Language</button>
         <button class="secondary" data-action="favourite-add" ${favouriteAddGames.length ? "" : "disabled"}>Add to Favourites (${favouriteAddGames.length.toLocaleString()})</button>
         <button class="secondary" data-action="favourite-remove" ${favouriteRemoveGames.length ? "" : "disabled"}>Remove from Favourites (${favouriteRemoveGames.length.toLocaleString()})</button>
-        <button class="secondary danger-text" data-action="delete">Delete Selected</button>
+        <button class="secondary danger-text" data-action="delete" ${state.activeCollection?.writable ? '' : 'disabled'}>Delete Selected</button>
         <button class="secondary" data-action="cancel">Cancel</button>
       </div>
       <div class="message error" id="collection-bulk-error"></div>
@@ -1896,6 +2327,7 @@ function showCollectionBulkModal(games) {
       await sendGamesToPortal(games);
       return;
     }
+    if (action === 'scrape') { overlay.remove(); await showBulkScrapeModal(games); return; }
     if (action === "metadata") {
       overlay.remove();
       showMetadataModal(games.map((game) => game.id), true);
@@ -1975,11 +2407,8 @@ async function bulkDeleteCollectionGames(games, confirmFirst = true) {
 }
 
 async function bulkSetFavourite(games, favourite) {
-  const payload = await api("/api/favourites-bulk", {
-    method: "POST",
-    body: JSON.stringify({ game_ids: games.map((game) => game.id), favourite }),
-  });
-  const updated = Number(payload.count || 0);
+  const targets = favourite ? games : games.flatMap(favouriteGameMembers);
+  const updated = await setGameFavourites(targets, favourite);
   setBusyProgress(100);
   return `${favourite ? "Added" : "Removed"} ${updated} favourite${updated === 1 ? "" : "s"}.`;
 }
@@ -2167,7 +2596,8 @@ async function purgeTrashGames(games, confirmFirst = true) {
 }
 
 function filterSummary(key, names = null) {
-  return selectedFilterValues(key).map((value) => names?.[value] || value);
+  return selectedFilterValues(key).map((value) => names?.[value] || value)
+    .concat((state.excludedFilters[key] || []).map(value => `exclude ${names?.[value] || value}`));
 }
 
 function selectedGameList() {
@@ -2330,8 +2760,15 @@ async function selectGame(id) {
   const summary = state.gamesById.get(id);
   if (!summary) return;
   state.selected = summary;
-  const details = await loadGameDetails(id);
-  if (state.selected?.id !== id) return;
+  const generation = state.metadataGeneration || 0;
+  updateSelectedRow(previousId, id);
+  await renderDetails();
+  let details;
+  try {details = await loadGameDetails(id);} catch (error) {
+    if (state.selected === summary) await renderDetails(error.message, true);
+    return;
+  }
+  if (state.selected?.id !== id || generation !== (state.metadataGeneration || 0)) return;
   state.selected = details || summary;
   applyGameDefaultEmulator(state.selected);
   updateSelectedRow(previousId, id);
@@ -2339,11 +2776,16 @@ async function selectGame(id) {
 }
 
 async function loadGameDetails(id) {
-  let details = state.gameDetails.get(id);
-  if (details) return details;
+  const generation = state.metadataGeneration || 0, collectionId = state.activeCollection?.id;
+  const cached = state.gameDetails.get(id);
+  if (cached) return cached;
   const payload = await api(`/api/game?game_id=${encodeURIComponent(id)}`);
-  details = payload.game || null;
-  if (details) state.gameDetails.set(id, details);
+  if (generation !== (state.metadataGeneration || 0) || collectionId !== state.activeCollection?.id) return null;
+  const details = payload.game || null;
+  if (details) {
+    state.gameDetails.set(id, details);
+    while (state.gameDetails.size > 256) state.gameDetails.delete(state.gameDetails.keys().next().value);
+  }
   return details;
 }
 
@@ -2370,6 +2812,7 @@ function escapeAttributeSelector(value) {
 }
 
 async function renderDetails(message = "", isError = false) {
+  const generation = ++detailRenderGeneration;
   const game = state.selected;
   if (!game) {
     els.details.innerHTML = message
@@ -2378,9 +2821,19 @@ async function renderDetails(message = "", isError = false) {
     return;
   }
   const renderId = game.id;
-  await prepareArtworkAssets([game.screenshot, game.loading_screen]);
-  const poks = game.has_poks ? (await api(`/api/poks?game_id=${encodeURIComponent(game.id)}`)).poks : [];
-  if (state.selected?.id !== renderId) return;
+  const artwork = [game.screenshot, game.loading_screen].filter(value => value && !extensionAssetCache.has(value));
+  if (artwork.length) {
+    // Saving and delivering a shortcut must not wait for artwork downloads.
+    void prepareArtworkAssets(artwork, () => {
+      if (generation !== detailRenderGeneration || state.selected !== game) return;
+      const panel = els.details.querySelector('.artwork-panel');
+      if (panel?.dataset.gameId === game.id) {
+        panel.outerHTML = renderArtworkPanel([['Screenshot', game.screenshot], ['Loading', game.loading_screen]].filter(([, value]) => value), game.id);
+      }
+    }).catch(() => {});
+  }
+  const poks = [];
+  if (state.selected?.id !== renderId || generation !== detailRenderGeneration) return;
   const detailTags = [
     game.system || game.memory,
     formatLanguageCodes(game),
@@ -2397,21 +2850,34 @@ async function renderDetails(message = "", isError = false) {
       ${detailTags.map((tag) => `<span class="pill">${escapeHtml(tag)}</span>`).join("")}
     </div>
     <div class="detail-actions">
-      <button id="launch">Launch Game</button>
       <button id="send-webhub" class="secondary">${webHubHandoff.rebindGameKey ? "Update Portal Shortcut" : "Send to Portal"}</button>
-      <button id="favourite" class="secondary">${game.favourite ? "Remove Favourite" : "Add Favourite"}</button>
-      <button id="scrape-metadata" class="secondary">Scrape Metadata</button>
     </div>
     ${renderScrapedMetadata(game)}
+    ${(game.screenshot || game.loading_screen) ? '<button class="secondary" data-retry-artwork>Reload artwork</button>' : ''}
+    ${game.scrape_provenance?.scraped_at ? `<div class="meta">Metadata: ${escapeHtml(game.scrape_provenance.provider || 'Manual')} · ${escapeHtml(game.scrape_provenance.platform || game.system)} · ${escapeHtml(game.scrape_provenance.scraped_at.slice(0, 10))}</div>` : ''}
     ${renderLaunchMeta(game)}
-    <h2 class="section-heading">POKs</h2>
-    ${renderPoks(poks)}
+    ${platformColumnAvailable('poks') ? `<h2 class="section-heading">POKs</h2><div data-detail-poks>${game.has_poks ? '<span class="meta">Loading POKs...</span>' : renderPoks(poks)}</div>` : ''}
     ${message ? `<div class="message ${isError ? "error" : ""}">${escapeHtml(message)}</div>` : ""}
   `;
-  document.querySelector("#launch").addEventListener("click", launchSelected);
   document.querySelector("#send-webhub").addEventListener("click", sendSelectedToWebHub);
-  document.querySelector("#favourite").addEventListener("click", toggleFavourite);
-  document.querySelector("#scrape-metadata").addEventListener("click", showScrapePreviewModal);
+  els.details.querySelector('[data-retry-artwork]')?.addEventListener('click', () => {
+    extensionAssetCache.retry([game.screenshot, game.loading_screen].filter(Boolean));
+    void renderDetails();
+  });
+  if (game.has_poks && platformColumnAvailable('poks')) {
+    void api(`/api/poks?game_id=${encodeURIComponent(game.id)}`).then(payload => {
+      if (generation !== detailRenderGeneration || state.selected !== game) return;
+      const panel = els.details.querySelector('[data-detail-poks]');
+      if (!panel) return;
+      panel.innerHTML = renderPoks(payload.poks || []);
+      panel.querySelectorAll('.open-pok').forEach(button => button.addEventListener('click', () => openPok(button.dataset.pokId)));
+    }).catch(() => {
+      if (generation === detailRenderGeneration) {
+        const panel = els.details.querySelector('[data-detail-poks]');
+        if (panel) panel.textContent = 'POKs could not be loaded. Select the game again to retry.';
+      }
+    });
+  }
   document.querySelectorAll(".open-pok").forEach((button) => {
     button.addEventListener("click", () => openPok(button.dataset.pokId));
   });
@@ -2438,37 +2904,34 @@ function renderScrapedMetadata(game) {
   const fields = [
     ["Genre", game.genre],
     ["Developer", game.developer],
-    ["Platform", game.platform],
     ["Region", game.region],
-    ["Players", game.players],
-    ["Co-op", game.coop],
     ["Rating", game.rating],
   ].filter(([, value]) => value);
+  const multiplayer = [["Players", game.players], ["Co-op", game.coop]].filter(([, value]) => value);
   const description = String(game.description || "").trim();
   const assets = [
     ["Screenshot", game.screenshot],
     ["Loading", game.loading_screen],
   ].filter(([, value]) => value);
-  if (!fields.length && !description && !assets.length) return "";
+  if (!fields.length && !multiplayer.length && !description && !assets.length) return "";
   return `
     <h2 class="section-heading">Metadata</h2>
     <div class="scraped-meta">
-      ${renderArtworkPanel(assets)}
+      ${renderArtworkPanel(assets, game.id)}
       ${fields.map(([label, value]) => `<div><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`).join("")}
+      ${multiplayer.length ? `<div class="multiplayer-meta">${multiplayer.map(([label, value]) => `<div><span>${label}</span><strong>${escapeHtml(value)}</strong></div>`).join("")}</div>` : ""}
       ${description ? `<div class="description-box"><span>Description</span><p>${escapeHtml(description)}</p></div>` : ""}
-        ${assets.length ? `<div class="asset-list">${assets.map(([label, value]) => `<span class="pill asset-pill" title="${escapeHtml(value)}">${escapeHtml(label)}</span>`).join("")}</div>` : ""}
       </div>
     `;
   }
 
-function renderArtworkPanel(assets) {
+function renderArtworkPanel(assets, gameId = '') {
   if (!assets.length) return "";
   return `
-    <div class="artwork-panel">
+    <div class="artwork-panel" data-game-id="${escapeHtml(gameId)}">
       ${assets.map(([label, value]) => `
         <figure class="artwork-card">
-          <img src="${escapeHtml(assetDisplayUrl(value))}" alt="${escapeHtml(label)}" loading="lazy" onerror="this.closest('.artwork-card').classList.add('image-missing')">
-          <figcaption>${escapeHtml(label)}</figcaption>
+          ${assetDisplayUrl(value) ? `<img src="${escapeHtml(assetDisplayUrl(value))}" alt="${escapeHtml(label)}" decoding="async" onerror="this.closest('.artwork-card').classList.add('image-missing')">` : `<span class="meta">${extensionAssetCache.has(value) ? 'Artwork unavailable' : 'Loading artwork...'}</span>`}
         </figure>
       `).join("")}
     </div>
@@ -2481,17 +2944,8 @@ function assetDisplayUrl(value) {
   return extensionAssetCache.get(text) || "";
 }
 
-async function prepareArtworkAssets(values) {
-  const missing = [...new Set((values || []).map((value) => String(value || "").trim())
-    .filter((value) => value && !extensionAssetCache.has(value)))];
-  await Promise.all(missing.map(async value => {
-    try {
-      const response = await requestArcadeAsset(value);
-      extensionAssetCache.set(value, String(response.asset?.dataUrl || ""));
-    } catch (_error) {
-      extensionAssetCache.set(value, "");
-    }
-  }));
+async function prepareArtworkAssets(values, onReady = () => {}) {
+  return extensionAssetCache.prepare(values || [], onReady);
 }
 
 function resolveLaunchMeta(game) {
@@ -2532,7 +2986,7 @@ function resolveLaunchBinding(game, emulatorOverride = "") {
     throw new Error(explicit ? 'The selected or saved emulator is unavailable or incompatible with this game.'
       : 'No compatible emulator is available for this game. Configure one in Emulators & Profiles.');
   }
-  if (state.emulators.find(item => item.id === emulatorId)?.type === "scummvm") return { emulatorId, profileId: "" };
+  if (state.emulators.find(item => item.id === emulatorId)?.type && ["scummvm", "steem", "hatari"].includes(state.emulators.find(item => item.id === emulatorId)?.type)) return { emulatorId, profileId: "" };
   const pinnedProfile = game.emulator_profile
     ? state.emulatorProfiles.find((profile) => profile.id === game.emulator_profile && (!emulatorId || profile.emulator_id === emulatorId))
     : null;
@@ -2885,7 +3339,7 @@ function showCatalogueReattachmentModal() {
   const close = () => {
     if (busy) return;
     overlay.remove();
-    els.catalogueReattachment.focus();
+    els.version.focus();
   };
   source.addEventListener("change", () => {
     clearReview();
@@ -2995,7 +3449,7 @@ function showCatalogueRecoveryModal() {
   const close = () => {
     if (busy) return;
     overlay.remove();
-    els.catalogueRecovery.focus();
+    els.version.focus();
   };
   const loadStatus = async () => {
     const result = await api("/api/catalogue-recovery/status", { method: "POST", body: "{}" });
@@ -3099,7 +3553,7 @@ function showCataloguePreparationModal() {
   const close = () => {
     if (busy) return;
     overlay.remove();
-    els.prepareCatalogue.focus();
+    els.version.focus();
   };
   overlay.addEventListener("keydown", (event) => {
     if (event.key === "Escape") { event.preventDefault(); close(); }
@@ -3297,15 +3751,16 @@ function showColumnOptionsModal() {
 
 function applyColumnEditorState(list, errorBox) {
   const rows = [...list.querySelectorAll(".column-editor-row")];
-  const visibility = {};
-  const widths = {};
+  const visibility = {...state.ui.columnVisibility};
+  const widths = {...state.ui.columnWidths};
   const order = rows.map((row) => row.dataset.column);
+  order.push(...state.ui.columnOrder.filter(key => !platformColumnAvailable(key)));
   rows.forEach((row) => {
     const key = row.dataset.column;
     visibility[key] = row.querySelector("[data-column-visible]").checked;
     widths[key] = Math.max(48, Math.min(640, Number(row.querySelector("[data-column-width]").value) || columnWidth(key)));
   });
-  if (!Object.values(visibility).some(Boolean)) {
+  if (!rows.some(row => visibility[row.dataset.column])) {
     errorBox.textContent = "Keep at least one column visible.";
     return false;
   }
@@ -3327,7 +3782,7 @@ function applyColumnEditorState(list, errorBox) {
 
 function columnEditorRow(key) {
   const column = COLUMN_MAP.get(key);
-  if (!column) return "";
+  if (!column || !platformColumnAvailable(key)) return "";
   return `
     <div class="column-editor-row" data-column="${escapeHtml(key)}">
       <label><input data-column-visible type="checkbox" ${state.ui.columnVisibility[key] ? "checked" : ""}> ${escapeHtml(column.label)}</label>
@@ -3448,9 +3903,12 @@ function showSortHeaderMenu(event, key) {
 
 function compatibleGameEmulators(game) {
   const scummvm = game?.type === 'ScummVM';
+  const atari = game?.type === 'Atari ST';
   const extension = String(game?.extension || '').toLowerCase();
   return state.emulators.filter(emu => {
-    if (!emu.available || (emu.type === 'scummvm') !== scummvm) return false;
+    if (game?.type === 'Game Boy' && emu.type !== 'generic') return false;
+    if (!emu.available || (emu.type === 'scummvm') !== scummvm || (['steem', 'hatari'].includes(emu.type)) !== atari) return false;
+    if (emu.type === 'steem' && ['TT', 'Falcon'].includes(game.system)) return false;
     if (scummvm) return true;
     const extensions = emu.supported_extensions || [];
     return !extensions.length || extensions.some(value => String(value).toLowerCase() === extension);
@@ -3502,8 +3960,14 @@ async function showContextMenu(event, gameId) {
     .join("");
   menu.innerHTML = `
     <div class="context-section">
+      ${!isIncoming && !isTrash && game.type === 'Atari ST' ? '<button data-action="properties">Properties…</button>' : ''}
       ${!isIncoming && !isTrash ? '<button data-action="launch-version">Launch Version…</button>' : ''}
+      ${!isIncoming && !isTrash ? '<button data-action="scrape">Scrape Metadata</button>' : ''}
+      ${!isIncoming && !isTrash && selectedForPortal.length > 1 && canScrapeMetadata()
+        ? `<button data-action="scrape-selected">Scrape selected games (${selectedForPortal.length})</button>` : ''}
+      ${globalThis.ArcadeScrapeDrafts.load(state.activeCollection.id) ? '<button data-action="resume-scrape">Resume scrape review</button>' : ''}
       ${emulatorButtons}
+      ${!isIncoming && !isTrash ? `<button data-action="favourite">${isGameFavourite(game) ? 'Remove from Favourites' : 'Add to Favourites'}</button>` : ''}
       <button data-action="send-webhub">${webHubHandoff.rebindGameKey ? "Update Portal Shortcut" : "Send to Portal"}</button>
       ${selectedForPortal.length > 1 && !webHubHandoff.rebindGameKey && !isIncoming && !isTrash
         ? `<button data-action="send-selected-webhub">Send selected games to Portal (${selectedForPortal.length})</button>` : ''}
@@ -3513,6 +3977,7 @@ async function showContextMenu(event, gameId) {
       <button data-action="explorer">Open in Explorer</button>
       ${importButton}
       ${trashButtons}
+      ${!isIncoming && !isTrash && canScrapeMetadata() ? '<button data-action="metadata-care">Metadata & protection…</button><button data-action="scrape-undo">Undo last scrape</button>' : ""}
       ${editButtons}
     </div>
   `;
@@ -3526,6 +3991,8 @@ async function showContextMenu(event, gameId) {
     const emulator = button.dataset.emulator;
     hideContextMenu();
     if (action === 'send-selected-webhub') { await sendGamesToPortal(selectedForPortal); return; }
+    if (action === 'resume-scrape') {const draft = globalThis.ArcadeScrapeDrafts.load(state.activeCollection.id); if (draft) await showBulkScrapeModal(state.games.filter(game => draft.gameIds.includes(game.id)).slice(0,100)); return;}
+    if (action === 'scrape-selected') { await showBulkScrapeModal(selectedForPortal); return; }
     await handleContextAction(action, emulator);
   });
 }
@@ -3545,6 +4012,9 @@ function clampMenuToViewport(menu) {
 async function handleContextAction(action, emulator) {
   if (!state.selected) return;
   try {
+    if (action === 'scrape') { await showScrapePreviewModal(); return; }
+    if (action === 'properties') { await showGameProperties(state.selected); return; }
+    if (action === 'favourite') { await toggleFavourite(); return; }
     if (action === 'launch-version') { await showGameVersions(state.selected); return; }
     if (action === "launch") {
       if (emulator) {
@@ -3599,6 +4069,11 @@ async function handleContextAction(action, emulator) {
       await renderDetails(message);
       return;
     }
+    if (action === 'metadata-care') { await showMetadataCareModal(state.selected); return; }
+    if (action === 'scrape-undo') {
+      await api('/api/metadata-care', {method:'POST', body:JSON.stringify({collection_id:state.activeCollection.id, action:'undo'})});
+      await reloadGames(); await renderDetails('Last scrape undone.'); return;
+    }
     if (action === "explorer") {
       await api("/api/open-explorer", {
         method: "POST",
@@ -3621,7 +4096,7 @@ async function handleContextAction(action, emulator) {
 function openGameResearchSearch(game) {
   const title = String(game?.title || "").trim().slice(0, 160);
   if (!title) return;
-  const platform = String(game?.platform || game?.computer || "ZX Spectrum").trim().slice(0, 80);
+  const platform = String(game?.platform || game?.computer || globalThis.ArcadePlatforms.searchLabel(game)).trim().slice(0, 80);
   const system = String(game?.system || game?.memory || "").trim().slice(0, 80);
   const terms = [...new Set([title, platform, system].filter(Boolean))];
   const url = new URL("https://duckduckgo.com/");
@@ -3644,196 +4119,36 @@ async function importIncomingSelected() {
   await renderDetails(`Imported ${result.name || game.file_name}.`);
 }
 
-async function showScrapePreviewModal() {
-  const game = state.selected;
-  if (!game) return;
-  const canApply = Boolean(state.activeCollection?.writable || state.activeCollection?.adapter === "scummvm-config-v1");
-  const overlay = document.createElement("div");
-  overlay.className = "modal-overlay";
-  overlay.innerHTML = `
-    <div class="modal scrape-modal">
-      <div class="scrape-modal-header">
-        <h2>${escapeHtml(game.title)}</h2>
-        <span class="scrape-provider-label">Provider</span>
-        <select id="scrape-provider"></select>
-      </div>
-      ${canApply ? "" : '<div class="meta">This collection is read-only. You can preview matches, but cannot save scraped metadata yet.</div>'}
-      <div id="scrape-preview-content" class="scrape-preview-content">Loading providers...</div>
-      <div class="modal-actions sticky-actions">
-        <button data-action="apply" disabled>Apply Selected</button>
-        <button class="secondary" data-action="cancel">Close</button>
-      </div>
-      <div class="message error" id="scrape-error"></div>
-    </div>
-  `;
-  document.body.appendChild(overlay);
-  const providerSelect = overlay.querySelector("#scrape-provider");
-  const errorBox = overlay.querySelector("#scrape-error");
-  const previewBox = overlay.querySelector("#scrape-preview-content");
-  const applyButton = overlay.querySelector('[data-action="apply"]');
-  let currentPreview = null;
-  let previewGeneration = 0;
-  const loadProviders = async () => {
-    const payload = await api("/api/scrapers");
-    providerSelect.innerHTML = payload.providers
-      .map((provider) => {
-        const networkBlocked = provider.type !== "manual" && !optionalNetworkAllowed();
-        const label = networkBlocked
-          ? `${provider.name} (network disabled)`
-          : provider.configured ? provider.name : `${provider.name} (not configured)`;
-        return `<option value="${escapeHtml(provider.id)}"${networkBlocked ? " disabled" : ""}>${escapeHtml(label)}</option>`;
-      })
-      .join("");
-  };
-  const loadPreview = async () => {
-    const generation = ++previewGeneration;
-    currentPreview = null;
-    applyButton.disabled = true;
-    errorBox.textContent = "";
-    previewBox.innerHTML = '<div class="meta">Looking up metadata...</div>';
-    try {
-      const payload = await api("/api/scrape-preview", {
-        method: "POST",
-        body: JSON.stringify({ game_id: game.id, provider: providerSelect.value || "manual" }),
-      });
-      await prepareArtworkAssets((payload.matches || []).flatMap((match) => Object.values(match.remote_assets || {})));
-      if (generation !== previewGeneration || !overlay.isConnected) return;
-      currentPreview = payload;
-      previewBox.innerHTML = renderScrapePreview(payload);
-      const firstChoice = previewBox.querySelector("[data-scrape-match]");
-      if (firstChoice) firstChoice.checked = true;
-      applyButton.disabled = !canApply || !firstChoice;
-    } catch (error) {
-      if (generation !== previewGeneration || !overlay.isConnected) return;
-      currentPreview = null;
-      applyButton.disabled = true;
-      previewBox.innerHTML = "";
-      errorBox.textContent = error.message;
-    }
-  };
-  overlay.addEventListener("click", async (event) => {
-    if (event.target === overlay) {
-      overlay.remove();
-      return;
-    }
-    const button = event.target.closest("button");
-    if (!button) return;
-    if (button.dataset.action === "cancel") {
-      overlay.remove();
-      return;
-    }
-    if (button.dataset.action === "apply" && canApply) {
-      await applySelectedScrapeMatch(overlay, game, currentPreview);
-    }
-  });
-  previewBox.addEventListener("change", (event) => {
-    if (event.target.closest("[data-scrape-match]")) {
-      applyButton.disabled = !canApply;
-    }
-  });
-  providerSelect.addEventListener("change", loadPreview);
-  try {
-    await loadProviders();
-    await loadPreview();
-  } catch (error) {
-    previewBox.innerHTML = "";
-    errorBox.textContent = error.message;
+function canScrapeMetadata() {
+  const platform = globalThis.ArcadePlatforms.libraries[collectionPlatform(state.activeCollection)];
+  return Boolean(platform && (state.activeCollection?.writable || platform.presentationOverrides || platform.metadataWritable));
+}
+
+function rememberScraperProvider(provider) {
+  if (!/^[a-z0-9_-]{1,64}$/i.test(provider || '')) return;
+  state.ui.scraperProvider = provider;
+  saveUiState();
+}
+
+function updateScrapeReview(payload) {
+  if (typeof payload.needs_review !== 'boolean') return;
+  const ids = new Set(payload.target_ids || []);
+  for (const game of state.games) if (ids.has(game.id)) {
+    game.cleanup = {...game.cleanup, review:payload.needs_review};
   }
 }
 
-function renderScrapePreview(payload) {
-  const matches = payload.matches || [];
-  const warnings = payload.warnings || [];
-  const header = warnings.length
-    ? `<div class="preview-summary">${warnings.map((warning) => `<div class="warning-line">${escapeHtml(warning)}</div>`).join("")}</div>`
-    : "";
-  if (!matches.length) return `${header}<div class="meta">No matches found.</div>`;
-  return header + matches.map((match, index) => {
-    const candidate = match.candidate || {};
-    const remoteAssets = match.remote_assets || {};
-    const confidence = Number(match.confidence || 0);
-    const fields = [
-      ["Title", `${candidate.title || ""}${candidate.title ? ` (${confidence}%)` : ""}`],
-      ["Year", candidate.year],
-      ["Publisher", candidate.publisher],
-      ["Developer", candidate.developer],
-      ["Genre", candidate.genre],
-      ["Platform", candidate.platform],
-      ["Region", candidate.region],
-      ["Players", candidate.players],
-      ["Co-op", candidate.coop],
-      ["Rating", candidate.rating],
-      ["Scraper ID", candidate.scraper_id],
-    ].filter(([, value]) => value);
-    return `
-      <div class="scrape-match">
-        <div class="scrape-match-body">
-          <label class="scrape-choice" title="Select this match">
-            <input type="radio" name="scrape-match" data-scrape-match="${index}" ${index === 0 ? "checked" : ""}>
-          </label>
-          ${renderScrapeImages(remoteAssets, candidate)}
-          <div>
-            <div class="preview-grid">
-              ${fields.map(([label, value]) => `<span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong>`).join("")}
-              ${candidate.description ? `<span>Description</span><strong>${escapeHtml(candidate.description)}</strong>` : ""}
-            </div>
-          </div>
-        </div>
-      </div>
-    `;
-  }).join("");
-}
-
-function renderScrapeImages(remoteAssets, candidate) {
-  const images = [
-    ["Boxart", assetDisplayUrl(remoteAssets.loading_screen)],
-    ["Screenshot", assetDisplayUrl(remoteAssets.screenshot)],
-  ].filter(([, value]) => value);
-  if (!images.length) return '<div class="scrape-image-stack"><div class="scrape-preview-image empty">No image</div></div>';
-  return `
-    <div class="scrape-image-stack">
-      ${images.map(([label, value]) => `
-        <figure class="scrape-preview-image">
-          <img src="${escapeHtml(value)}" alt="${escapeHtml(`${candidate.title || "Scrape"} ${label}`)}">
-        </figure>
-      `).join("")}
-    </div>
-  `;
-}
-
-async function applySelectedScrapeMatch(overlay, game, preview) {
-  const errorBox = overlay.querySelector("#scrape-error");
-  const selected = overlay.querySelector("[data-scrape-match]:checked");
-  const match = selected && preview?.matches?.[Number(selected.dataset.scrapeMatch)];
-  if (!match) {
-    errorBox.textContent = "Select a scrape match first.";
-    return;
-  }
-  try {
-    errorBox.textContent = "";
-    const result = await withBusy("Applying Metadata", `Updating ${game.title}...`, async () => {
-      const payload = await api("/api/apply-scrape", {
-        method: "POST",
-        body: JSON.stringify({
-          game_id: game.id,
-          candidate: match.candidate || {},
-          assets: match.assets || {},
-          remote_assets: match.remote_assets || {},
-        }),
-      });
-      await reloadGames();
-      return payload;
-    });
-    const updated = result.game || state.gamesById.get(game.id);
-    if (updated) {
-      state.gameDetails.set(game.id, updated);
-      state.selected = updated;
-    }
-    overlay.remove();
-    await renderDetails(`Applied metadata from ${match.candidate?.scraper_source || preview.provider?.name || "provider"}.`);
-  } catch (error) {
-    errorBox.textContent = error.message;
-  }
+async function populateScraperProviders(select) {
+  const payload = await api('/api/scrapers');
+  const providers = payload.providers || [];
+  const network = optionalNetworkAllowed();
+  select.innerHTML = providers.map(provider => {
+    const available = globalThis.ArcadeMetadataScraping.providerAvailable(provider, network);
+    const suffix = provider.type !== 'manual' && !network ? ' (network disabled)' : !provider.configured ? ' (not configured)' : provider.enabled === false ? ' (disabled)' : '';
+    return `<option value="${escapeHtml(provider.id)}"${available ? '' : ' disabled'}>${escapeHtml(provider.name + suffix)}</option>`;
+  }).join('');
+  select.value = globalThis.ArcadeMetadataScraping.preferredProvider(providers, state.ui.scraperProvider, network);
+  return providers;
 }
 
 function showMetadataModal(gameIds, isBulk, focusField = "") {
@@ -4292,23 +4607,52 @@ function launchMessage(result) {
   return result.pid ? `Launch command sent. PID ${result.pid}.` : "Launch command sent.";
 }
 
+function favouriteGameMembers(game) {
+  const summary = state.gamesById.get(game.id) || game;
+  return state.versionGroups?.get(summary.version_group || summary.id) || [summary];
+}
+
+function isGameFavourite(game) {
+  return favouriteGameMembers(game).some(member => member.favourite);
+}
+
+async function setGameFavourites(games, favourite) {
+  const targets = new Map(games.map(game => [game.id, state.gamesById.get(game.id)]));
+  const payload = await api("/api/favourites-bulk", {
+    method: "POST",
+    body: JSON.stringify({ game_ids: [...targets.keys()], favourite }),
+  });
+  for (const id of payload.updated || []) {
+    const summary = targets.get(id);
+    // Preserve the shared objects used by versionGroups and avoid applying an
+    // old collection's response to a newly loaded library with overlapping IDs.
+    if (!summary || state.gamesById.get(id) !== summary) continue;
+    summary.favourite = favourite;
+    const details = state.gameDetails.get(id);
+    if (details) details.favourite = favourite;
+    if (state.selected?.id === id) state.selected.favourite = favourite;
+  }
+  applyFilters();
+  return Number(payload.count || 0);
+}
+
 async function toggleFavourite() {
   const game = state.selected;
-  const favourite = !game.favourite;
-  await api("/api/favourite", {
-    method: "POST",
-    body: JSON.stringify({ game_id: game.id, favourite }),
-  });
-  const updated = { ...game, favourite };
-  const index = state.games.findIndex((item) => item.id === game.id);
-  if (index !== -1) {
-    state.games[index] = { ...state.games[index], favourite };
-    state.gamesById.set(game.id, state.games[index]);
+  if (!game) return;
+  const pending = state.favouritePending ||= new Set();
+  const members = favouriteGameMembers(game);
+  const key = members[0].id;
+  if (pending.has(key)) return;
+  pending.add(key);
+  try {
+    const favourite = !isGameFavourite(game);
+    await setGameFavourites(favourite ? [game] : members.filter(member => member.favourite), favourite);
+    await renderDetails();
+  } catch (error) {
+    if (state.selected?.id === game.id) await renderDetails(error.message, true);
+  } finally {
+    pending.delete(key);
   }
-  state.gameDetails.set(game.id, updated);
-  state.selected = updated;
-  applyFilters();
-  await renderDetails();
 }
 
 async function openPok(pokId) {

@@ -1,5 +1,11 @@
 # Cyrune Relay TODO
 
+- Monitor 1.1.12: scrape retry/resume, cross-platform artwork, repeated collection switches and Game Boy picker use. Implementation details and validation: `../docs/reviews/arcade-implementation-2026-09-08.md`.
+
+- Monitor Relay 1.1.11 committed Portal-theme handoff, custom/light themes, Relay restart and Arcade appearance with Portal closed.
+
+- Monitor Relay 1.1.10 Atari ST disk-set browsing, STEem SSE selection, multi-disk swaps and Portal defaults under the [Atari adapter contract](../docs/architecture/arcade-atari-adapter.md).
+
 - Monitor Relay 1.1.9 unchanged-session rediscovery without false reconnect events, Portal startup/discovery overlap, session renewal and stale-token rejection.
 
 This file owns outstanding WebExtension storage authority, authenticated page routing, browser integration, and delivery work.

@@ -114,6 +114,13 @@ const GAME_PLATFORM_BADGES = Object.freeze({
   steam: ['steam.svg', 'Steam edition'], 'unspecified platform': ['unknown.svg', 'Unspecified platform']
 });
 
+function isScummVMGame(item = {}) {
+  const status = gameStatusCache.get(item.gameKey);
+  const emulator = status?.emulatorName ?? item.emulatorName;
+  if (emulator) return /^scumm\s?vm$/i.test(emulator.trim());
+  return String(status?.systemId ?? item.systemId ?? '').toLowerCase() === 'scummvm';
+}
+
 function getGameDefaultIcons(item) {
   const status = gameStatusCache.get(item?.gameKey);
   const version = status?.state === 'ready' ? status.defaultVersion : null;
@@ -127,11 +134,19 @@ function getGameDefaultIcons(item) {
   const hardware = [...new Set(platforms.flatMap(value => /^(?:16|48|128)K(?:-(?:16|48|128)K)?$/i.test(String(value))
     ? String(value).toUpperCase().split('-') : []))].sort((a, b) => parseInt(a) - parseInt(b));
   if (hardware.length) return [...result, ...hardware.map(label => ({src:'', label, kind:'system'}))];
+  if (!isScummVMGame(item) && (status.systemId || item.systemId) === 'atari-st' && platforms.some(value => ['ST', 'STe', 'TT', 'Falcon'].includes(value))) {
+    return [...result, ...[...new Set(platforms)].filter(value => ['ST', 'STe', 'TT', 'Falcon'].includes(value)).map(label => ({src:'', label, kind:'system'}))];
+  }
   for (const platform of [...new Set(platforms.filter(value => typeof value === 'string'))]) {
     const key = platform.trim().toLowerCase().replaceAll('-', ' ');
     // Older Host versions supplied the library platform here, not the hardware.
     // Keep its logo as the favicon; never present it as the default system.
     if (key === 'zx spectrum') continue;
+    if (!isScummVMGame(item)) {
+      if (key === 'atari st') continue;
+      result.push({ src: '', label: platform, kind: 'system' });
+      continue;
+    }
     const [file, label] = GAME_PLATFORM_BADGES[key] || GAME_PLATFORM_BADGES['unspecified platform'];
     result.push({ src: `assets/platforms/${file}`, label, kind: key === 'steam' ? 'steam' : 'platform' });
   }
@@ -169,7 +184,9 @@ const GAME_SYSTEMS = Object.freeze({
 });
 
 function getGameSystemDescriptor(item = {}) {
-  const values = [item.systemId, item.systemName, ...(Array.isArray(item.tags) ? item.tags : [])]
+  const explicitId = String(item.systemId || '').trim().toLowerCase();
+  if (GAME_SYSTEMS[explicitId]) return { id: explicitId, ...GAME_SYSTEMS[explicitId] };
+  const values = [item.systemId, item.systemName, ...(!explicitId && Array.isArray(item.tags) ? item.tags : [])]
     .map(value => String(value || '').trim()).filter(Boolean);
   const text = values.join(' ').toLowerCase().replace(/[_-]/g, ' ');
   const compact = text.replace(/[^a-z0-9+]+/g, '');
@@ -189,9 +206,9 @@ function getGameSystemDescriptor(item = {}) {
 }
 
 function renderGameSystemIcon(container, item) {
-  const system = getGameSystemDescriptor(item);
   const status = gameStatusCache.get(item?.gameKey);
-  const scummvm = system?.id === 'scummvm' || /^scumm\s?vm$/i.test(status?.emulatorName || item?.emulatorName || '');
+  const system = getGameSystemDescriptor({ ...item, systemId: status?.systemId || item?.systemId, systemName: status?.systemName || item?.systemName });
+  const scummvm = isScummVMGame(item);
   container.classList.add('game-system-icon');
   container.dataset.system = scummvm ? 'scummvm' : system?.id || 'generic';
   container.title = scummvm ? 'ScummVM' : system?.label || 'Game';
@@ -201,10 +218,6 @@ function renderGameSystemIcon(container, item) {
     image.alt = 'ScummVM';
     image.className = 'game-scummvm-icon';
     container.appendChild(image);
-  } else if (system?.id === 'zx-spectrum') {
-    const image = document.createElement('img');
-    image.src = 'assets/platforms/zx-spectrum.png'; image.alt = 'ZX Spectrum';
-    image.className = 'game-spectrum-icon'; container.appendChild(image);
   } else container.appendChild(icon(system?.iconId || 'icon-system-generic'));
   return container;
 }

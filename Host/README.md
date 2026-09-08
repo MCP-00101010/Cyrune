@@ -22,6 +22,8 @@ Catalogue artwork uses `catalogue_artwork.py` for entry-owned file resolution an
 - [Nexus contract](../docs/architecture/nexus-contract.md) defines Host's settings authority, status redaction, document allowlist, and exact-page authorization.
 - [Infrastructure contract](../docs/architecture/infrastructure-contract.md) defines Host's version manifest, native protocol advertisement, bounded event journal, and migration receipts.
 
+Atari Properties use independently checked schema-4 launch plans, private STEem INI copies and persistent save-disk process leases. See the [Atari adapter contract](../docs/architecture/arcade-atari-adapter.md) for mutable save approvals, backups and recovery.
+
 ## Tests
 
 ```powershell
@@ -29,3 +31,8 @@ python -m pytest -q Host/tests
 ```
 
 Configured ScummVM targets are supported through optional `arcade-scummvm: 1`; use compatible Arcade 0.2.15, Host 0.2.6, Relay 1.1.6 and Portal 0.12.10 releases. Older sessions retain Spectrum browsing. See the [exact target and native migration contract](../docs/architecture/arcade-scummvm-adapter.md#optional-transport-and-native-approval-migration).
+
+Hatari disk-set launches use independently validated native schema-5 plans and private `launch.cfg` files. The existing save-disk backup/session protections apply to Hatari and STEem. The first Hatari approval upgrades the native catalogue binding store to schema 4 while preserving existing keys and receipts; see the [Atari adapter contract](../docs/architecture/arcade-atari-adapter.md#hatari--arcade-0234--host-0219).
+
+
+Arcade transfers live in `arcade_transfers.py`. Native provider jobs release the normal message loop; cached exact-entry PNGs can be used for Portal thumbnails. Optional `arcade-gameboy: 1` enables exact cartridge picker bindings.

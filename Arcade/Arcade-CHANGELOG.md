@@ -4,6 +4,231 @@ Historical entries below are preserved from Portal releases whose release notes 
 
 ---
 
+## [0.2.57] — 2026-09-09
+
+- Remember each game's successfully applied search term and Current system/All platforms choice separately for each metadata provider. Individual and bulk scraping restore these defaults; unfinished review choices take precedence on resume.
+- Store preferences natively per collection and exact metadata group. Shared Atari/Spectrum/Game Boy versions inherit them, including newly indexed editions; ScummVM versions and unrelated games in legacy Spectrum folders remain separate. Automatic cartridge searches retain hash identification.
+- Failed/unapplied searches do not overwrite successful choices. Preference-write failures report a warning while retaining the successful metadata save. Existing metadata and launch identities are unchanged.
+- Validation: persistence/reload, provider/collection isolation, shared and independent versions, legacy Spectrum folders, invalid input, failed saves, resumed reviews and individual/bulk dialog regressions.
+- Final Arcade run: 518 tests passed after preserving existing validation exceptions. Other component, migration, packaging and tooling suites passed in the coordinated run; final syntax, infrastructure and version checks passed. Relay lint was skipped because this release does not change Relay.
+- Commit validation: the complete coordinated validator passed for the accumulated release, including all component/integration suites and Relay lint with zero errors, warnings or notices.
+
+## [0.2.56] — 2026-09-08
+
+- Preserve full provider descriptions and decode entities once. Unify native match review; reject unknown adapters and stale collection requests. Identify Game Boy cartridges by checked hashes with title fallback.
+- Add bounded collection/POK/search/artwork caches, compact list snapshots and deltas, asynchronous provider/artwork jobs, account-advertised request concurrency and incremental scrape rows.
+- Add retryable artwork, failed-search retry, quota pauses, bounded resumable search choices, metadata provenance and a newly indexed filter. Resumed reviews recheck results; uncertain saves never replay automatically.
+- Extract TOSEC parsing, provider metadata, scrape views, caches and background jobs into focused modules. Publish Game Boy catalogue support behind the optional negotiated capability.
+- Validation: final Arcade suite 505 passed; coordinated release checks and isolated Firefox workflows passed. See the [implementation report](../docs/reviews/arcade-implementation-2026-09-08.md) for measured performance and test limits.
+
+## [0.2.55] — 2026-09-08
+
+- Fit the four platform icons into one compact row. Add an Emulators card between Platforms and Filters with installed application icons and platform-specific shortcuts.
+- Open configured emulator applications without a ROM or game-profile arguments; ScummVM opens the collection's configured INI. Validate selected collection, adapter, supported media and executable natively; reject caller-supplied paths and arguments. Cache icons and ignore responses from previous platforms.
+- Validation: shortcut scoping, exact application argument arrays, missing targets, stale requests, icon caching, native Host callback wiring and browser interaction tests. Isolated Firefox checks use real library summaries and icons for all eight installed emulators; no real application launch is performed.
+- Release checks: 490 Arcade tests and coordinated repository validation passed; Relay lint skipped because Relay source is unchanged.
+
+## [0.2.54] — 2026-09-08
+
+- Keep unrelated Spectrum titles separate in alphabet, numeric, flat and mixed-category folders. Resolve shared presentation and scrape/edit membership using the same original-title grouping; dedicated game folders retain shared metadata. Reading the older collection never rewrites metadata or moves ROMs.
+- Track catalogue preparation inside collection-switch jobs. Fetch the new collection and game list together before rendering, prevent overlapping platform switches and stale dropdown responses, reset list scrolling and clear stale game actions with a visible retry message on failure.
+- Validation: legacy-folder load, scrape, edit, Undo and catalogue regression cases; tracked-job completion and browser transition/failure coverage. Repeated isolated Firefox transitions used real summaries for 12,933 Spectrum, 170 ScummVM, 2,089 Atari and 749 Game Boy entries, with mocked transport and no emulator launches.
+- Release checks: 486 Arcade tests and coordinated repository validation passed (Relay lint skipped; no Relay source changes). The final stale-dropdown guard passed the nine focused browser tests. Live Spectrum verification retained all 786 distinct A-folder titles across 864 editions without changing the metadata file. The intermittent live-browser stall was not reproduced by the isolated checks.
+
+## [0.2.53] — 2026-09-08
+
+- Add one Game Boy platform and cartridge collection with GB/GBC/GBA tags, TOSEC/No-Intro indexing and additive rebuilds that preserve IDs and user metadata. Configure existing SameBoy/BGB for GB/GBC and VisualBoyAdvance-M for GBA.
+- Route current-system scraping to each cartridge variant, preserve hardware/defaults after scraping, and retain folder sharing, metadata protection and Undo. Add a local navigation icon and compatible emulator choices.
+- Keep Arcade-originated Portal shortcuts source-scoped; existing Portal picker capabilities remain unchanged.
+- Validation: synthetic indexing, refresh, language parsing, scraper preservation, emulator compatibility, inactive-source resolution, idempotent setup and UI regression tests. Live attachment verified all 749 cartridges (669 GB, 12 GBC, 68 GBA), variant tags, emulator formats and scraper system IDs; representative GB/GBC/GBA plans passed Host validation. SameBoy 1.0.3 command-line usage was verified without booting a ROM.
+- Release checks: 481 Arcade tests passed; coordinated repository validation passed with Relay lint skipped because this change does not modify Relay.
+
+## [0.2.52] — 2026-09-08
+
+- Resolve Atari/Spectrum presentation once per game folder during library and catalogue loading. Older single-version scrapes and newly indexed versions now inherit the folder's metadata/artwork without rescraping or rewriting the original records. Preserve protected blanks and ignore stale Atari overrides as metadata donors.
+- Share presentation changes made in the legacy Spectrum editor and refresh every affected version immediately. Keep hardware, language, disk sets, paths, profiles, defaults and ScummVM registration metadata separate.
+- Remove the 0.2.51 default-version filter workaround: cleanup filters now consume the same shared metadata as the individual records and details. Flat collection roots retain separate unrelated titles.
+- Validation: legacy override inheritance, newly indexed editions, non-mutating loads, catalogue consistency, successive manual corrections and protected blank fields.
+- Final checks: 474 Arcade tests and coordinated component/integration/packaging/syntax/version checks passed (`tools/validate.ps1 -SkipWebExtLint`), plus scoped Ruff and whitespace checks.
+
+## [0.2.51] — 2026-09-08
+
+- Make Missing artwork and Missing description use the same default edition as the displayed Atari/Spectrum group and details. Empty metadata on an older alternative no longer flags a complete game, including when language filters exclude the default edition. ScummVM ports and scrape-review markers retain per-version checks.
+- Include the selected Needs attention filter in the active-filter summary.
+- Validation: regression coverage for complete and incomplete shared groups, excluded defaults, separate ScummVM ports and review markers.
+- Final checks: 471 Arcade tests, 14 packaging/version checks and 26 Nexus tests passed, plus JavaScript syntax and whitespace checks.
+
+## [0.2.50] — 2026-09-08
+
+- Centralise platform labels, adapter recognition, compatible emulators, metadata sharing and scraper platform IDs in one definition file, with a generated browser counterpart. Unknown platforms no longer acquire Spectrum controls or scraper defaults.
+- Add Fill missing fields only to individual and bulk scraping, plus Metadata & protection for presentation edits and per-field protection. New manual corrections are protected automatically; protected empty fields stay empty. Retain folder sharing for Atari/Spectrum and separate ScummVM version metadata.
+- Add collection-scoped Undo last scrape for individual results and applied batches across all three platforms. Persist bounded row-level history with interrupted-save recovery; retain unrelated edits and refuse Undo when affected rows have changed afterwards.
+- Add remembered Needs attention filters for missing artwork, missing description and failed/weak/ambiguous scrape searches. Keep summary payloads compact and update review markers after searches and applies.
+- Validation: cross-platform protection, fill-missing saves, persistent/batch Undo, later-edit conflicts, interrupted writes, cleanup filters and generated-definition consistency.
+- Final checks: 471 Arcade tests and coordinated component/integration/packaging/syntax/version checks passed (`tools/validate.ps1 -SkipWebExtLint`), plus scoped Ruff and whitespace checks.
+
+## [0.2.49] — 2026-09-08
+
+- Replace the bulk scraper's stacked controls and small thumbnail with a 200 × 220 artwork area on the left, game title and result beside it, and aligned search controls. Clicking the artwork opens the full metadata/artwork preview; narrow windows retain artwork beside the title and stack the search controls.
+- Remove the platform-specific explanatory paragraph and redundant single-version labels. Place the provider in the dialog header and allow more space for the results while keeping the dialog within the viewport.
+- Rename Match to Use metadata from, show the number of provider search results, and omit the dropdown for a single result. Retain platform/year/publisher distinctions and explicit alternative selection; selecting a result updates the artwork and the metadata to apply.
+- Validation: focused bulk dialog checks passed for single/multiple results, selected artwork changes, editable retries, preview and apply. Interactive browser inspection was unavailable.
+- Final checks: 459 Arcade tests, 14 packaging/version checks and 26 Nexus registry/client tests passed, plus JavaScript syntax and whitespace checks.
+
+## [0.2.48] — 2026-09-08
+
+- Show the chosen match's cover/loading-screen artwork inline in bulk results. Load only visible/nearby rows and discard image updates for replaced matches or closed dialogs.
+- Place the single-game metadata supplier beside the term and platform in the same labelled grid with matching selector heights and responsive stacking.
+- Reuse concurrent artwork requests and update each details image as it arrives, without waiting for the second image or refetching POKs/rebuilding the full details pane.
+- Cache ScreenScraper PNG downloads in native runtime storage across page/browser reloads. Bound the disposable cache to 128 MiB, 2,048 entries and 30 days; use hashed public references, atomic writes and confined paths. Provider/network gates remain enforced, and cache write failures do not fail successful downloads.
+- Validation: cache hits, expiry, corruption/size rejection, eviction and write failure; visible-row thumbnails, stale-image rejection, duplicate-request coalescing and incremental details rendering. First uncached downloads remain subject to provider response time.
+- Final checks: 459 Arcade tests and coordinated component/integration/packaging/syntax/version checks passed (`tools/validate.ps1 -SkipWebExtLint`), along with focused UI, Ruff and whitespace checks.
+
+## [0.2.47] — 2026-09-08
+
+- Share scraped metadata and artwork across every Atari/Spectrum version in the same game folder, deduplicating bulk lookups by folder. Preserve exact media, disk order, hardware, language and emulator/profile settings. Write Atari folder overrides atomically and reject partial Spectrum folder updates; do not migrate conflicting old values on startup.
+- Expand a ScummVM scrape into all registered versions of the same game in the active library. Search the registration's original platform, retain separate per-version metadata and reuse equivalent searches within the batch. Unspecified platforms require match review.
+- Add per-row search-term and Current system/All platforms controls, Search again, alternative result selection and metadata/artwork previews to bulk scraping. Edits invalidate previous matches; completed/unconfirmed writes remain locked. Edited terms also determine title ranking.
+- Preserve Spectrum version families and saved defaults across corrected scraped titles using an additive native metadata field.
+- Add bounded native scrape planning and preview/apply membership checks without exposing folders or registration targets to the page. Existing persisted identities, override schemas and launch configuration remain intact.
+- Validation: folder deduplication and persistence, ST/STe hardware preservation, atomic failures, ScummVM expansion/platform routing, cache target isolation, edited retries, stale-match rejection and integrated bulk-control tests. Interactive browser inspection was unavailable.
+- Final checks: coordinated component/integration/packaging/syntax/version checks passed (`tools/validate.ps1 -SkipWebExtLint`); the full Arcade suite passed 455 tests, followed by 18 passing focused folder/persistence checks after the shared-artwork fallback addition. Ruff and whitespace checks passed.
+
+## [0.2.46] — 2026-09-08
+
+- Keep grouped list titles and publishers attached to the same default edition used by details and launches, including when exclusion filters hide that edition. Correcting one Pirates edition no longer leaves a different edition's Space Quest metadata displayed for its row.
+- Preselect bulk matches only for a normalized title match scoring at least 75% with no tied top result. Lower substring-match scores so shared words, years and publishers cannot outrank an exact title. Leave weak or ambiguous matches available for explicit review.
+- Simplify single-game search to Current system and All platforms for both providers. Build these options from provider type so an older provider payload cannot disable the selector; report when a running native service requires a browser restart instead of silently accepting the wrong scope.
+- Validation: focused scraper, persistence and UI regressions passed, including Pirates versus Space Quest, ambiguous/weak matches, filtered default-edition presentation, older provider payloads and stale native search responses.
+- Final checks: 440 Arcade tests and the coordinated component/integration/packaging/syntax/version checks passed (`tools/validate.ps1 -SkipWebExtLint`), along with focused UI, Ruff and whitespace checks.
+
+## [0.2.45] — 2026-09-08
+
+- Add a Search platform dropdown beside the single-game search term. Default to the current platform; offer Amiga and other related computer platforms plus All platforms for ScreenScraper and TheGamesDB. Keep the choice local to the open scraper and validate provider-specific scopes before networking.
+- Show up to 30 ranked candidates with their source platform. Render results immediately and fetch artwork only for the selected match. Platform/provider changes discard obsolete previews and disable Apply until the new results arrive.
+- Applying borrowed metadata/artwork preserves the game's native platform, system, identity and launch configuration; bulk scraping retains current-platform defaults.
+- Validation: platform/query routing, invalid scopes, all-platform candidate bounds, unchanged native metadata, stale previews, provider switching and selected-match artwork regressions. Live Amiga and All platforms searches both found Dungeon Master II: The Legend of Skullkeep while retaining the source game's Atari platform. All-platform ScreenScraper requests have a bounded 60-second timeout for slower searches.
+- Final checks: 438 Arcade tests and coordinated component/integration/packaging/syntax/version checks passed (`tools/validate.ps1 -SkipWebExtLint`), plus focused UI, Ruff and whitespace checks. The in-app browser was unavailable, so visual browser inspection was not performed.
+
+## [0.2.44] — 2026-09-08
+
+- Use ScreenScraper API v2 title search with ranked review candidates instead of hashless ROM identification. Correct the shipped Spectrum system ID from PC DOS 135 to Spectrum 76 without rewriting stored settings; select Atari ST 42 and ScummVM 123 automatically. Edited terms remain exact and automatic title simplification is bounded to one retry.
+- Retrieve screenshots and box covers through the native asset service using bounded public media references. Never send ScreenScraper's credential-bearing media URLs to pages or metadata; preserve saved references across reloads. Prefer exact image types and the requested region, with title-screen fallback when no cover exists.
+- Serialize ScreenScraper requests, honor reported minute quotas, pause subsequent requests after rate/daily-quota errors, validate redirects before following, bound image/JSON reads, and report sanitized authentication/quota/service errors. Mark developer credentials as required in provider setup.
+- Validation: live authenticated searches and both PNG artwork downloads succeeded for Jetpac (Spectrum), Dungeon Master (Atari ST), and The Secret of Monkey Island (ScummVM), without applying changes to live libraries. Regression coverage includes platform/query routing, media selection, preview redaction, native fetching, persistence, disabled networking, unsafe redirects, response limits and provider failures.
+- Final checks: 423 Arcade tests passed; coordinated component, integration, packaging, syntax, registry and version checks passed (`tools/validate.ps1 -SkipWebExtLint`; Relay source unchanged). Focused Ruff checks and whitespace validation passed.
+
+## [0.2.43] — 2026-09-08
+
+- Remove artwork captions and duplicate artwork badges from game details, keeping the images and accessible alternative text. Remove the unused caption space and styles.
+- Validation: Arcade tests, JavaScript syntax and component-version checks.
+
+## [0.2.42] — 2026-09-08
+
+- Place Players and Co-op side by side in game details and expand the description's visible height from 92 to 160 px.
+- Validation: Arcade tests, JavaScript syntax and component-version checks.
+
+## [0.2.41] — 2026-09-08
+
+- Follow Portal's committed theme through authenticated Relay: colours, light/dark mode, typography, panel opacity, rounding and shadow. Keep the last published presentation while Portal is closed.
+- Use Portal's native Spectrum rainbow and Atari Fuji artwork in navigation/settings; retain ScummVM artwork for ScummVM.
+- Widen details to 400 px, enlarge artwork, and remove the redundant Platform field and Launch/Scrape/Favourite buttons; context-menu actions remain available.
+- Validation: theme projection, invalid payloads, cache restart, out-of-order updates and role isolation regressions; coordinated validation and isolated Firefox workflows.
+- Final checks: coordinated validation and Relay lint passed; isolated Firefox ScummVM/custom-colour and Atari/light-theme workflows passed, with screenshot inspection. Additional authoritative theme-save regressions passed.
+
+## [0.2.40] — 2026-09-08
+
+- Replace the utility sidebar with Portal-style menu, Platforms and filter cards, matching rounded surfaces, spacing, typography and version/settings placement. Platform icons select the remembered collection; the game list uses the full content height and details remain collapsible.
+- Open Settings from the version button, with General and separate Spectrum, ScummVM and Atari tabs. Keep library location/name drafts when switching settings tabs without activating another library; explicit Save applies the selected section, Cancel discards remaining drafts. Move emulator/provider editors and maintenance actions into Settings.
+- Add scoped, revision-checked native collection-location settings; validate folder/platform compatibility, retain emulator pins and source identities, and require the existing reattachment workflow for prepared roots. Media is never moved by settings. Existing emulator editors now capture the settings collection instead of relying on the active game list.
+- Reuse local Spectrum/Atari badges and the official licensed ScummVM icon. No runtime artwork downloads or Portal settings/data dependencies.
+- Validation: scoped settings, stale drafts, invalid/duplicate roots, failed saves, prepared-root protection and inactive-platform regressions; isolated Firefox layout/settings and existing Atari/ScummVM workflows plus coordinated validation.
+- Final checks passed: 1,181 coordinated tests plus 11 Host subtests, zero Relay lint findings, and isolated Firefox desktop/narrow settings, platform navigation, Atari and ScummVM workflows.
+
+## [0.2.39] — 2026-09-08
+
+- Show the actual provider search term beneath the single-game scraper title. Edit it to search again after a 500 ms pause, or press Enter immediately; empty terms pause lookup.
+- Preserve original game identity and metadata while using the edited term for TheGamesDB title and ScreenScraper filename queries. Explicit edits bypass automatic title simplification. Ignore obsolete responses and disable Apply immediately when the term changes.
+- Validation: provider request/term bounds, unchanged source metadata, automatic fallback reporting, debounced input and stale-result regression checks; Arcade and coordinated validation plus isolated Firefox workflow.
+
+## [0.2.38] — 2026-09-08
+
+- Remember each platform's search, view, include/exclude selections and POK filter across platform switches and page reloads. Clear Filters affects only the current platform.
+- Exclusions remove matching editions from list counts, language/system badges and edition labels instead of hiding the whole family. Row actions retain the saved default identity even when that edition is excluded; Properties and Launch Version still expose the complete game.
+- Add context-menu Scrape Metadata and bulk scraping for up to 100 selected games, including ScummVM/Atari. Automatically select the highest-confidence candidate, review/uncheck matches together, apply once, report individual outcomes and support stopping after the current game. Refresh the list once after a batch.
+- Share the last-used metadata provider between single and bulk scraping, with configured/network-aware fallback. Scope preview/apply requests to their original collection under the collection-change lock.
+- Validation: preference persistence, filtered presentation/default identity, match ranking, review/apply, stop/resume, unknown-save and changed-collection regressions; isolated Firefox and coordinated checks.
+- Coordinated validation passed: 1,173 tests plus 11 Host subtests and zero Relay lint findings. Isolated Firefox checks covered Atari platform preferences/excluded editions and ScummVM single/bulk scraping, provider persistence and desktop/narrow layouts without launching emulators or modifying live libraries.
+
+## [0.2.37] — 2026-09-08
+
+- Restrict POK filters, columns and details to Spectrum. Filter the emulator editor and adapter choices by the selected platform; keep Spectrum managed-profile controls out of Atari/ScummVM.
+- Add unrestricted/include/exclude states to metadata and POK filter checkboxes, with red crosses, keyboard operation, active-filter summaries and retained zero-count choices. Excluded editions remove their displayed game family without changing its saved default.
+- Refresh saved metadata and Properties rows without rebuilding unrelated games. Avoid collection discovery on ordinary valid configuration reads, and let artwork load without delaying save or delivery completion.
+- Validation: filter/family, platform, late-artwork, targeted-save and binding regressions; coordinated suites and isolated Firefox workflow checks.
+- Final checks passed: 1,168 coordinated tests plus 11 Host subtests, three additional filter/Spectrum metadata regressions, zero Relay lint findings, and isolated Firefox checks for Atari, ScummVM and Spectrum. A profiled 1,500-game generated collection reduced metadata save/list refresh from 3.20s with full rebuilding to 1.46s with targeted updates; live-library latency remains a monitoring item.
+
+## [0.2.36] — 2026-09-08
+
+- Load Properties editions from a fresh native version response instead of the page's cached game groups. Include Arcade-only game/collection IDs so newly indexed releases remain selectable even when an open page still has one cached edition.
+- Make full image filenames the primary Launch Version labels, retain metadata underneath, and refresh the game list before launching a newly discovered version. Add versioned app/CSS URLs so page reloads fetch the matching frontend assets.
+- Validation: stale single-edition cache regression, private identifier/filename API checks, versioned-asset assertions, isolated Firefox selecting Powermonger's Empire release and coordinated tests.
+
+- Final validation passed: 1,165 coordinated tests plus 11 Host subtests, zero Relay lint findings and isolated Firefox acceptance with a deliberately stale one-edition page cache.
+
+## [0.2.35] — 2026-09-08
+
+- Rebuild now discovers added complete Atari disk sets, including alternate releases/dumps, and atomically appends them to the native collection index with a backup. Existing metadata, IDs, missing-file records, favourites and launch settings are retained; incomplete sets and Safe Disks remain excluded.
+- Show complete image filenames in Launch Version and Properties, including every member of a multi-disk set and the Drive B selector. Keep these labels in the Arcade-only API.
+- Separate game disk settings from the default emulator/profile in Properties. Verify that save disks and empty/game-disk Drive B choices remain edition-owned across Hatari/STEem switches and one-time alternative launches.
+- Validation: additive/index failure regressions, rebuild API and private filename coverage, cross-emulator disk/Portal binding tests, Firefox rebuild/dialog checks and coordinated suite.
+
+- Final validation passed: 1,165 coordinated tests plus 11 Host subtests, zero Relay lint findings and isolated Firefox acceptance. The installed Atari index added the Empire and Replicants Powermonger releases with no rejected images.
+
+## [0.2.34] — 2026-09-07
+
+- Add Hatari as an alternative Atari disk-set emulator, including one-time Arcade launches and per-edition Properties defaults shared with Portal. Register installed Hatari without replacing collection defaults.
+- Discover named configurations in Hatari's `configs` folder, including extensionless names; use `--configfile` with a private launch copy, exact drive A/B choices, save-disk backups and session leases. Retain profile machine/TOS settings. Filter unsupported STT images and keep STEem limited to ST/STe.
+- Validation: synthetic hardware/profile/registration cases, independent Host command/binding/session tests, emulator-menu checks and isolated Firefox Properties persistence; coordinated suite. No live emulator session was launched.
+
+- Final checks passed: 1,157 coordinated tests plus 11 Host subtests, zero Relay lint findings, isolated Firefox Hatari Properties save/reload, and a non-launching plan/profile check against the installed Hatari.
+
+## [0.2.33] — 2026-09-07
+
+- Enable **Scrape Metadata → Apply Selected** for Atari ST collections. Persist validated text and approved HTTPS artwork references in native `atari-overrides/` storage while leaving the source disk-set metadata and images intact.
+- Refresh the library and catalogue from exact-edition overrides, retaining hardware/language, original title-family identity, shared defaults and Portal launch policies. Keep generic rename, deletion and file maintenance disabled for the read-only adapter.
+- Validation: Atari and ScummVM override persistence, atomic failure/corruption, artwork validation, retargeting and family/default regressions; Host checks existing Portal bindings and saved Properties after scraping; isolated Firefox Apply/reload and coordinated validation.
+
+- Final validation passed: 1,145 coordinated tests plus 11 Host subtests, zero Relay lint findings, and Firefox 155.0.1 Atari Apply/reload acceptance.
+
+## [0.2.32] — 2026-09-07
+
+- Replace the save-disk action dropdown with compatible disks followed by a divider and **Create empty save disk** / **Import save disk…** in the save-disk selector. Execute these actions immediately, automatically name/select the resulting image and keep Properties open. Save applies launch settings; Cancel discards those settings without deleting disks explicitly created or imported.
+- Keep edition-owned save disks separate, retain legacy explicit sharing and offer unassigned valid raw images from the game folder. Allocate numbered filenames without overwriting existing data; preserve imported originals and backups. Move backup restoration into a compact expandable section and place Save/Cancel together in the footer.
+- Validation: native immediate create/import/restore, draft isolation, edition filtering, no-overwrite and failed-publication recovery tests; isolated Firefox immediate creation, Cancel/reopen, edition switching, cancelled picker and responsive Properties workflow; coordinated validation.
+
+- Final coordinated validation passed: 1,138 tests plus 11 Host subtests, with zero Relay lint findings.
+
+## [0.2.31] — 2026-09-07
+
+- Add Atari game Properties to the context menu: edition/default selection, compatible emulator and named STEem configuration, drive B game/save/empty choice, and save disk creation, import and backup restore.
+- Keep save disks in each game's `Safe Disks` folder, with edition-aware filenames. Create formatted blank 720 KiB FAT12 images; copy existing raw `.st` images only on Save. Cancel preserves files and settings. Exclude all save/session images from game discovery.
+- Persist per-edition settings natively and retain existing Portal shortcuts after explicit configuration changes and ordinary save writes. Recover interrupted properties commits and preserve save data.
+- Validation: isolated Firefox Properties draft/create/profile/drive B and responsive-layout workflow; native FAT12, import, overwrite refusal, backup corruption, restore, rollback and interrupted-commit tests; coordinated suite.
+
+- Coordinated validation: 1,132 tests plus 11 Host subtests passed; Relay lint reported zero findings. Final isolated Firefox 155.0.1 acceptance and 23 focused Properties/native regressions passed.
+
+## [0.2.30] — 2026-09-07
+
+- Add Add to Favourites / Remove from Favourites to the game context menu. Update shared version records, cached details and active filters immediately after a successful save; removing a grouped favourite also clears starred alternative editions.
+- Preserve newer selections and collection data while requests finish, prevent duplicate toggles, and show save failures without changing the visible favourite state.
+- Validation: grouped favourite add/remove, alternative editions, failed saves and delayed responses; isolated Firefox context-menu/details/filter workflow and Arcade suite.
+
+## [0.2.29] — 2026-09-07
+
+- Add read-only Atari ST disk-set collections with TOSEC editions, grouped titles, language and ST/STe/TT/Falcon badges, and collection-specific STEem SSE selection. Keep every disk in its edition; use the existing STEem configuration and load the first two disks into drives A/B. Reject unsupported TT/Falcon launches. The setup tool previews before applying, backs up configuration and leaves disk images and emulator preferences intact.
+- Validation: Atari discovery, exact-set binding and mocked launch regressions; authenticated catalogue routing and Portal hardware presentation checks.
+
 ## [0.2.28] — 2026-09-07
 
 ### Fixed

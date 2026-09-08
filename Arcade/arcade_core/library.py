@@ -141,6 +141,14 @@ class GameLibrary:
         with self._lock:
             return self.game_by_id.get(game_id)
 
+    def update_game_record(self, game: Game) -> None:
+        """Refresh presentation/launch pins after a durable, identity-preserving edit."""
+        with self._lock:
+            if game.id not in self.game_by_id:
+                return
+            self.games = [game if row.id == game.id else row for row in self.games]
+            self.game_by_id[game.id] = game
+
     def get_poks(self, game: Game) -> list[dict[str, str]]:
         with self._lock:
             linked = self.poks_by_game_id.get(game.id, [])

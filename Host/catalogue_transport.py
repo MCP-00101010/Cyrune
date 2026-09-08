@@ -26,7 +26,7 @@ AVAILABILITY = {"ready", "available", "source-unavailable", "media-missing", "co
 
 class CatalogueTransport:
     def __init__(self, *, bindings, service, resolve, supported, authorize_page, module, clock=time.monotonic, read_scope=nullcontext,
-                 supported_scummvm=lambda: False):
+                 supported_scummvm=lambda: False, supported_atari=lambda: False, supported_gameboy=lambda: False):
         self._bindings, self._service, self._resolve = bindings, service, resolve
         self._supported, self._authorize_page, self._module, self._clock = supported, authorize_page, module, clock
         self._lock = threading.RLock()
@@ -35,6 +35,10 @@ class CatalogueTransport:
         self._read_scope = read_scope
         self._supported_scummvm = supported_scummvm
         self._scummvm = False
+        self._gameboy = False
+        self._supported_gameboy = supported_gameboy
+        self._atari = False
+        self._supported_atari = supported_atari
 
     def _fail(self, code):
         raise self._module.BindingError(code)
@@ -72,7 +76,9 @@ class CatalogueTransport:
         scummvm = (self._scummvm and entry["targetKind"] == "scummvm-game"
                    and isinstance(entry["platformId"], str) and entry["platformId"] != "zx-spectrum"
                    and self._module.scummvm_module().PLATFORMS.get(entry["platformId"]) == entry["platformLabel"])
-        if (not (spectrum or scummvm) or entry["availability"] not in AVAILABILITY
+        atari = self._atari and entry['targetKind'] == 'disk-set' and entry['platformId'] == 'atari-st' and entry['platformLabel'] == 'Atari ST'
+        cartridge = self._gameboy and entry["targetKind"] == "media-file" and entry["platformId"] == "game-boy" and entry["platformLabel"] == "Game Boy"
+        if (not (spectrum or scummvm or atari or cartridge) or entry["availability"] not in AVAILABILITY
                 or entry["artworkRef"] and not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", entry["artworkRef"])):
             self._fail("review-required")
         if detail:
@@ -95,7 +101,7 @@ class CatalogueTransport:
                     or not isinstance(query, str) or len(query) > 160 or any(unicodedata.category(c).startswith("C") for c in query)
                     or not isinstance(cursor, str) or not cursor.isascii() or len(cursor) > 256
                     or not isinstance(platforms, list) or len(platforms) > 4
-                    or any(not isinstance(p, str) or p not in (self._module.scummvm_module().PLATFORMS if self._scummvm else {"zx-spectrum"}) for p in platforms)
+                    or any(not isinstance(p, str) or p not in (set(self._module.scummvm_module().PLATFORMS if self._scummvm else ({"zx-spectrum", "atari-st"} if self._atari else {"zx-spectrum"})) | ({"game-boy"} if self._gameboy else set())) for p in platforms)
                     or len(set(platforms)) != len(platforms)
                     or type(size) is not int or not 1 <= size <= 100):
                 self._fail("invalid-request")
@@ -122,7 +128,7 @@ class CatalogueTransport:
             return result
         service = self._service()
         detail = operation == "ARCADE_CATALOGUE_GET_ENTRY"
-        response = deepcopy(service.detail(payload) if detail else service.search({**payload, **({"includeScummvm": True} if self._scummvm else {})}))
+        response = deepcopy(service.detail(payload) if detail else service.search({**payload, **({"includeScummvm": True} if self._scummvm else {}), **({"includeAtari": True} if self._atari else {}), **({"includeGameBoy": True} if self._gameboy else {})}))
         fields = {"schemaVersion", "entry"} if detail else {"schemaVersion", "catalogueRevision", "entries", "nextCursor"}
         if not isinstance(response, dict) or set(response) != fields or type(response["schemaVersion"]) is not int or response["schemaVersion"] != 1:
             self._fail("review-required")
@@ -189,7 +195,7 @@ class CatalogueTransport:
                     self._store = self._bindings()
                     self._session = self._store.register_session("portal", protocol=1)
                     return {"ok": True, "schemaVersion": 1, "sessionId": self._session.id}
-            if operation not in OPERATIONS | {"ARCADE_CATALOGUE_ENABLE_SCUMMVM"} or set(message) != {"type", "protocol", "sessionId", "payload"}:
+            if operation not in OPERATIONS | {"ARCADE_CATALOGUE_ENABLE_SCUMMVM", "ARCADE_CATALOGUE_ENABLE_ATARI", "ARCADE_CATALOGUE_ENABLE_GAMEBOY"} or set(message) != {"type", "protocol", "sessionId", "payload"}:
                 self._fail("invalid-request")
             if not isinstance(message["payload"], dict) or len(self._module.encoded(message["payload"])) > 32 * 1024:
                 self._fail("invalid-request")
@@ -197,6 +203,16 @@ class CatalogueTransport:
             self._check(deadline)
             if message["sessionId"] != self._session.id:
                 self._fail("unauthorized")
+            if operation == "ARCADE_CATALOGUE_ENABLE_GAMEBOY":
+                if message['payload'] or not self._supported_gameboy():
+                    self._fail('unsupported-protocol')
+                self._gameboy = True
+                return {'ok': True, 'schemaVersion': 1}
+            if operation == "ARCADE_CATALOGUE_ENABLE_ATARI":
+                if message['payload'] or not self._supported_atari():
+                    self._fail('unsupported-protocol')
+                self._atari = True
+                return {'ok': True, 'schemaVersion': 1}
             if operation == "ARCADE_CATALOGUE_ENABLE_SCUMMVM":
                 if message["payload"] or not self._supported_scummvm():
                     self._fail("unsupported-protocol")
@@ -204,7 +220,7 @@ class CatalogueTransport:
                 return {"ok": True, "schemaVersion": 1}
             if operation == "ARCADE_CATALOGUE_BIND_ENTRIES":
                 result = self._store.bind(self._session, message["payload"], deadline=deadline,
-                                          **({"allow_scummvm": True} if self._scummvm else {}))
+                                          **({"allow_scummvm": True} if self._scummvm else {}), **({"allow_atari": True} if self._atari else {}), **({"allow_gameboy": True} if self._gameboy else {}))
             else:
                 with self._read_scope():
                     self._check(deadline)

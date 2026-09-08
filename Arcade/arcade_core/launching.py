@@ -219,6 +219,10 @@ class GameLaunchService:
 
         try:
             emulator = self._emulator(emulator_id)
+            if getattr(game, 'type', '') == 'Game Boy' and emulator.get('type') != 'generic':
+                return {'ok': False, 'error': 'Select a compatible Game Boy emulator'}
+            if emulator.get('type') in {'steem', 'hatari'}:
+                return {'ok': False, 'error': 'Select an Atari disk-set collection target'}
             if emulator.get("type") == "scummvm":
                 return {"ok": False, "error": "Select a registered ScummVM collection target"}
             extensions = normalize_extensions(emulator.get("supported_extensions", []))

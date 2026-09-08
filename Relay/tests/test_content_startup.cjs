@@ -268,7 +268,7 @@ test('EmuGUI file page registers before requesting bounded game delivery', async
 
   assert.deepEqual(JSON.parse(JSON.stringify(runtimeMessages[0])), {
     type: 'MW_EMUGUI_REGISTER', pageUrl: 'file:///F:/Projects/Coding/Cyrune/Arcade/web/index.html',
-    protocols: { 'arcade-relay': 1, 'arcade-service': 1, 'component-settings': 2, 'arcade-catalogue': 1, 'arcade-scummvm': 1 }
+    protocols: { 'arcade-relay': 1, 'arcade-service': 1, 'component-settings': 2, 'arcade-catalogue': 1, 'arcade-scummvm': 1, 'arcade-atari-st': 1, 'arcade-gameboy': 1 }
   });
   assert.deepEqual(JSON.parse(JSON.stringify(runtimeMessages[1])), {
     type: 'MW_EMUGUI_SEND_GAME', gameId: 'jetpac', emulatorId: 'eightyone', profileId: 'profile-48k',

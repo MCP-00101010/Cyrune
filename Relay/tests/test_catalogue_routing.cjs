@@ -15,13 +15,13 @@ const entry = { catalogueId: 'entry1', sourceId: 'source1', entryRevision: 'revi
 const search = () => ({ ok: true, schemaVersion: 1, catalogueRevision: 'catalogue1', entries: [{ ...entry }], nextCursor: '' });
 const flush = async () => { for (let i = 0; i < 15; i++) await Promise.resolve(); };
 
-function harness({ enabled = true, scummvm = false, clientScummvm = scummvm, reply = () => search() } = {}) {
+function harness({ enabled = true, scummvm = false, clientScummvm = scummvm, atari = false, clientAtari = atari, reply = () => search() } = {}) {
   const ports = [], timers = new Set(), registrations = new Map();
   const sender = { tab: { id: 7, url: page }, frameId: 0, url: page };
-  registrations.set(7, { url: page, sessionToken: 'token1', protocols: { 'arcade-catalogue': 1, 'arcade-scummvm': clientScummvm ? 1 : 0 } });
+  registrations.set(7, { url: page, sessionToken: 'token1', protocols: { 'arcade-catalogue': 1, 'arcade-scummvm': clientScummvm ? 1 : 0, 'arcade-atari-st': clientAtari ? 1 : 0 } });
   const context = vm.createContext({
     TextEncoder, URL, Promise, Date, atob, Blob, DecompressionStream,
-    RELAY_PROTOCOLS: enabled ? { 'arcade-catalogue': 1, 'arcade-scummvm': scummvm ? 1 : 0 } : {}, hubRegistrations: registrations,
+    RELAY_PROTOCOLS: enabled ? { 'arcade-catalogue': 1, 'arcade-scummvm': scummvm ? 1 : 0, 'arcade-atari-st': atari ? 1 : 0 } : {}, hubRegistrations: registrations,
     setTimeout(callback, delay) { const timer = { callback, delay }; timers.add(timer); return timer; },
     clearTimeout(timer) { timers.delete(timer); },
     browser: {
@@ -259,4 +259,19 @@ test('version replies cannot carry native authority or unbounded option lists', 
   delete row.path;
   reply.result.versions = Array(1001).fill(row);
   assert.equal(context.validateGameVersionReply(reply, 'list'), false);
+});
+
+
+test('Atari disk sets require independent page, Relay and native capability', async () => {
+  const result = { ...search(), entries: [{ ...entry, platformId: 'atari-st', platformLabel: 'Atari ST', hardwareLabel: 'STe', targetKind: 'disk-set' }] };
+  const reply = message => message.type === 'ARCADE_CATALOGUE_ENABLE_ATARI' ? { ok: true, schemaVersion: 1 } : result;
+  const h = harness({ atari: true, reply });
+  assert.deepEqual(await h.route(h.message({ platformIds: ['atari-st'] })), result);
+  assert.equal(h.ports[0].messages[1].type, 'ARCADE_CATALOGUE_ENABLE_ATARI');
+  for (const options of [{ atari: true, clientAtari: false }, { scummvm: true }]) {
+    const old = harness({ ...options, reply: message => message.type.includes('ENABLE') ? { ok: true, schemaVersion: 1 } : result });
+    assert.equal((await old.route()).ok, false, 'ScummVM Atari ports do not authorize native disk sets');
+  }
+  const oldHost = harness({ atari: true, reply: message => message.type.includes('ENABLE') ? { ok: false, code: 'unsupported-protocol' } : search() });
+  assert.deepEqual(await oldHost.route(), search());
 });

@@ -4,6 +4,75 @@ Historical entries below are preserved from Portal releases whose release notes 
 
 ---
 
+## [0.2.25] — 2026-09-08
+
+- Preserve unfinished Arcade transfers under load; use a bounded transfer store and reject excess requests before dispatching mutations.
+- Route native scraper artwork through background jobs, accept scoped local-artwork reads, and resolve exact-entry cached provider thumbnails without borrowing another registration's artwork.
+- Negotiate optional Game Boy picker access and validate exact GB/GBC/GBA cartridge bindings.
+- Validation: 241 tests and 11 subtests passed, including transfer pressure, artwork ownership, stale scope and capability-gated bindings. Coordinated checks passed; see the [implementation report](../docs/reviews/arcade-implementation-2026-09-08.md).
+
+## [0.2.24] — 2026-09-08
+
+- Supply Arcade's emulator shortcut card with the existing bounded Windows application-icon extractor through a native-only callback. Emulator paths are resolved from Arcade configuration, and no path-taking page message is added.
+- Validation: callback injection and existing application-icon extraction regressions; real icons read from eight configured executables without launching them.
+- Release checks: 237 Host tests and 11 subtests passed, along with coordinated repository validation.
+
+## [0.2.23] — 2026-09-08
+
+- Independently validate private Game Boy cartridge version plans using the existing media-file schema and generic argument-array launcher. Require the correct GB/GBC/GBA system for each extension; preserve Spectrum restrictions.
+- Keep existing opaque bindings and public schemas; no Game Boy catalogue-picker capability is advertised.
+- Validation: 237 Host tests and 11 subtests passed, including synthetic exact-target approval/resolution and cross-platform, adapter and label rejection tests. Representative migrated GB/GBC/GBA plans passed Host validation with content hashes checked; emulator gameplay was not exercised.
+
+## [0.2.22] — 2026-09-08
+
+- Arcade Open in Explorer now starts Explorer directly with the same file/folder argument pattern as Portal's working Reveal game file action. Replace the Shell API opening path, which could leave Arcade's Explorer window passive despite the previous restoration fix.
+- Retain selected-file scrolling and minimized-window restoration after startup. Preserve exact path arguments, missing-target rejection and launch/visibility errors.
+- Validation: focused Host and Arcade routing tests cover file/folder launches, punctuation and spaces in names, missing targets, launch failures and visibility handling.
+- Live desktop checks confirmed visible, restored Explorer windows. Foreground activation was inconsistent from the automation session for both Portal's direct command and Arcade's updated helper; browser-click acceptance remains a monitoring item.
+- Final checks: 233 Host tests plus 11 subtests, 459 Arcade tests and coordinated component/integration/packaging/version checks passed (`tools/validate.ps1 -SkipWebExtLint`), along with Ruff and whitespace checks.
+
+## [0.2.21] — 2026-09-08
+
+- Arcade's Open in Explorer now restores a minimized Explorer window after selecting the exact game file, and requests foreground focus. Directory targets receive the same window visibility handling; already maximized windows keep their size.
+- Resolve the window handle from the matching Shell folder view, retain file selection/scrolling, and keep native paths in the helper environment. The helper process stays hidden while the requested Explorer window is shown.
+- Validation: focused tests cover file/folder targets, minimized/visible windows, Windows failures, invalid handles and exact file selection/COM cleanup. Windows retains control over foreground focus when the user switches applications.
+- Final checks: 232 Host tests plus 11 subtests, 459 Arcade tests and coordinated component/integration/packaging/version checks passed (`tools/validate.ps1 -SkipWebExtLint`). Explorer helper PowerShell syntax, Ruff and whitespace checks passed; window restoration was tested with mocked Windows calls.
+
+## [0.2.20] — 2026-09-08
+
+- Sending Atari or ScummVM games from Arcade resolves the active collection directly instead of requesting all collection counts and managed profiles per shortcut. Exact target resolution, native approval checks and existing binding identities are retained.
+- Validation: isolated send/Properties regression verifies no unrelated status scan or library rebuild, with shared-default and existing Portal binding resolution; coordinated Host and integration suites.
+- Final checks passed: 221 Host tests plus 11 subtests, coordinated validation and isolated Firefox delivery/default/Properties workflows. No live emulator launch was performed.
+
+## [0.2.19] — 2026-09-07
+
+- Independently validate Hatari schema-5 launch plans and fixed `--configfile`/disk arguments. Prepare private CFG files with remembered floppy targets and automatic snapshots cleared, and floppy boot selected; preserve original profiles, save-image backups and cross-emulator session leases.
+- Migrate the native catalogue binding store to schema 4 when Hatari is approved. Explicit Properties changes preserve existing Portal keys when switching between Hatari and STEem; older stores and STEem plans remain readable and migrated stores never downgrade.
+- Validation: hostile plans, inactive-library Portal bindings, mutable saves, profile isolation, one-time launches, schema migration and coordinated suites using synthetic files and mocked processes.
+
+- Final checks passed: 1,157 coordinated tests plus 11 Host subtests, zero Relay lint findings, isolated Firefox Hatari Properties save/reload, and a non-launching plan/profile check against the installed Hatari.
+
+## [0.2.18] — 2026-09-07
+
+- Acquire the shared-database OS lock before initialising an empty lock file. Concurrent first writers can no longer write into an already locked range, and initialization failures now release the handle.
+- Validation: existing concurrent compare-and-save regression reproduced the Windows race; focused native persistence and coordinated suites verify the fix.
+
+- Final coordinated validation passed: 1,138 tests plus 11 Host subtests, with zero Relay lint findings.
+
+## [0.2.17] — 2026-09-07
+
+- Independently validate Atari launch plan schema 4 with confined save images, private session directories and exact named STEem profile identities. Refresh existing native approvals only through an explicit Arcade Properties save; mutable save contents do not invalidate Portal shortcuts.
+- Launch STEem with `INI=<private copy>` while retaining original profile encoding, disabling remembered disks, automatic drive B insertion and automatic snapshots in the copy. Preserve the original named configuration.
+- Back up mounted save disks before launch, retain ten distinct recent backups and hold durable process-identity leases against concurrent writers. Interrupted starts fail closed when the child identity is unknown.
+- Validation: mocked native launch, profile isolation/encoding, empty drive B, stale PID reuse, concurrent-use refusal, hostile-plan rejection, existing Portal keys and default-version changes; coordinated suite. No real emulator session launched.
+
+- Coordinated validation: 1,132 tests plus 11 Host subtests passed; Relay lint reported zero findings. Final isolated Firefox 155.0.1 acceptance and 23 focused Properties/native regressions passed.
+
+## [0.2.16] — 2026-09-07
+
+- Validate exact Atari disk sets independently, including all ordered disk hashes, executable identity, confined paths and fixed STEem arguments. Upgrade native catalogue bindings atomically to schema 3 when approving Atari, preserving existing approvals and opaque keys. Support inactive-library Portal launches and version defaults.
+- Validation: Atari discovery, exact-set binding and mocked launch regressions; authenticated catalogue routing and Portal hardware presentation checks.
+
 ## [0.2.15] — 2026-09-07
 
 ### Fixed

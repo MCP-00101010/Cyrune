@@ -6,6 +6,7 @@ from arcade_core.metadata import MetadataService
 class FakeLibrary:
     def __init__(self, game):
         self.game = game
+        self.games = [game]
         self.rebuilds = 0
 
     def get_game(self, game_id):
@@ -20,7 +21,7 @@ def make_service(tmp_path):
     path.write_bytes(b"game")
     game = SimpleNamespace(
         id="jetpac", title="Jetpac", title_key="jetpac", system="48K", memory="48K",
-        path=str(path), file_name=path.name,
+        path=str(path), file_name=path.name, view='collection',
     )
     library = FakeLibrary(game)
     metadata = {"games": []}

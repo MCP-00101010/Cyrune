@@ -267,7 +267,7 @@ class NativePersistenceTests(unittest.TestCase):
             self.assertEqual(snapshot['data']['arcade']['schema'], {'valid': True, 'version': None})
             self.assertEqual(snapshot['data']['nexus']['health']['code'], 'nexus-settings-defaults')
             self.assertEqual(snapshot['services']['host']['health']['code'], 'host-healthy')
-            self.assertEqual(snapshot['services']['host']['version'], '0.2.15')
+            self.assertEqual(snapshot['services']['host']['version'], '0.2.25')
             self.assertEqual(snapshot['services']['host']['protocols']['host-native'], 2)
             self.assertTrue(all(component['version'] != 'Unversioned' for component in snapshot['components']))
             self.assertTrue(all('protocols' in component for component in snapshot['components']))
@@ -279,7 +279,7 @@ class NativePersistenceTests(unittest.TestCase):
             self.assertNotIn('activeCollection', snapshot['data']['arcade']['service'])
 
     def test_host_version_protocols_and_nexus_dispatch_are_manifest_backed(self):
-        self.assertEqual(HOST.HOST_VERSION, '0.2.15')
+        self.assertEqual(HOST.HOST_VERSION, '0.2.25')
         self.assertEqual(HOST.HOST_PROTOCOLS['host-native'], 2)
         self.assertIn('NEXUS_GET_STATUS', HOST.NEXUS_MESSAGE_TYPES)
         self.assertFalse(HOST.handle_nexus_message('READ_CONFIG', {}))
@@ -903,6 +903,7 @@ class NativePersistenceTests(unittest.TestCase):
             root = Path(directory) / 'Arcade'
             root.mkdir()
             (root / 'arcade_service.py').write_text(
+                "EMULATOR_ICON_READER = None\n"
                 "def dispatch_arcade_read(method):\n"
                 "    return {'serviceVersion': 1, 'active': {}, 'collections': [], 'emulators': [], 'profiles': []}\n",
                 encoding='utf-8'
@@ -923,6 +924,7 @@ class NativePersistenceTests(unittest.TestCase):
                 self.assertEqual(stored['arcadeRoot'], str(root.resolve()))
                 self.assertEqual(stored['emuguiRoot'], str(root.resolve()))
                 self.assertTrue(callable(HOST._load_emugui_module().dispatch_arcade_read))
+                self.assertIs(HOST._load_emugui_module().EMULATOR_ICON_READER, HOST._application_icon_data_url)
             finally:
                 HOST.CONFIG_PATH = original_path
                 HOST.EMUGUI_MODULE = original_module
@@ -1182,7 +1184,7 @@ class NativePersistenceTests(unittest.TestCase):
             self.assertEqual(HOST._emugui_binding_thumbnail(object(), {'screenshot': 'http://example.com/image.png'}), '')
             fetch.assert_not_called()
 
-    def test_emugui_artwork_can_fall_back_to_an_exact_same_system_sibling(self):
+    def test_emugui_artwork_never_borrows_another_registration_by_title(self):
         class FakeEmuGui:
             COLLECTION = ''
 
@@ -1197,8 +1199,8 @@ class NativePersistenceTests(unittest.TestCase):
         game = {'id': 'bound-game', 'title': 'Ghostbusters', 'system': '48K'}
         downloaded = {'contentType': 'image/jpeg', 'dataUrl': 'data:image/jpeg;base64,c3BlY3RydW0=', 'bytes': 8}
         with patch.object(HOST, '_download_favicon_candidate', return_value=downloaded) as fetch:
-            self.assertEqual(HOST._emugui_binding_thumbnail(FakeEmuGui(), game), downloaded['dataUrl'])
-            fetch.assert_called_once_with('https://example.com/spectrum.jpg', HOST.MAX_APPLICATION_ICON_BYTES)
+            self.assertEqual(HOST._emugui_binding_thumbnail(FakeEmuGui(), game), '')
+            fetch.assert_not_called()
 
 
 def tearDownModule():

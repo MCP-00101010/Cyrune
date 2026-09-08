@@ -5,6 +5,28 @@ Format: `[version] — date` followed by Added / Changed / Fixed sections.
 
 ---
 
+## [0.12.21] — 2026-09-08
+
+- Accept negotiated Game Boy catalogue results with GB/GBC/GBA hardware labels. Keep exact cartridge bindings and compact presentation-only records.
+- Cached ScreenScraper artwork can now reach the catalogue and newly sent shortcuts through Host's exact-entry resolver.
+- Validation: 165 tests, coordinated checks and isolated Firefox picker/save/reload workflows passed. See the [implementation report](../docs/reviews/arcade-implementation-2026-09-08.md) for coverage and limits.
+
+## [0.12.20] — 2026-09-08
+
+- Publish only committed theme presentation after authoritative loads/saves. Settings previews, cancelled drafts, failed saves and conflicts do not publish; database success does not depend on theme delivery.
+- Validation: authenticated role separation, presentation projection/privacy bounds and coordinated/Firefox workflows.
+- Final checks: coordinated validation and Relay lint passed; isolated Firefox ScummVM/custom-colour and Atari/light-theme workflows passed, with screenshot inspection. Additional authoritative theme-save regressions passed.
+
+## [0.12.19] — 2026-09-07
+
+- Reserve ScummVM icons and platform artwork for ScummVM games. Use native Spectrum rainbow and Atari Fuji logos for their game links, with separate language/hardware badges. Prefer explicit platform identity and current emulator status over tags or stale shortcut labels.
+- Validation: Portal icon/status regressions, native Properties binding/launch checks and isolated Firefox Atari workflow.
+
+## [0.12.18] — 2026-09-07
+
+- Accept negotiated Atari disk-set picker entries and retain compact opaque shortcuts. Display the default edition language and ST/STe hardware badges with the shared Atari platform favicon.
+- Validation: Atari discovery, exact-set binding and mocked launch regressions; authenticated catalogue routing and Portal hardware presentation checks.
+
 ## [0.12.17] — 2026-09-07
 
 ### Fixed

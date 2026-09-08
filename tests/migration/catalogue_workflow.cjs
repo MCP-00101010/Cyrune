@@ -84,9 +84,8 @@ async function main() {
     querySelector: selector => selector === 'meta[name="morpheus-webhub"]' ? {} : null };
   const content = vm.createContext({ ...common, window, document, browser: { runtime: { sendMessage: send, onMessage: event() } } });
   const protocols = "Object.freeze({ 'portal-relay': 1, 'component-settings': 2 })";
-  const enabledProtocols = "Object.freeze({ 'portal-relay': 1, 'component-settings': 2, 'arcade-catalogue': 1, 'arcade-scummvm': 1 })";
   let contentSource = source('Relay/content.js');
-  if (['closed-gate', 'old-content'].includes(scenario)) contentSource = contentSource.replace(enabledProtocols, protocols);
+  if (['closed-gate', 'old-content'].includes(scenario)) contentSource = contentSource.replace(/(const PORTAL_CLIENT_PROTOCOLS = )Object\.freeze\(\{[^\n]+\}\)/, '$1' + protocols);
   vm.runInContext(contentSource, content, { filename: 'Relay/content.js' });
   const localCache = new Map(); let undo = [], renders = 0;
   const portal = vm.createContext({ ...common, window, document, getResolvedThemeId: value => value || 'default-dark',
@@ -95,7 +94,7 @@ async function main() {
     pushUndoSnapshot: () => undo.push(vm.runInContext('serializeStateSnapshot()', portal)),
     renderContentSurfaces: () => { renders++; }, renderAll() {}, showNotice() {} });
   let bridgeSource = source('Portal/source/bridge.js');
-  if (scenario === 'closed-gate') bridgeSource = bridgeSource.replace(enabledProtocols, protocols);
+  if (scenario === 'closed-gate') bridgeSource = bridgeSource.replace(/(const CLIENT_PROTOCOLS = )Object\.freeze\(\{[^\n]+\}\)/, '$1' + protocols);
   vm.runInContext(bridgeSource, portal, { filename: 'Portal/source/bridge.js' });
   const bridge = vm.runInContext('bridge', portal); await bridge.whenReady; await tick();
   assert.equal(bridge.storageIsAvailable(), true);

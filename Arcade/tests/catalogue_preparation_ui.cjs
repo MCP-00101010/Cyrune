@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
-const source = fs.readFileSync(path.join(__dirname, '../web/app.js'), 'utf8');
+const source = fs.readFileSync(path.join(__dirname, '../web/app.js'), 'utf8')+'\n'+fs.readFileSync(path.join(__dirname,'../web/scrape-views.js'),'utf8');
 const controller = source.slice(source.indexOf('function showCataloguePreparationModal()'), source.indexOf('function showAddCollectionModal()'));
 
 async function main() {
@@ -28,7 +28,7 @@ async function main() {
   const requests = [];
   let response;
   const state = { activeCollection: { id: 'reviewed-source' }, collections: [{ id: 'reviewed-source', name: '<Synthetic>', available: true, writable: true }] };
-  const context = { document, state, els: { prepareCatalogue: element() },
+  const context = { document, state, els: { version: element() },
     escapeHtml: (text) => text.replaceAll('<', '&lt;').replaceAll('>', '&gt;'),
     api: async (route, options) => { requests.push({ route, body: JSON.parse(options.body) }); return await response(); },
   };
@@ -73,7 +73,7 @@ async function main() {
   assert.equal(document.activeElement, buttons.review);
   handlers.keydown({ key: 'Escape', preventDefault() {} });
   assert.ok(overlay.removed);
-  assert.equal(document.activeElement, context.els.prepareCatalogue);
+  assert.equal(document.activeElement, context.els.version);
   console.log('Preparation dialog review, confirmation, race, error and keyboard flows pass.');
 }
 main().catch((error) => { console.error(error); process.exitCode = 1; });

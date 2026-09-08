@@ -1,3 +1,4 @@
+require('../web/platforms.js');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -5,7 +6,7 @@ const vm = require('node:vm');
 const test = require('node:test');
 const crypto = require('node:crypto').webcrypto;
 const source = fs.readFileSync(path.join(__dirname, '../web/portal-delivery.js'), 'utf8');
-const context = vm.createContext({ crypto });
+const context = vm.createContext({ArcadePlatforms:globalThis.ArcadePlatforms, crypto });
 vm.runInContext(source, context);
 const create = context.ArcadePortalDelivery.createBatch;
 const entries = () => [
@@ -102,13 +103,13 @@ test('the Arcade action captures each pin and the collection default instead of 
       querySelector(selector) { if (!children.has(selector)) children.set(selector, element()); return children.get(selector); } };
   };
   document.createElement = element;
-  const ctx = vm.createContext({ document, crypto, portalDeliveryDraft: null, webHubHandoff: {},
+  const ctx = vm.createContext({ArcadePlatforms:globalThis.ArcadePlatforms, document, crypto, portalDeliveryDraft: null, webHubHandoff: {},
     state: { activeCollection: { id: 'spectrum', default_emulator: 'collection-emulator' },
       emulatorProfiles: [{ id: 'auto-128', emulator_id: 'collection-emulator', rule: { systems: ['128K'] } }] },
     els: { emulator: { value: 'focused-row-emulator' } }, gameTags: () => [],
     sendArcadeGame: async payload => { sent.push(JSON.parse(JSON.stringify(payload))); return { ok: true, queued: true }; },
   });
-  const app = fs.readFileSync(path.join(__dirname, '../web/app.js'), 'utf8');
+  const app = fs.readFileSync(path.join(__dirname, '../web/app.js'), 'utf8')+'\n'+fs.readFileSync(path.join(__dirname,'../web/scrape-views.js'),'utf8');
   vm.runInContext(source + '\n' + app.slice(app.indexOf('async function sendGamesToPortal('), app.indexOf('function formatCountryCodes(')), ctx);
   await ctx.sendGamesToPortal([
     { id: '48k', title: 'Elite', system: '48K', default_emulator: 'pinned-emulator', emulator_profile: 'missing-pin' },

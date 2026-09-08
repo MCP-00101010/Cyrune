@@ -124,7 +124,7 @@ def wait_for_job(server, job_id):
 
 
 def test_external_page_api_surface_is_implemented_by_native_dispatcher():
-    app = APP_PATH.read_text(encoding="utf-8")
+    app = APP_PATH.read_text(encoding="utf-8") + (APP_PATH.parent / "scrape-views.js").read_text(encoding="utf-8")
     server = SERVICE_PATH.read_text(encoding="utf-8")
     routes = {
         "/api/collections", "/api/games", "/api/game", "/api/emulators", "/api/emulator-profiles",
@@ -367,6 +367,8 @@ def test_native_dispatcher_keeps_scraper_secrets_out_of_json(tmp_path):
             "enabled": True,
             "username": "fixture-user",
             "password": "fixture-password",
+            "developer_id": "fixture-dev",
+            "developer_password": "fixture-dev-password",
             "system_id": "135",
         },
         "thegamesdb": {

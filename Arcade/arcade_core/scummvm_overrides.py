@@ -9,6 +9,7 @@ from arcade_core.catalogue_identity import CatalogueError, encoded, read_object,
 from arcade_core.import_manifest import plain_text
 from arcade_core.paths import ConfinedRoot
 from arcade_core.persistence import atomic_write_json
+from arcade_core.screenscraper import artwork_parts
 
 
 TEXT_FIELDS = {
@@ -33,8 +34,14 @@ def validate_values(values):
     for key, value in values.items():
         value = plain_text(value, TEXT_FIELDS.get(key, 500))
         if not value:
-            raise CatalogueError("review-required")
+            if key == 'title':
+                raise CatalogueError("review-required")
+            result[key] = ''
+            continue
         if key in ART_FIELDS:
+            if artwork_parts(value):
+                result[key] = value
+                continue
             try:
                 url = urlsplit(value)
                 valid = (url.scheme == "https" and url.hostname in ART_HOSTS and url.port in (None, 443)
@@ -42,18 +49,12 @@ def validate_values(values):
             except ValueError:
                 valid = False
             if not valid:
-                raise ValueError("ScummVM artwork must use an approved HTTPS scraper image URL")
+                raise ValueError("Artwork must use an approved HTTPS scraper image URL")
         result[key] = value
     return result
 
 
-class ScummvmOverrides:
-    def __init__(self, runtime, collection):
-        scope = [collection["id"], str(Path(collection["root"]).resolve()),
-                 str(Path(collection["scummvm_config"]).resolve())]
-        name = hashlib.sha256(encoded(scope)).hexdigest()
-        self.path = ConfinedRoot(Path(runtime)).resolve(f"scummvm-overrides/{name}.json")
-
+class PresentationOverrides:
     def load(self):
         if not self.path.exists():
             return {}
@@ -63,9 +64,12 @@ class ScummvmOverrides:
             raise CatalogueError("review-required")
         for game_id, row in data["games"].items():
             if (not valid_id(game_id, legacy=True) or not isinstance(row, dict)
-                    or set(row) != {"targetDigest", "values"} or not isinstance(row["targetDigest"], str)
+                    or not {"targetDigest", "values"} <= set(row) or set(row) - {"targetDigest", "values", "protected_fields"} or not isinstance(row["targetDigest"], str)
                     or len(row["targetDigest"]) != 64 or any(c not in "0123456789abcdef" for c in row["targetDigest"])):
                 raise CatalogueError("review-required")
+            protected = row.get('protected_fields', [])
+            if not isinstance(protected, list) or len(protected) > 20 or any(key not in TEXT_FIELDS.keys() | ART_FIELDS for key in protected):
+                raise CatalogueError('review-required')
             try:
                 validate_values(row["values"])
             except ValueError:
@@ -90,3 +94,26 @@ class ScummvmOverrides:
                 raise CatalogueError("review-required")
             atomic_write_json(self.path, data)
         return merged
+
+    def save_shared(self, targets, values):
+        """Replace one folder's presentation in a single atomic override write."""
+        if not targets or len(targets) > 1000 or any(not valid_id(key, legacy=True) for key in targets):
+            raise CatalogueError('invalid-request')
+        values = validate_values(values)
+        with _writer_lock(self.path):
+            rows = self.load()
+            for game_id, target in targets.items():
+                rows[game_id] = {'targetDigest': target_digest(target), 'values': dict(values)}
+            data = {'schemaVersion': 1, 'games': rows}
+            if len(rows) > 10000 or len(json.dumps(data, indent=2, ensure_ascii=False).encode('utf-8')) > MAX_BYTES:
+                raise CatalogueError('review-required')
+            atomic_write_json(self.path, data)
+        return values
+
+
+class ScummvmOverrides(PresentationOverrides):
+    def __init__(self, runtime, collection):
+        scope = [collection["id"], str(Path(collection["root"]).resolve()),
+                 str(Path(collection["scummvm_config"]).resolve())]
+        name = hashlib.sha256(encoded(scope)).hexdigest()
+        self.path = ConfinedRoot(Path(runtime)).resolve(f"scummvm-overrides/{name}.json")

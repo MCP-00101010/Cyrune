@@ -103,12 +103,18 @@ def test_explicit_profile_binding_overrides_automatic_profile_selection():
     assert server.select_managed_profile("eightyone", game, "missing") is None
 
 
-def test_transport_neutral_api_routes_existing_read_operations():
+def test_transport_neutral_api_routes_existing_read_operations(tmp_path):
     server = load_server()
+    server.DATA = tmp_path
 
     class FakeLibrary:
+        games = []
+
         def list_games(self, view):
             return [{"id": "jetpac", "view": view}]
+
+        def get_game(self, game_id):
+            return SimpleNamespace(id=game_id, screenshot="", loading_screen="", description="")
 
     server.get_library = lambda: FakeLibrary()
     server.collections_payload = lambda: {"active": {"id": "spectrum"}, "collections": []}
@@ -116,7 +122,7 @@ def test_transport_neutral_api_routes_existing_read_operations():
     games = server.dispatch_arcade_api("GET", "/api/games", {"view": "all"}, {})
     collections = server.dispatch_arcade_api("GET", "/api/collections", {}, {})
 
-    assert games == {"games": [{"id": "jetpac", "view": "all"}]}
+    assert games == {"collection_id": server.active_collection()["id"], "games": [{"id": "jetpac", "view": "all", "newly_indexed": False, "cleanup": {"artwork": True, "description": True, "review": False}}]}
     assert collections["active"]["id"] == "spectrum"
 
 
@@ -318,7 +324,12 @@ def test_failed_collection_switch_restores_previous_collection():
 
     library = Library()
     server.update_state = update_state
-    server.get_library = lambda: library
+    server.LIBRARY = library
+    def get_library():
+        if server.LIBRARY is None:
+            library.rebuild()
+        return library
+    server.get_library = get_library
     captured = {}
 
     def run_now(_title, work):

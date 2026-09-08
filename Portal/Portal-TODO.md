@@ -1,5 +1,13 @@
 # Cyrune Portal TODO
 
+- Monitor 0.12.21: scrape retry/resume, cross-platform artwork, repeated collection switches and Game Boy picker use. Implementation details and validation: `../docs/reviews/arcade-implementation-2026-09-08.md`.
+
+- Monitor Portal 0.12.20 committed Portal-theme handoff, custom/light themes, Relay restart and Arcade appearance with Portal closed.
+
+- Monitor Portal 0.12.19 platform-specific game logos and ScummVM-only artwork, including status refreshes and existing shortcuts.
+
+- Monitor Portal 0.12.18 Atari ST disk-set browsing, STEem SSE selection, multi-disk swaps and Portal defaults under the [Atari adapter contract](../docs/architecture/arcade-atari-adapter.md).
+
 - Monitor uncertain game-action outcomes after Relay reconnects; pending launches and game mutations must never be automatically replayed.
 
 - Monitor Portal 0.12.17 Spectrum hardware badges and omission of duplicate platform icons with older Host metadata, exact-default language/platform badges in Portal, including default changes and missing-default handling.

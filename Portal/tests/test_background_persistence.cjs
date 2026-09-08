@@ -307,6 +307,26 @@ async function loadBackground(options = {}) {
   return { context, listeners, nativeWrites, nativeRequests, pendingWrites, sentTabs, nativeConnections, executedScripts, createdTabs, updatedTabs, scheduledTimeouts, storageValues, createdAlarms, createdNotifications };
 }
 
+test('theme handoff keeps Portal publishing and Arcade reading bound to their registered roles', async () => {
+  const h = await loadBackground();
+  const hubUrl = 'file:///hub.html';
+  const arcadeUrl = 'file:///F:/Projects/Coding/Cyrune/Arcade/web/index.html';
+  const request = (message, id, url) => new Promise(resolve => h.listeners.message(
+    { pageUrl:url, ...message }, { tab:{id,url}, frameId:0 }, resolve));
+  const hub = await request({type:'MW_REGISTER'},10,hubUrl);
+  const arcade = await request({type:'MW_EMUGUI_REGISTER'},20,arcadeUrl);
+  const hubAuth = {morpheusPage:true,hubSessionToken:hub.hubSessionToken};
+  const arcadeAuth = {emuguiSessionToken:arcade.emuguiSessionToken};
+  assert.match((await request({...arcadeAuth,type:'MW_PUBLISH_PORTAL_THEME',theme:{}},20,arcadeUrl)).error,/not authorized/);
+  assert.match((await request({...hubAuth,type:'MW_EMUGUI_GET_PORTAL_THEME'},10,hubUrl)).error,/not authorized/);
+  assert.match((await request({...arcadeAuth,type:'MW_EMUGUI_GET_PORTAL_THEME'},21,arcadeUrl)).error,/not authorized/);
+  assert.match((await request({...hubAuth,type:'MW_PUBLISH_PORTAL_THEME',theme:{}},10,hubUrl)).error,/Invalid Portal theme/);
+  const result = await request({...arcadeAuth,type:'MW_EMUGUI_GET_PORTAL_THEME'},20,arcadeUrl);
+  assert.equal(result.ok,true);
+  assert.equal(result.theme,null);
+  assert.equal(h.storageValues.has('cyrunePortalThemeV1'),false);
+});
+
 test('Relay enforces minimum protocols for every authenticated page role', async () => {
   const harness = await loadBackground();
   for (const role of ['portal', 'arcade', 'nexus']) {

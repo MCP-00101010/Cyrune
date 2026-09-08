@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Callable
+from arcade_core.scrape_platforms import platform_override
 
 
 @dataclass(frozen=True)
@@ -26,7 +27,12 @@ class ScraperService:
         self._adapters = adapters
         self._optional_network_allowed = optional_network_allowed
 
-    def preview(self, game_id: str, provider_id: str = "manual") -> dict[str, object]:
+    def preview(self, game_id: str, provider_id: str = "manual", search_term: object = None,
+                search_platform: object = "current") -> dict[str, object]:
+        if search_term is not None:
+            if not isinstance(search_term, str) or not search_term.strip() or len(search_term) > 500 or any(ord(c) < 32 for c in search_term):
+                return {"ok": False, "error": "Enter a search term of 1 to 500 characters."}
+            search_term = search_term.strip()
         game = self._get_game(game_id)
         if not game:
             return {"ok": False, "error": "Unknown game"}
@@ -47,6 +53,15 @@ class ScraperService:
                 "error": f"{provider.get('name', provider_id)} provider scaffold exists, but live scraping is not implemented yet",
             }
         try:
-            return adapter.preview(game, provider)
+            request_provider = {**provider}
+            request_provider["_search_platform"] = search_platform
+            platform_override(request_provider, provider_type)
+            if search_term is not None:
+                request_provider["_search_term"] = search_term
+            result = adapter.preview(game, request_provider)
+            query = result.get("query", {})
+            result["query"] = {**query, "search_platform": search_platform, "search_term": query.get("lookup_title", search_term if search_term is not None else
+                getattr(game, "title", ""))}
+            return result
         except Exception as exc:
-            return {"ok": False, "error": str(exc)}
+            return {"ok": False, "error": str(exc), **({'retry_after':exc.retry_after} if hasattr(exc, 'retry_after') else {})}

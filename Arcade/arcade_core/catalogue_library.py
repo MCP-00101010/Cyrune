@@ -41,10 +41,18 @@ class LibraryCatalogue(CatalogueLifecycle):
         super().__init__(runtime, config_path)
         self.key_path = self.runtime / "catalogue-library.json"
         self._validated_targets = None
+        self._source_cache = {}
         self.version_defaults = VersionDefaults(self.runtime)
 
     def observe_plan(self, plan):
         if self._validated_targets is not None:
+            if plan.get('adapterId') in {'steem', 'hatari'}:
+                self._validated_targets.extend((plan['root'], disk['path'], disk['signature']) for disk in plan['disks'])
+                self._validated_targets.append((str(Path(plan['executable']).parent), plan['executable'], plan['executableSignature']))
+                if plan.get('settings'):
+                    config = plan['settings']
+                    self._validated_targets.append((str(Path(config['profile']).parent), config['profile'], config['profileSignature']))
+                return
             if plan.get("adapterId") == "scummvm":
                 self._validated_targets.extend([
                     (str(Path(plan["config"]).parent), plan["config"], plan["configSignature"]),
@@ -98,10 +106,13 @@ class LibraryCatalogue(CatalogueLifecycle):
         stamps = [_stamp(path) for path in (self.config_path, self.registry.path,
                   self.proofs_path, self.journal_path, self.key_path)]
         seen = set()
+        from arcade_core.game_properties import properties_path
         for row in collections:
             if not isinstance(row, dict) or not valid_id(row.get("id"), legacy=True) or row["id"] in seen:
                 raise CatalogueError("review-required")
             seen.add(row["id"])
+            if row.get("adapter") == "atari-st-disks-v1":
+                stamps.append(_stamp(properties_path(self.runtime, row)))
             root = row.get("root")
             if not isinstance(root, str) or not Path(root).is_absolute():
                 raise CatalogueError("review-required")
@@ -113,11 +124,38 @@ class LibraryCatalogue(CatalogueLifecycle):
                         raise CatalogueError("configuration-required")
                     stamps.extend((_stamp(Path(root)), _stamp(Path(config_file)), _stamp(Path(config_file).resolve())))
                     stamps.append(_stamp(ScummvmOverrides(self.runtime, row).path))
+                elif row.get('adapter') == 'atari-st-disks-v1':
+                    from arcade_core.atari_overrides import AtariOverrides
+                    stamps.append(_stamp(AtariOverrides(self.runtime, row).path))
+                    stat = Path(root).stat()
+                    # Save/session folders are mutable data, not catalogue edits.
+                    stamps.extend(([stat.st_dev, stat.st_ino], _stamp(confined.resolve('collection-metadata.json'))))
                 else:
                     stamps.extend((_stamp(Path(root)), _stamp(confined.resolve("collection-metadata.json"))))
             except (OSError, PathConfinementError, CatalogueError):
                 stamps.append(None)
         return None, _digest(stamps)
+
+    def _source_token(self, row, prepared):
+        from arcade_core.atari_overrides import AtariOverrides
+        from arcade_core.game_properties import properties_path
+        root = Path(row['root'])
+        paths = [root, root.resolve(), root / 'collection-metadata.json', self.key_path,
+                 properties_path(self.runtime, row)]
+        if row.get('adapter') == 'scummvm-config-v1':
+            paths.extend([Path(row['scummvm_config']), ScummvmOverrides(self.runtime, row).path])
+        if row.get('adapter') == 'atari-st-disks-v1':
+            paths.append(AtariOverrides(self.runtime, row).path)
+        return _digest([row, prepared, [_stamp(path) for path in paths]])
+
+    def _retain_source(self, adapter, token):
+        # CatalogueService assigns revisions to its own copy, never the cached projection.
+        template = adapter.snapshot()
+        from dataclasses import replace
+        adapter.snapshot = lambda: [replace(entry, base=dict(entry.base), detail=deepcopy(entry.detail)) for entry in template]
+        adapter.snapshot_count = len(template)
+        self._source_cache[adapter.collection_id] = (token, adapter)
+        return adapter
 
     def _sources_for_library(self):
         key = self._identity_key()
@@ -125,10 +163,35 @@ class LibraryCatalogue(CatalogueLifecycle):
             return library_id(key, parts)
         prepared = self.registry.load()["sources"] if self.registry.path.exists() else {}
         sources = []
+        configured = self._config()['collections']
+        ids = {row['id'] for row in configured}
+        self._source_cache = {key:value for key,value in self._source_cache.items() if key in ids}
         count = 0
-        for row in self._config()["collections"]:
+        for row in configured:
+            if row.get('adapter', '') not in {'', 'spectrum-metadata-v1', 'scummvm-config-v1', 'atari-st-disks-v1', 'gameboy-cartridges-v1'}:
+                continue
             collection_id, root = row["id"], Path(row["root"]).resolve()
             if not root.is_dir():
+                continue
+            token = self._source_token(row, prepared.get(collection_id))
+            cached = self._source_cache.get(collection_id)
+            if cached and cached[0] == token:
+                adapter = cached[1]
+                count += adapter.snapshot_count
+                if count > 100_000:
+                    raise CatalogueError('review-required')
+                sources.append(adapter)
+                continue
+            if row.get('adapter') == 'atari-st-disks-v1':
+                from arcade_core.catalogue_atari import AtariSource
+                try:
+                    adapter = AtariSource(row, identity, self.runtime)
+                except (CatalogueError, OSError, PathConfinementError):
+                    continue
+                count += len(adapter.rows)
+                if count > 100_000:
+                    raise CatalogueError('review-required')
+                sources.append(self._retain_source(adapter, token))
                 continue
             if row.get("adapter") == "scummvm-config-v1":
                 from arcade_core.catalogue_scummvm import ScummvmSource
@@ -139,13 +202,17 @@ class LibraryCatalogue(CatalogueLifecycle):
                 count += len(adapter.rows)
                 if count > 100_000:
                     raise CatalogueError("review-required")
-                sources.append(adapter)
+                sources.append(self._retain_source(adapter, token))
                 continue
             try:
                 metadata = ConfinedRoot(root).resolve("collection-metadata.json")
                 if not metadata.is_file():
                     continue
-                adapter = SpectrumSource(collection_id, root, None, browse=True)
+                if row.get('adapter') == 'gameboy-cartridges-v1':
+                    from arcade_core.catalogue_gameboy import GameBoySource
+                    adapter = GameBoySource(row)
+                else:
+                    adapter = SpectrumSource(collection_id, root, None, browse=True)
                 rows = adapter._rows()
             except (OSError, PathConfinementError):
                 continue
@@ -167,7 +234,8 @@ class LibraryCatalogue(CatalogueLifecycle):
             adapter._rows = lambda rows=rows: rows
             index = {legacy: item for legacy, _relative, item in rows}
             adapter._row_index = lambda index=index: index
-            sources.append(adapter)
+            adapter.runtime = self.runtime
+            sources.append(self._retain_source(adapter, token))
         return sources
 
     def _ensure_fresh(self):

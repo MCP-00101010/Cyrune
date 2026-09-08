@@ -761,9 +761,6 @@ def database_write_lock(path, timeout_seconds=15):
     lock_path = f'{os.path.abspath(path)}.lock'
     os.makedirs(os.path.dirname(lock_path), exist_ok=True)
     lock_file = open(lock_path, 'a+b')
-    if os.path.getsize(lock_path) == 0:
-        lock_file.write(b'\0')
-        lock_file.flush()
     deadline = time.monotonic() + timeout_seconds
     locked = False
     try:
@@ -781,6 +778,12 @@ def database_write_lock(path, timeout_seconds=15):
                 if time.monotonic() >= deadline:
                     raise TimeoutError('Timed out waiting for the shared database write lock')
                 time.sleep(0.05)
+        # Locking a byte beyond EOF is supported on Windows. Initialise only
+        # after taking ownership: concurrent first writers must not write into
+        # a range another process has already locked.
+        if os.fstat(lock_file.fileno()).st_size == 0:
+            lock_file.write(b'\0')
+            lock_file.flush()
         yield
     finally:
         if locked:
@@ -2440,10 +2443,15 @@ def _load_emugui_module():
         configure_network(arcade_optional_network_allowed)
     if getattr(module, 'ARCADE_SCUMMVM_VERSION', None) == 1:
         module.SCUMMVM_LAUNCH = _execute_catalogue_plan
+        module.DISK_SET_LAUNCH = _execute_catalogue_plan
+        module.GAME_PROPERTIES_ACCESS = lambda folder, game_id, disk=None: _atari_save_sessions().access(folder, game_id, disk)
+        module.GAME_PROPERTIES_APPROVE = _approve_atari_properties
     if sys.platform == 'win32':
         module.NATIVE_REVEAL_GAME = _reveal_game_in_explorer
     if hasattr(module, 'VERSION_APPROVE'):
         module.VERSION_APPROVE = lambda plan: get_catalogue_bindings().approve_version(plan)
+    if hasattr(module, 'EMULATOR_ICON_READER'):
+        module.EMULATOR_ICON_READER = _application_icon_data_url
     EMUGUI_MODULE = module
     EMUGUI_MODULE_PATH = service_path
     return module
@@ -2484,62 +2492,43 @@ def emugui_api_request(method, path, query=None, body=None):
     return result
 
 
-def emugui_asset(relative_path):
+def emugui_asset(relative_path, collection_id=None):
     module = _load_emugui_module()
     reader = getattr(module, 'read_arcade_asset', None) or getattr(module, 'read_emugui_asset', None)
     if not callable(reader):
         raise RuntimeError('The configured Cyrune Arcade installation does not expose the asset service contract')
-    result = reader(str(relative_path or ''), MAX_EMUGUI_ASSET_BYTES)
+    starter = getattr(module, 'start_artwork_job', None)
+    if callable(starter) and str(relative_path or '').startswith('scraper-artwork/'):
+        result = starter(relative_path, collection_id)
+    else:
+        result = reader(str(relative_path or ''), MAX_EMUGUI_ASSET_BYTES, **({'collection_id':collection_id} if collection_id is not None else {}))
     if not isinstance(result, dict):
         raise RuntimeError('The Cyrune Arcade asset service returned invalid data')
     return result
 
 
+def _arcade_transfer_store():
+    name = '_cyrune_arcade_transfers'
+    if name not in sys.modules:
+        spec = importlib.util.spec_from_file_location(name, Path(__file__).with_name('arcade_transfers.py'))
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[name] = module
+        spec.loader.exec_module(module)
+    return sys.modules[name].TransferStore(EMUGUI_TRANSFERS, max_transfers=MAX_EMUGUI_TRANSFERS,
+        max_bytes=MAX_EMUGUI_RPC_RESPONSE_BYTES, chunk_bytes=MAX_EMUGUI_TRANSFER_CHUNK_BYTES,
+        ttl=EMUGUI_TRANSFER_TTL_SECONDS)
+
+
 def _cleanup_emugui_transfers(now=None):
-    now = time.monotonic() if now is None else now
-    expired = [transfer_id for transfer_id, record in EMUGUI_TRANSFERS.items()
-               if now - record['createdAt'] > EMUGUI_TRANSFER_TTL_SECONDS]
-    for transfer_id in expired:
-        EMUGUI_TRANSFERS.pop(transfer_id, None)
+    return _arcade_transfer_store().cleanup(now)
 
 
 def read_emugui_transfer_chunk(transfer_id, offset=0):
-    transfer_id = str(transfer_id or '')
-    if not re.fullmatch(r'[A-Za-z0-9_-]{16,80}', transfer_id):
-        raise ValueError('The Cyrune Arcade transfer ID is invalid')
-    _cleanup_emugui_transfers()
-    record = EMUGUI_TRANSFERS.get(transfer_id)
-    if not record:
-        raise ValueError('The Cyrune Arcade transfer expired or is unknown')
-    data = record['data']
-    offset = int(offset or 0)
-    if offset < 0 or offset > len(data):
-        raise ValueError('The Cyrune Arcade transfer offset is invalid')
-    end = min(len(data), offset + MAX_EMUGUI_TRANSFER_CHUNK_BYTES)
-    done = end >= len(data)
-    result = {
-        'transferId': transfer_id,
-        'chunk': base64.b64encode(data[offset:end]).decode('ascii'),
-        'nextOffset': end,
-        'totalSize': len(data),
-        'done': done,
-    }
-    if done:
-        EMUGUI_TRANSFERS.pop(transfer_id, None)
-    return result
+    return _arcade_transfer_store().read(transfer_id, offset)
 
 
 def start_emugui_transfer(payload):
-    data = json.dumps(payload, ensure_ascii=False, separators=(',', ':')).encode('utf-8')
-    if len(data) > MAX_EMUGUI_RPC_RESPONSE_BYTES:
-        raise ValueError('The Cyrune Arcade response is too large')
-    _cleanup_emugui_transfers()
-    while len(EMUGUI_TRANSFERS) >= MAX_EMUGUI_TRANSFERS:
-        oldest = min(EMUGUI_TRANSFERS, key=lambda key: EMUGUI_TRANSFERS[key]['createdAt'])
-        EMUGUI_TRANSFERS.pop(oldest, None)
-    transfer_id = secrets.token_urlsafe(18)
-    EMUGUI_TRANSFERS[transfer_id] = {'data': data, 'createdAt': time.monotonic()}
-    return read_emugui_transfer_chunk(transfer_id, 0)
+    return _arcade_transfer_store().start(payload)
 
 
 def emugui_service_status():
@@ -2579,6 +2568,14 @@ def _emugui_binding_thumbnail(module, game):
             source = str(raw_source or '').strip()
             if not source:
                 continue
+            if source.startswith('scraper-artwork/screenscraper/'):
+                resolver = getattr(module, 'cached_artwork_path', None)
+                target = resolver(source) if callable(resolver) else None
+                if target:
+                    data_url = _bounded_local_image_data_url(str(target))
+                    if data_url:
+                        return data_url
+                continue
             parsed = urllib.parse.urlsplit(source)
             if parsed.scheme:
                 if parsed.scheme.lower() != 'https' or not parsed.netloc or parsed.username or parsed.password:
@@ -2603,30 +2600,7 @@ def _emugui_binding_thumbnail(module, game):
                 return data_url
         return ''
 
-    direct = thumbnail_from_record(game)
-    if direct or scoped_root:
-        return direct
-
-    title = str(game.get('title') or '').strip()
-    if not title:
-        return ''
-    try:
-        matches = module.dispatch_emugui_read('SEARCH_GAMES', {'query': title, 'view': 'all', 'limit': 50}).get('games', [])
-    except Exception:
-        return ''
-    source_system = _game_system_info(game)[0]
-    for candidate in matches:
-        if not isinstance(candidate, dict) or str(candidate.get('id') or '') == str(game.get('id') or ''):
-            continue
-        if str(candidate.get('title') or '').strip().casefold() != title.casefold():
-            continue
-        candidate_system = _game_system_info(candidate)[0]
-        if source_system and candidate_system and source_system != candidate_system:
-            continue
-        fallback = thumbnail_from_record(candidate)
-        if fallback:
-            return fallback
-    return ''
+    return thumbnail_from_record(game)
 
 
 def _game_system_info(game=None, entry=None):
@@ -2768,13 +2742,54 @@ def _is_catalogue_binding(game_key):
     return game_key in get_catalogue_bindings().load()['bindings']
 
 
-def _execute_catalogue_plan(plan):
+ATARI_SAVE_SESSIONS = None
+
+
+def _atari_save_sessions():
+    global ATARI_SAVE_SESSIONS
+    if ATARI_SAVE_SESSIONS is None:
+        name = '_cyrune_host_atari_sessions'
+        spec = importlib.util.spec_from_file_location(name, Path(__file__).with_name('atari_sessions.py'))
+        sessions = importlib.util.module_from_spec(spec)
+        sys.modules[name] = sessions
+        spec.loader.exec_module(sessions)
+        arcade = _load_emugui_module()
+        from arcade_core.catalogue_identity import _writer_lock
+        from arcade_core.persistence import atomic_write_json, atomic_write_bytes
+        from arcade_core.game_properties import backup_disk
+        ATARI_SAVE_SESSIONS = sessions.SaveSessions(arcade.DATA, _writer_lock, atomic_write_json, atomic_write_bytes, backup_disk)
+    return ATARI_SAVE_SESSIONS
+
+
+def _approve_atari_properties(collection_id, game_id, make_default):
+    arcade = _load_emugui_module()
+    plan = arcade.resolve_atari_game_plan(collection_id, game_id)
+    store = get_catalogue_bindings()
+    before, after = store.refresh_atari_policy(plan)
+    try:
+        if make_default:
+            arcade.set_game_version_default(plan['catalogueId'], plan['catalogueId'], plan['entryRevision'])
+    except Exception:
+        with store._lock():
+            current = store.load()
+            # Keep newly allocated, unused approval keys, but restore every
+            # previous shortcut's policy if choosing a default failed.
+            for key, value in before['bindings'].items():
+                if current['bindings'].get(key) == after['bindings'].get(key):
+                    current['bindings'][key] = value
+            current['revision'] += 1
+            store._write(store.path, current)
+        raise
+
+
+def _execute_catalogue_plan(plan, *, atari_emulator_override=''):
     """Host independently guards native side effects while Arcade owns adapters."""
     bindings = _catalogue_binding_module()
     approval = bindings.validate_plan(plan)
     module = _load_emugui_module()
     def validate_current():
-        current = module.resolve_catalogue_launch_plan(plan['catalogueId'], plan['entryRevision'])
+        options = {'atari_emulator_override': atari_emulator_override} if atari_emulator_override else {}
+        current = module.resolve_catalogue_launch_plan(plan['catalogueId'], plan['entryRevision'], **options)
         if current != plan or bindings.validate_plan(current) != approval:
             raise bindings.BindingError('entry-changed')
     def launch(command, cwd):
@@ -2788,9 +2803,14 @@ def _execute_catalogue_plan(plan):
             startupinfo = subprocess.STARTUPINFO()
             startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
             startupinfo.wShowWindow = 1
-        return subprocess.Popen(command, cwd=str(cwd), shell=False, close_fds=True,
-                                startupinfo=startupinfo, stdin=subprocess.DEVNULL,
-                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        def start():
+            validate_current()
+            return subprocess.Popen(command, cwd=str(cwd), shell=False, close_fds=True,
+                                    startupinfo=startupinfo, stdin=subprocess.DEVNULL,
+                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        if plan.get('adapterId') in {'steem', 'hatari'} and plan.get('schemaVersion') in (4, 5):
+            return _atari_save_sessions().launch(plan, start)
+        return start()
     def copy_profile(profile):
         validate_current()
         if profile != plan['profileCopy']:
@@ -2807,7 +2827,8 @@ def _execute_catalogue_plan(plan):
             if os.path.exists(temporary):
                 os.remove(temporary)
     validate_current()
-    return module.launch_catalogue_plan(plan, launch_process=launch, copy_profile=copy_profile)
+    options = {'atari_emulator_override': atari_emulator_override} if atari_emulator_override else {}
+    return module.launch_catalogue_plan(plan, launch_process=launch, copy_profile=copy_profile, **options)
 
 
 @_serialize_game_bindings
@@ -2826,14 +2847,28 @@ def create_emugui_game_binding(game_id, emulator_id='', profile_id='', game_key=
         raise ValueError('The game binding key is invalid')
 
     module = _load_emugui_module()
-    status = _emugui_record('STATUS')
+    # Exact native adapters resolve their own target and policy. A full STATUS
+    # also walks collection queues and hashes every managed profile, once per
+    # game sent, although none of that data is needed for their approval.
+    active_provider = getattr(module, 'active_collection', None)
+    active = active_provider() if callable(active_provider) else {}
+    native_adapter = active.get('adapter') in {'atari-st-disks-v1', 'scummvm-config-v1'}
+    status = {} if native_adapter else _emugui_record('STATUS')
     game = _emugui_record('GET_GAME', {'gameId': game_id}).get('game')
     if not isinstance(game, dict):
         raise ValueError('The selected Cyrune Arcade game is unavailable')
-    active = status.get('active') if isinstance(status.get('active'), dict) else {}
+    if not native_adapter:
+        active = status.get('active') if isinstance(status.get('active'), dict) else {}
     library_id = str(active.get('id', '') or '')
     if not EMUGUI_ID_PATTERN.fullmatch(library_id):
         raise ValueError('The active Cyrune Arcade library has no stable ID')
+
+    if active.get('adapter') == 'atari-st-disks-v1':
+        if not atari_protocol_supported():
+            raise ValueError('Atari disk sets require compatible Cyrune Host and Arcade versions')
+        plan = module.resolve_atari_game_plan(library_id, game_id, emulator_id, profile_id)
+        key = get_catalogue_bindings().approve_version(plan, game_key=game_key)
+        return {'gameKey': key, 'state': 'ready', **plan['public'], 'tags': [], 'thumbnailCache': ''}
 
     if active.get('adapter') == 'scummvm-config-v1':
         if not scummvm_protocol_supported():
@@ -3031,6 +3066,8 @@ def emugui_game_status(game_key, include_thumbnail=False):
             presentation = getattr(module.get_catalogue_service(), 'presentation', None)
             if callable(presentation):
                 record['defaultVersion'].update(presentation(plan['catalogueId']))
+            if plan['adapterId'] in {'steem', 'hatari'}:
+                record['emulatorName'] = 'Hatari' if plan['adapterId'] == 'hatari' else 'STEem SSE'
             if plan['adapterId'] == 'scummvm':
                 record.update(emulatorName='ScummVM', profileName='ScummVM settings')
                 try:
@@ -3118,7 +3155,7 @@ def emugui_game_link(game_key, rebind=False):
     if _is_catalogue_binding(game_key):
         plan = get_catalogue_bindings().resolve(game_key)
         collection = plan['collectionId']
-        if rebind and plan['adapterId'] != 'scummvm':
+        if rebind and plan['adapterId'] not in {'scummvm', 'steem', 'hatari'}:
             # Entry-policy Spectrum rebind still needs its own approval migration.
             raise _catalogue_binding_module().BindingError('configuration-required')
     entry, _game, _status = resolve_emugui_game_source(game_key)
@@ -4567,6 +4604,7 @@ def handle(msg):
 
     elif msg_type == 'EMUGUI_API':
         try:
+            _arcade_transfer_store().available()
             reply_ok(transfer=start_emugui_transfer(emugui_api_request(
                 msg.get('method', ''), msg.get('path', ''), msg.get('query', {}), msg.get('body', {})
             )))
@@ -4575,7 +4613,8 @@ def handle(msg):
 
     elif msg_type == 'EMUGUI_ASSET':
         try:
-            reply_ok(transfer=start_emugui_transfer(emugui_asset(msg.get('path', ''))))
+            _arcade_transfer_store().available()
+            reply_ok(transfer=start_emugui_transfer(emugui_asset(msg.get('path', ''), msg.get('collectionId'))))
         except Exception as e:
             reply_err(str(e))
 
@@ -4717,6 +4756,24 @@ def scummvm_protocol_supported():
     return type(version) is int and version == 1 and getattr(_load_emugui_module(), 'ARCADE_SCUMMVM_VERSION', None) == 1
 
 
+def atari_protocol_supported():
+    if type(HOST_PROTOCOLS.get('arcade-atari-st')) is not int or HOST_PROTOCOLS['arcade-atari-st'] != 1:
+        return False
+    root, _service = _configured_emugui_service()
+    manifest = _catalogue_binding_module().read_object(Path(root) / 'component.json', 65536)
+    version = manifest.get('protocols', {}).get('arcade-atari-st')
+    return type(version) is int and version == 1 and getattr(_load_emugui_module(), 'ARCADE_ATARI_VERSION', None) == 1
+
+
+def gameboy_protocol_supported():
+    if type(HOST_PROTOCOLS.get('arcade-gameboy')) is not int or HOST_PROTOCOLS['arcade-gameboy'] != 1:
+        return False
+    root, _service = _configured_emugui_service()
+    manifest = _catalogue_binding_module().read_object(Path(root) / 'component.json', 65536)
+    version = manifest.get('protocols', {}).get('arcade-gameboy')
+    return type(version) is int and version == 1 and getattr(_load_emugui_module(), 'ARCADE_GAMEBOY_VERSION', None) == 1
+
+
 def get_catalogue_transport():
     global CATALOGUE_TRANSPORT
     if CATALOGUE_TRANSPORT is None:
@@ -4731,7 +4788,7 @@ def get_catalogue_transport():
             service=lambda: _load_emugui_module().get_catalogue_service(),
             resolve=lambda identifier, revision: _load_emugui_module().resolve_catalogue_launch_plan(identifier, revision),
             supported=catalogue_protocol_supported, authorize_page=authorize_catalogue_portal_page,
-            supported_scummvm=scummvm_protocol_supported,
+            supported_scummvm=scummvm_protocol_supported, supported_atari=atari_protocol_supported, supported_gameboy=gameboy_protocol_supported,
             read_scope=lambda: _load_emugui_module().catalogue_read_snapshot(),
             module=_catalogue_binding_module())
     return CATALOGUE_TRANSPORT

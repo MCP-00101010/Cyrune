@@ -2,14 +2,14 @@
   "schemaVersion": 1,
   "id": "portal",
   "name": "Portal",
-  "version": "0.12.17",
+  "version": "0.12.21",
   "kind": "page",
   "entrypoint": "index.html",
   "icon": "assets/brand/portal.svg",
   "summary": "Dashboard, boards, items, shared persistence client and Widget host.",
   "documents": { "todo": "Portal-TODO.md", "changelog": "Portal-CHANGELOG.md" },
   "capabilities": ["boards", "inbox", "launchers", "portable-state", "read-only-recovery", "widget-host"],
-  "protocols": { "portal-relay": 1, "component-settings": 2, "arcade-catalogue": 1, "arcade-scummvm": 1 },
+  "protocols": { "portal-relay": 1, "component-settings": 2, "arcade-catalogue": 1, "arcade-scummvm": 1, "arcade-atari-st": 1, "arcade-gameboy": 1 },
   "schemas": { "portableState": 5 },
   "nexus": { "accent": "violet", "adapter": "portal" }
 }

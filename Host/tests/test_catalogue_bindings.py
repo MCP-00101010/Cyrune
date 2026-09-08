@@ -890,3 +890,22 @@ def test_artwork_opened_file_must_match_the_validated_identity(setup, monkeypatc
     monkeypatch.setattr(Path, "open", swapped)
     assert native_request(transport, session_id, "GET_ARTWORK", {key: entry[key] for key in ("catalogueId", "artworkRef")}) == {
         "ok": False, "code": "entry-changed"}
+
+
+def test_catalogue_reads_exact_cached_provider_artwork_without_network(setup, monkeypatch):
+    from arcade_core.artwork_cache import ArtworkCache
+    from test_catalogue_png import fixture
+    env=setup
+    reference='scraper-artwork/screenscraper/76/123/box-2D/wor'
+    ArtworkCache(env.runtime).write(reference, fixture())
+    metadata=read(env.source/'collection-metadata.json')
+    metadata['games'][0]['loading_screen']=reference
+    env.lifecycle.save_metadata(env.source,metadata)
+    monkeypatch.setattr(env.arcade,'screenscraper_open',lambda *a,**k:pytest.fail('Picker must never fetch artwork'))
+    transport,session_id=transport_session(env)
+    entry=native_request(transport,session_id)['entries'][0]
+    assert entry['artworkRef']
+    response=native_request(transport,session_id,'GET_ARTWORK',{key:entry[key] for key in ('catalogueId','artworkRef')})
+    assert response['ok'] and response['width']==2 and response['height']==1
+    assert 'scraper-cache' not in json.dumps(response) and reference not in json.dumps(response)
+    assert env.host._emugui_binding_thumbnail(env.arcade,{'loading_screen':reference}).startswith('data:image/png;base64,')

@@ -4,24 +4,23 @@ const path = require('node:path');
 const test = require('node:test');
 const vm = require('node:vm');
 
-test('Spectrum uses the shared platform icon and distinct default hardware badges', () => {
-  const context = vm.createContext({document:{createElement:()=>({})}});
+test('Spectrum uses its platform logo and distinct default hardware badges', () => {
+  const context = vm.createContext({document:{createElement:()=>({})},icon:id=>({id})});
   vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'source', 'game-launcher.js'), 'utf8'), context);
   const item={gameKey:'game_abcdefghijklmnop',systemId:'zx-spectrum',systemName:'ZX Spectrum'};
   vm.runInContext("gameStatusCache.set('game_abcdefghijklmnop', {state:'ready', defaultVersion:{languages:['en'], platforms:['ZX Spectrum'], systems:['48K-128K']}})",context);
   assert.deepEqual(Array.from(context.getGameDefaultIcons(item), row => [row.label,row.kind]), [['English','language'],['48K','system'],['128K','system']]);
   const container={classList:{add:()=>{}},dataset:{},children:[],appendChild(value){this.children.push(value);}};
   context.renderGameSystemIcon(container,item);
-  assert.equal(container.children[0].src,'assets/platforms/zx-spectrum.png');
-  assert.deepEqual(fs.readFileSync(path.join(__dirname,'../assets/platforms/zx-spectrum.png')),fs.readFileSync(path.join(__dirname,'../../Arcade/web/assets/platforms/zx-spectrum.png')));
+  assert.equal(container.children[0].id,'icon-system-zx-spectrum');
   vm.runInContext("gameStatusCache.set('game_abcdefghijklmnop', {state:'ready', defaultVersion:{languages:['en'], platforms:['ZX Spectrum']}})",context);
   assert.deepEqual(Array.from(context.getGameDefaultIcons(item), row => [row.label,row.kind]), [['English','language']], 'Older Host metadata must not repeat the library favicon as a system badge');
 });
 
 test('title icons follow the exact default, stay transient and refresh after a language-only change', async () => {
   let language = 'en'; let renders = 0;
-  const item = {gameKey:'game_abcdefghijklmnop', title:'Adventure'};
-  const context = vm.createContext({bridge:{getGameStatus: async () => ({state:'ready', languages:['en','de'],
+  const item = {gameKey:'game_abcdefghijklmnop', title:'Adventure', emulatorName:'ScummVM'};
+  const context = vm.createContext({bridge:{getGameStatus: async () => ({state:'ready', emulatorName:'ScummVM', languages:['en','de'],
     defaultVersion:{languages:[language], platforms:['DOS']}})},
     renderContentSurfaces: () => renders++, saveState: async () => { throw new Error('Default metadata must not persist'); }});
   vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'source', 'game-launcher.js'), 'utf8'), context);
@@ -34,7 +33,7 @@ test('title icons follow the exact default, stay transient and refresh after a l
   assert.equal(renders, 2);
   assert.equal(Object.hasOwn(item, 'defaultVersion'), false);
   for (const value of context.getGameDefaultIcons(item)) assert.ok(fs.existsSync(path.join(__dirname, '..', value.src)));
-  vm.runInContext("gameStatusCache.set('game_abcdefghijklmnop', {state:'ready', defaultVersion:{languages:[], platforms:['../../secret']}})", context);
+  vm.runInContext("gameStatusCache.set('game_abcdefghijklmnop', {state:'ready', emulatorName:'ScummVM', defaultVersion:{languages:[], platforms:['../../secret']}})", context);
   assert.equal(context.getGameDefaultIcons(item)[0].src, 'assets/platforms/unknown.svg');
   vm.runInContext("gameStatusCache.set('game_abcdefghijklmnop', {state:'unavailable', defaultVersion:{languages:['en'], platforms:['DOS']}})", context);
   assert.equal(context.getGameDefaultIcons(item).length, 0);
@@ -363,4 +362,35 @@ test('startup status refresh stays transient until Portal storage authority is r
   context.portalReadOnlyMode = false;
   await context.refreshGameStatus(item);
   assert.equal(saves, 1); assert.equal(item.emulatorName, 'ScummVM');
+});
+
+
+test('native Atari default editions show language and hardware badges', () => {
+  const context = vm.createContext({ console, Map, Promise, Date, Math });
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'source', 'game-launcher.js'), 'utf8'), context);
+  const item = { type: 'game', gameKey: 'game_abcdefghijklmnop', systemId: 'atari-st' };
+  vm.runInContext("gameStatusCache.set('game_abcdefghijklmnop', {state:'ready', systemId:'atari-st', defaultVersion:{languages:['de'], platforms:['STe'], systems:['STe']}})", context);
+  assert.deepEqual(Array.from(context.getGameDefaultIcons(item), row => [row.label, row.kind]), [['German', 'language'], ['STe', 'system']]);
+});
+
+
+test('ScummVM artwork is exclusive to ScummVM games, independent of tags and stale shortcut labels', () => {
+  const context = vm.createContext({document:{createElement:()=>({})},icon:id=>({id})});
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'source', 'game-launcher.js'), 'utf8'), context);
+  const render = item => {
+    const container={classList:{add(){}},dataset:{},children:[],appendChild(child){this.children.push(child);}};
+    context.renderGameSystemIcon(container,item);
+    return container;
+  };
+  const native = {gameKey:'game_abcdefghijklmnop',systemId:'atari-st',systemName:'Atari ST',tags:['ScummVM'],emulatorName:'ScummVM'};
+  vm.runInContext("gameStatusCache.set('game_abcdefghijklmnop', {state:'ready',systemId:'atari-st',emulatorName:'STEem SSE',defaultVersion:{languages:['en'],systems:['STe']}})",context);
+  assert.equal(render(native).children[0].id,'icon-system-atari-st');
+  assert.deepEqual(Array.from(context.getGameDefaultIcons(native),row=>[row.src,row.label]),[['assets/language-flags/gb.svg','English'],['','STe']]);
+  assert.equal(render({systemId:'zx-spectrum',tags:['ScummVM']}).children[0].id,'icon-system-zx-spectrum');
+  assert.equal(render({systemId:'scummvm'}).children[0].src,'assets/scummvm/scummvm-icon.png');
+  vm.runInContext("gameStatusCache.set('game_abcdefghijklmnop', {state:'ready',systemId:'atari-st',emulatorName:'ScummVM',defaultVersion:{languages:[],systems:['Atari ST']}})",context);
+  assert.equal(render(native).children[0].src,'assets/scummvm/scummvm-icon.png');
+  assert.equal(context.getGameDefaultIcons(native)[0].src,'assets/platforms/atari-st.png');
+  vm.runInContext("gameStatusCache.set('game_abcdefghijklmnop', {state:'ready',systemId:'atari-st',emulatorName:'STEem SSE',defaultVersion:{languages:[],systems:['Unknown hardware']}})",context);
+  assert.deepEqual(Array.from(context.getGameDefaultIcons(native),row=>[row.src,row.label]),[['','Unknown hardware']]);
 });

@@ -153,7 +153,7 @@ class CatalogueService:
     def search(self, params: object = None) -> dict:
         if params is None:
             params = {}
-        if not isinstance(params, dict) or set(params) - {"query", "platformIds", "pageSize", "cursor", "includeScummvm", "groupVersions"}:
+        if not isinstance(params, dict) or set(params) - {"query", "platformIds", "pageSize", "cursor", "includeScummvm", "includeAtari", "includeGameBoy", "groupVersions"}:
             raise CatalogueError("invalid-request")
         try:
             query = _normalized(_text(params.get("query", ""), 160))
@@ -165,17 +165,21 @@ class CatalogueService:
         platforms = params.get("platformIds", [])
         size = params.get("pageSize", 50)
         scummvm = params.get("includeScummvm", False)
+        atari = params.get("includeAtari", False)
+        gameboy = params.get("includeGameBoy", False)
         grouped = params.get("groupVersions", False)
         if (not isinstance(platforms, list) or len(platforms) > 4
                 or type(scummvm) is not bool
+                or type(gameboy) is not bool
+                or type(atari) is not bool
                 or type(grouped) is not bool
-                or any(not isinstance(p, str) or p not in (PLATFORM_IDS if scummvm else {"zx-spectrum"}) for p in platforms)
+                or any(not isinstance(p, str) or p not in ((PLATFORM_IDS if scummvm else ({"zx-spectrum", "atari-st"} if atari else {"zx-spectrum"})) | ({"game-boy"} if gameboy else set())) for p in platforms)
                 or len(set(platforms)) != len(platforms)
                 or type(size) is not int or not 1 <= size <= 100):
             raise CatalogueError("invalid-request")
         terms = query.split()
         defaults = self.version_defaults() if grouped else {}
-        query_hash = hashlib.sha256(encoded([terms, sorted(platforms), size, scummvm, grouped, defaults])).digest()[:16]
+        query_hash = hashlib.sha256(encoded([terms, sorted(platforms), size, scummvm, atari, gameboy, grouped, defaults])).digest()[:16]
         if self._before_read:
             self._before_read()
         with self._lock:
@@ -186,6 +190,12 @@ class CatalogueService:
             count, has_more = 0, False
             seen_groups = set()
             for entry in self._entries:
+                # Game Boy is available through Arcade and its exact shortcuts.
+                # Picker publication needs its own negotiated adapter capability.
+                if entry.base['platformId'] == 'game-boy' and not gameboy:
+                    continue
+                if entry.base['targetKind'] == 'disk-set' and not atari:
+                    continue
                 if entry.base["targetKind"] == "scummvm-game" and not scummvm:
                     continue
                 if platforms and entry.base["platformId"] not in platforms:
@@ -242,7 +252,7 @@ class CatalogueService:
                 raise CatalogueError('entry-missing')
             languages = language_codes(entry.detail.get('languages'))
             systems = [entry.base['platformLabel']]
-            if entry.base['platformId'] == 'zx-spectrum':
+            if entry.base['platformId'] in {'zx-spectrum', 'game-boy'} or entry.base['targetKind'] == 'disk-set':
                 source = next(source for source in self._sources if source.collection_id == entry.collection_id)
                 row = source._row_index().get(entry.legacy_id, {})
                 languages = language_codes(row.get('languages'), row.get('language', ''))
@@ -279,9 +289,16 @@ class CatalogueService:
             if item is None or source.artwork_target(item) != entry.artwork:
                 raise CatalogueError("entry-changed")
             relative, signature = entry.artwork
-            path = ConfinedRoot(source.root).resolve(relative, require_exists=True)
+            from arcade_core.entry_artwork import location
+            root, path = location(source.root, getattr(source, 'runtime', None), relative)
+            if not signature:
+                from arcade_core.catalogue_spectrum import media_signature
+                try:
+                    signature = media_signature(path)
+                except OSError:
+                    raise CatalogueError('unavailable') from None
             return {"catalogueId": catalogue_id, "artworkRef": artwork_ref, "entryRevision": entry.base["entryRevision"],
-                    "root": str(source.root), "path": str(path), "signature": list(signature)}
+                    "root": str(root), "path": str(path), "signature": list(signature)}
 
     def resolve_native(self, catalogue_id: str, entry_revision: str):
         """Internal resolution only. Host must still authorize and validate policy."""

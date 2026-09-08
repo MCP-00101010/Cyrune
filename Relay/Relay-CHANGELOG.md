@@ -4,6 +4,23 @@ Historical entries below are preserved from Portal releases whose release notes 
 
 ---
 
+## [1.1.12] — 2026-09-08
+
+- Bound complete Arcade transfers, native queue count/bytes and queued request lifetimes. Recheck page authority before queued Arcade requests start.
+- Carry collection identity with artwork, poll background native artwork jobs, and negotiate the optional Game Boy catalogue capability.
+- Validation: 34 tests and coordinated checks passed, including authenticated routing, queueing, protocol compatibility and packaging. Web-ext lint reported zero errors, warnings or notices. See the [implementation report](../docs/reviews/arcade-implementation-2026-09-08.md).
+
+## [1.1.11] — 2026-09-08
+
+- Add Portal-only theme publication and Arcade-only theme reads with exact registered-session authorization. Cache one validated 38-token presentation, deduplicate updates and notify registered Arcade pages. No database, background media or native paths enter the theme cache.
+- Validation: malformed/CSS payload rejection, role isolation, cache restart, packaging, coordinated tests and web-ext lint.
+- Final checks: coordinated validation and Relay lint passed; isolated Firefox ScummVM/custom-colour and Atari/light-theme workflows passed, with screenshot inspection. Additional authoritative theme-save regressions passed.
+
+## [1.1.10] — 2026-09-07
+
+- Negotiate the optional arcade-atari-st capability independently of ScummVM. Validate Atari disk-set search and binding responses only for authenticated sessions whose page and native service support the adapter; retain older-client Spectrum browsing.
+- Validation: Atari discovery, exact-set binding and mocked launch regressions; authenticated catalogue routing and Portal hardware presentation checks.
+
 ## [1.1.9] — 2026-09-07
 
 ### Fixed

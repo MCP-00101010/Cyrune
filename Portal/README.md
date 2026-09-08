@@ -38,7 +38,7 @@ The picker searches bounded pages, keeps exact hardware/edition variants separat
 
 ## Game Shortcut Presentation
 
-Game titles show the actual default version’s language and system badges aligned to the right of each game row, including Spectrum 16K/48K/128K editions. Spectrum favicons use the same rainbow artwork as Arcade. They follow explicit default changes; the tooltip still shows every available language and platform. [Platform artwork and licenses](assets/platforms/NOTICE.md) are bundled locally. Game tooltips show known Arcade languages as local flag icons beside the title.
+Game titles show the actual default version’s language and system badges aligned to the right of each game row, including Spectrum 16K/48K/128K editions. Native Spectrum links use a clean rainbow logo, and native Atari links use the Atari Fuji logo. ScummVM artwork is reserved for ScummVM games; native hardware badges remain separate. They follow explicit default changes; the tooltip still shows every available language and platform. [Platform artwork and licenses](assets/platforms/NOTICE.md) are bundled locally. Game tooltips show known Arcade languages as local flag icons beside the title.
 Existing shortcuts receive this information through their normal Host status refresh;
 language metadata stays in the current page's status cache. Unknown languages do not
 inherit a flag from the game's platform or release country. ScummVM games use its
@@ -53,3 +53,8 @@ node --test "Portal/tests/*.cjs"
 ```
 
 Portal 0.12.10 also browses configured ScummVM registrations with Arcade 0.2.15, Host 0.2.6 and Relay 1.1.6. **Add Game** can search and select releases by their original platform without preparing a catalogue or activating the collection in Arcade. ScummVM retains its own settings and saves; see the [ScummVM contract](../docs/architecture/arcade-scummvm-adapter.md).
+
+Portal publishes its committed theme presentation to Arcade through Relay after successful database loads/saves. Theme ownership and editing stay in Portal; previews and cancelled settings do not affect Arcade. Board backgrounds and media are not shared.
+
+
+The optional `arcade-gameboy: 1` catalogue capability adds Game Boy cartridges with GB/GBC/GBA hardware labels. Existing cached provider artwork is resolved natively and only compact image presentation reaches Portal.
