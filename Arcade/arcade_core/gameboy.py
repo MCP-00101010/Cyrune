@@ -70,7 +70,8 @@ def discover(root, parse_tosec, seeds=None):
             games.append(game)
     if len(games) > 10000:
         raise CatalogueError('review-required')
-    return {'version': 1, 'adapter': ADAPTER, 'games': games, 'poks': []}
+    from arcade_core.index_schema import index_document
+    return index_document({'version': 1, 'adapter': ADAPTER, 'games': games, 'poks': []})
 
 
 def read_rows(root):
@@ -99,13 +100,18 @@ def refresh_index(root, parse_tosec):
     root = Path(root).resolve()
     target = ConfinedRoot(root).resolve('collection-metadata.json')
     with _writer_lock(target):
-        old = read_object(target, 32 * 1024 * 1024)
+        from arcade_core.index_schema import index_document, assign_groups
+        original = read_object(target, 32 * 1024 * 1024)
+        old = index_document(original)
         read_rows(root)
         found = discover(root, parse_tosec)
         # Existing IDs, scraped values, protection and launch pins survive rescans.
         paths = {row['file'].replace('\\', '/').casefold() for row in old['games']}
         additions = [row for row in found['games'] if row['file'].casefold() not in paths]
-        if additions:
-            old['games'].extend(additions)
+        for row in additions:
+            row.pop('metadata_group_id', None)
+        old['games'].extend(additions)
+        assign_groups(old['games'])
+        if additions or original != old:
             atomic_write_json(target, old)
         return len(additions)

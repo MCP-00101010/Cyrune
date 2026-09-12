@@ -15,6 +15,7 @@ from arcade_core.emulators import validate_emulator  # noqa: E402
 from arcade_core.gameboy import ADAPTER, discover, read_rows  # noqa: E402
 from arcade_core.paths import ConfinedRoot  # noqa: E402
 from arcade_core.persistence import atomic_write_json  # noqa: E402
+from arcade_core.collections import current_config  # noqa: E402
 
 
 def configure(config_path, root, sameboy, vbam, *, bgb=None, receipt=None, apply=False):
@@ -85,7 +86,7 @@ def configure(config_path, root, sameboy, vbam, *, bgb=None, receipt=None, apply
             read_rows(root)
             if read_object(config_path, 4 * 1024 * 1024) != before:
                 raise ValueError('Configuration changed during setup')
-            atomic_write_json(config_path, config)
+            atomic_write_json(config_path, current_config(config))
         return {'ok': True, 'applied': apply, 'games': len(metadata['games']),
                 'variants': {kind: sum(r['system'] == kind for r in metadata['games']) for kind in ['GB', 'GBC', 'GBA']},
                 'emulators': list(definitions)}

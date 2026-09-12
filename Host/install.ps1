@@ -67,10 +67,9 @@ if (-not (Test-Path $configPath)) {
     $config = [ordered]@{
         databasePath = ""
         arcadeRoot = ""
-        emuguiRoot = ""
         approvedDirectories = @{}
         approvedApplications = @{}
-        approvedGames = @{}
+        schemaVersion = 1
     }
     $config | ConvertTo-Json | Set-Content -Path $configPath -Encoding UTF8
     Write-Host "Config   : $configPath"

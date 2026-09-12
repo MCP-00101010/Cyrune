@@ -66,6 +66,8 @@ def configure_fixture(server, tmp_path):
             "match_status": "matched",
         }],
     }
+    from arcade_core.index_schema import index_document
+    metadata = index_document(metadata)
     (collection / "collection-metadata.json").write_text(json.dumps(metadata), encoding="utf-8")
     data.mkdir()
     config = {
@@ -106,11 +108,20 @@ def configure_fixture(server, tmp_path):
 
 
 def post(server, route, data):
-    return server.dispatch_arcade_api("POST", route, {}, data)
+    response = server.dispatch_arcade_api("POST", route, {}, {'collection_id': server.active_collection()['id'], **data})
+    if route == '/api/scrape-preview' and response.get('job_id') and not data.get('background'):
+        for _ in range(500):
+            result = server.scrape_job_result({'id': response['job_id'], 'collection_id': server.active_collection()['id']})
+            if result.get('status') in {'done', 'error'}:
+                return result.get('result', result)
+            time.sleep(.01)
+        raise AssertionError('Scrape job did not complete')
+    return response
 
 
 def games(server, view="all"):
-    return server.dispatch_arcade_api("GET", "/api/games", {"view": view}, {})["games"]
+    response = server.dispatch_arcade_api("GET", "/api/games", {"view": view, "collection_id": server.active_collection()["id"]}, {})
+    return [{**response["defaults"], **game} for game in response["games"]]
 
 
 def wait_for_job(server, job_id):
@@ -155,20 +166,20 @@ def test_native_dispatcher_preserves_library_management_workflow(tmp_path):
     assert payload["collections"][0]["trash_count"] == 1
     assert {game["view"] for game in games(server)} == {"collection", "incoming", "trash"}
 
-    summaries = server.dispatch_arcade_api("GET", "/api/games", {"view": "all", "shape": "summary"}, {})["games"]
+    summaries = server.dispatch_arcade_api("GET", "/api/games", {"collection_id": server.active_collection()["id"], "view": "all", "shape": "summary"}, {})["games"]
     assert len(summaries) == 3
     assert all("path" not in game for game in summaries)
-    detail = server.dispatch_arcade_api("GET", "/api/game", {"game_id": "jetpac"}, {})["game"]
+    detail = server.dispatch_arcade_api("GET", "/api/game", {'collection_id': server.active_collection()['id'], "game_id": "jetpac"}, {})["game"]
     assert detail["path"].endswith("Jetpac (1983)(Ultimate)(48K).tap")
 
-    favourite = post(server, "/api/favourite", {"game_id": "jetpac", "favourite": True})
+    favourite = post(server, "/api/favourite", {'collection_id': server.active_collection()['id'], "game_id": "jetpac", "favourite": True})
     assert favourite["ok"] is True
     assert favourite["game"]["favourite"] is True
     assert "jetpac" in json.loads(server.STATE_FILE.read_text(encoding="utf-8"))["favourites"]
     bulk_favourite = post(server, "/api/favourites-bulk", {"game_ids": ["jetpac"], "favourite": False})
     assert bulk_favourite == {"ok": True, "updated": ["jetpac"], "count": 1}
 
-    poks = server.dispatch_arcade_api("GET", "/api/poks", {"game_id": "jetpac"}, {})["poks"]
+    poks = server.dispatch_arcade_api("GET", "/api/poks", {'collection_id': server.active_collection()['id'], "game_id": "jetpac"}, {})["poks"]
     assert poks[0]["id"] == "jetpac-pok"
     assert poks[0]["cheats"][0]["name"] == "Infinite lives"
     asset = server.read_arcade_asset("_assets/jetpac.png", 1024)
@@ -186,7 +197,7 @@ def test_native_dispatcher_preserves_library_management_workflow(tmp_path):
     assert updated["ok"] is True
     assert server.get_library().get_game("jetpac").publisher == "Rare"
 
-    manual = post(server, "/api/scrape-preview", {"game_id": "jetpac", "provider": "manual"})
+    manual = post(server, "/api/scrape-preview", {'collection_id': server.active_collection()['id'], "game_id": "jetpac", "provider": "manual"})
     assert manual["ok"] is True
     applied = post(server, "/api/apply-scrape", {
         "game_id": "jetpac",
@@ -197,12 +208,12 @@ def test_native_dispatcher_preserves_library_management_workflow(tmp_path):
     assert applied["ok"] is True
     assert server.get_library().get_game("jetpac").description == "A fixture description"
 
-    renamed = post(server, "/api/rename", {"game_id": "jetpac", "name": "Jetpac Deluxe.tap"})
+    renamed = post(server, "/api/rename", {'collection_id': server.active_collection()['id'], "game_id": "jetpac", "name": "Jetpac Deluxe.tap"})
     assert renamed["ok"] is True
     assert (collection / renamed["path"]).is_file()
     assert server.get_library().get_game("jetpac").file_name == "Jetpac Deluxe.tap"
 
-    deleted = post(server, "/api/delete", {"game_id": "jetpac"})
+    deleted = post(server, "/api/delete", {'collection_id': server.active_collection()['id'], "game_id": "jetpac"})
     assert deleted["ok"] is True
     assert Path(deleted["path"]).is_file()
     deleted_game = next(game for game in games(server, "trash") if game["title"] == "Jetpac Deluxe")
@@ -211,14 +222,14 @@ def test_native_dispatcher_preserves_library_management_workflow(tmp_path):
     assert Path(restored["restored"][0]["path"]).is_file()
 
     old_game = next(game for game in games(server, "trash") if game["title"] == "Old Game")
-    old_path = Path(old_game["path"])
+    old_path = Path(server.get_library().get_game(old_game["id"]).path)
     purged = post(server, "/api/purge-trash", {"game_ids": [old_game["id"]]})
     assert purged["ok"] is True
     assert not old_path.exists()
 
     incoming_game = next(game for game in games(server, "incoming") if game["title"] == "New Game")
-    incoming_path = Path(incoming_game["path"])
-    imported = post(server, "/api/import-incoming", {"game_id": incoming_game["id"]})
+    incoming_path = Path(server.get_library().get_game(incoming_game["id"]).path)
+    imported = post(server, "/api/import-incoming", {'collection_id': server.active_collection()['id'], "game_id": incoming_game["id"]})
     assert imported["ok"] is True
     assert not incoming_path.exists()
     assert Path(imported["path"]).is_file()
@@ -269,7 +280,7 @@ def test_bulk_import_rolls_files_and_metadata_back_when_any_transfer_fails(tmp_p
     server.get_library().rebuild()
     incoming = [game for game in games(server, "incoming")]
     original_metadata = json.loads(server.METADATA_FILE.read_text(encoding="utf-8"))
-    first_source = Path(incoming[0]["path"])
+    first_source = Path(server.get_library().get_game(incoming[0]["id"]).path)
     original_transfer = server.import_incoming_game_item
     calls = 0
 
@@ -399,9 +410,9 @@ def test_native_dispatcher_keeps_writes_out_of_read_only_collections(tmp_path):
     server.CONFIG_FILE.write_text(json.dumps(config), encoding="utf-8")
 
     for route, data in (
-        ("/api/rename", {"game_id": "jetpac", "name": "Nope.tap"}),
+        ("/api/rename", {'collection_id': server.active_collection()['id'], "game_id": "jetpac", "name": "Nope.tap"}),
         ("/api/update-metadata", {"game_ids": ["jetpac"], "changes": {"publisher": "Nope"}}),
-        ("/api/delete", {"game_id": "jetpac"}),
+        ("/api/delete", {'collection_id': server.active_collection()['id'], "game_id": "jetpac"}),
     ):
         result = post(server, route, data)
         assert result == {"ok": False, "error": "Selected collection is read-only"}

@@ -247,7 +247,7 @@ async function bridgeHarness({ activated = false, handshake = {}, answer = () =>
   const window = { location: { href: 'file:///Portal/index.html' }, addEventListener: (type, listener) => { if (type === 'message') listeners.push(listener); }, dispatchEvent: () => {},
     postMessage: message => {
       requests.push(plain(message));
-      const response = message.type === 'MW_PING' ? { ok: true, nativeAvailable: true, protocols: { 'portal-relay': 1, 'component-settings': 2, 'arcade-catalogue': 1 }, capabilities: ['emuguiService'], ...handshake } : answer(message);
+      const response = message.type === 'MW_PING' ? { ok: true, nativeAvailable: true, protocols: { 'portal-relay': 2, 'component-settings': 2, 'arcade-catalogue': 1 }, capabilities: ['emuguiService'], ...handshake } : answer(message);
       if (response) setImmediate(() => emit({ _mw: true, _res: true, id: message.id, ...response }));
     } };
   const emit = data => listeners.forEach(listener => listener({ source: window, data }));
@@ -268,7 +268,7 @@ test('legacy Portal catalogue gate refuses all four routes without emitting requ
 });
 
 test('optional catalogue support does not disable core Portal with older Relay or unavailable Arcade', async () => {
-  for (const handshake of [{ protocols: { 'portal-relay': 1, 'component-settings': 2 } }, { nativeAvailable: false }, { capabilities: [] }]) {
+  for (const handshake of [{ protocols: { 'portal-relay': 2, 'component-settings': 2 } }, { nativeAvailable: false }, { capabilities: [] }]) {
     const { bridge } = await bridgeHarness({ activated: true, handshake });
     assert.equal(bridge.isAvailable(), true); assert.equal(bridge.catalogueIsAvailable(), false);
     await assert.rejects(bridge.searchArcadeCatalogue({}), error => error.code === 'unsupported-protocol');
@@ -291,14 +291,11 @@ test('Relay reconnection rejects pending catalogue bindings without replaying th
   assert.equal(requests.filter(value => value.type === 'MW_BIND_ARCADE_CATALOGUE_ENTRIES').length, 1);
   assert.ok(bridge.catalogueSession() > epoch);
 });
-test('older catalogue participants can reject grouping while exact-entry browsing remains usable', async () => {
-  const { bridge, requests } = await bridgeHarness({ activated: true, answer: message => message.payload?.groupVersions
-    ? { ok: false, code: 'invalid-request' } : page([game()]) });
-  assert.deepEqual(plain(await bridge.searchArcadeCatalogue({ query: 'Elite' })), page([game()]));
-  assert.equal(requests[1].payload.groupVersions, true);
-  assert.equal(Object.hasOwn(requests[2].payload, 'groupVersions'), false);
+test('grouped catalogue rejection is reported without an old-client retry', async () => {
+  const { bridge, requests } = await bridgeHarness({ activated: true, answer: () => ({ok:false, code:'invalid-request'}) });
+  await assert.rejects(bridge.searchArcadeCatalogue({ query:'Elite' }), error => error.code === 'invalid-request');
+  assert.equal(requests.filter(message => message.type === 'MW_SEARCH_ARCADE_CATALOGUE').length, 1);
 });
-
 
 test('Game Boy cartridge results retain variant labels in the picker', async () => {
   const cartridge=game('advance',{platformId:'game-boy',platformLabel:'Game Boy',hardwareLabel:'GBA'});

@@ -5,7 +5,6 @@ const _weatherAirQualityMemoryCache = new Map();
 const _weatherViewMemory = new Map();
 const _weatherRuntime = new Map();
 
-const WEATHER_CACHE_PREFIX = 'morpheus-webhub-weather:';
 const WEATHER_CACHE_SCHEMA_VERSION = 'hourly-v1';
 const WEATHER_AIR_QUALITY_CACHE_SCHEMA_VERSION = 'current-v1';
 const WEATHER_CACHE_TTL_MS = 30 * 60 * 1000;
@@ -68,10 +67,6 @@ function _weatherSignature(widget) {
   return `${latitude.toFixed(5)}:${longitude.toFixed(5)}:${_normalizeWeatherDays(c.days)}:${_normalizeWeatherUnits(c.units)}:${WEATHER_CACHE_SCHEMA_VERSION}`;
 }
 
-function _weatherCacheKey(widgetId) {
-  return `${WEATHER_CACHE_PREFIX}${widgetId}`;
-}
-
 function _weatherAirQualitySignature(widget) {
   const c = _weatherEffectiveConfig(widget);
   if (c.latitude === '' || c.latitude == null || c.longitude === '' || c.longitude == null) return '';
@@ -82,18 +77,17 @@ function _weatherAirQualitySignature(widget) {
 }
 
 function _readWeatherCache(widget) {
-  const key = _weatherCacheKey(widget.id);
+
   let cache = _weatherMemoryCache.get(widget.id) || null;
   if (!cache) {
-    cache = WidgetSDK.cache.get('weather', widget.id, 'forecast')
-      || WidgetSDK.cache.migrateLegacy('weather', widget.id, 'forecast', key);
+    cache = WidgetSDK.cache.get('weather', widget.id, 'forecast');
     if (cache) _weatherMemoryCache.set(widget.id, cache);
   }
   return cache?.signature === _weatherSignature(widget) && cache?.payload ? cache : null;
 }
 
 function _writeWeatherCache(widget, payload) {
-  const key = _weatherCacheKey(widget.id);
+
   const cache = {
     signature: _weatherSignature(widget),
     fetchedAt: Date.now(),
@@ -490,12 +484,12 @@ WIDGET_REGISTRY['weather'] = {
   },
 
   dispose(widget) {
-    const cacheKey = _weatherCacheKey(widget.id);
+
     _weatherRuntime.delete(widget.id);
     _weatherMemoryCache.delete(widget.id);
     _weatherAirQualityMemoryCache.delete(widget.id);
     _weatherViewMemory.delete(widget.id);
-    WidgetSDK.cache.remove('weather', widget.id, 'forecast', { legacyKeys: [cacheKey] });
+    WidgetSDK.cache.remove('weather', widget.id, 'forecast');
     WidgetSDK.cache.remove('weather', widget.id, 'air-quality');
     WidgetSDK.cache.remove('weather', widget.id, 'view');
   },

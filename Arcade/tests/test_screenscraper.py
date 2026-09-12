@@ -1,3 +1,4 @@
+from test_feature_parity import post
 import base64
 from copy import deepcopy
 import io
@@ -274,7 +275,7 @@ def test_explicit_platform_filters_and_all_platform_results(setup, monkeypatch, 
         rows = [row(str(i + 1), "Jetpac", expected or ("64" if i % 2 else "42")) for i in range(30)]
         return io.BytesIO(json.dumps({"response": {"jeux": rows}}).encode())
     monkeypatch.setattr(server, "screenscraper_open", respond)
-    result = server.dispatch_arcade_api("POST", "/api/scrape-preview", data={
+    result = post(server, "/api/scrape-preview", {
         "game_id": game.id, "provider": "screenscraper", "search_platform": scope})
     assert result["ok"], result
     assert queries[0].get("systemeid") == ([expected] if expected else None)

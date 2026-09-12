@@ -77,6 +77,7 @@ class Game:
     import_match_count: int = 0
     import_system_match_count: int = 0
     import_matches: tuple[dict[str, object], ...] = ()
+    metadata_group_id: str = ""
 
 
 class GameLibrary:

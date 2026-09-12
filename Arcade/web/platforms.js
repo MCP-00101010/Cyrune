@@ -5,7 +5,6 @@
     "zx-spectrum": {
       "label": "ZX Spectrum",
       "adapters": [
-        "",
         "spectrum-metadata-v1"
       ],
       "types": [

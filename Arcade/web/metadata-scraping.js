@@ -17,14 +17,6 @@
     return provider.type === 'manual' || Boolean(networkAllowed && provider.configured && provider.enabled !== false);
   }
 
-  function clearMatch(game, match, matches) {
-    const titleKey = value => String(value || '').toLowerCase().replace(/&/g, ' and ')
-      .replace(/['`]/g, '').replace(/[^a-z0-9]+/g, ' ').trim().replace(/^(the|a|an) /, '').replace(/ (the|a|an)$/, '');
-    const title = titleKey(game.title);
-    return Boolean(match && title && title === titleKey(match.candidate.title) && Number(match.confidence) >= 75
-      && !matches.some(other => other !== match && bestMatch([other]) && Number(other.confidence) >= Number(match.confidence)));
-  }
-
   function preferredProvider(providers, saved, networkAllowed) {
     const choices = providers.filter(provider => providerAvailable(provider, networkAllowed));
     return (choices.find(provider => provider.id === saved) || choices.find(provider => provider.type !== 'manual') || choices[0])?.id || '';
@@ -89,7 +81,7 @@
               row.targetIds = cached ? row.game.target_ids : result.target_ids || row.game.target_ids;
               row.match = bestMatch(result.matches);
               row.status = row.match ? 'matched' : 'no-match';
-              row.selected = typeof result.needs_review === 'boolean' ? Boolean(row.match && !result.needs_review) : clearMatch({...row.game, title:row.searchTerm}, row.match, row.matches);
+              row.selected = Boolean(row.match && result.needs_review === false);
               if (row.game.type === 'ScummVM' && row.game.platform === 'unknown') row.selected = false;
             } else {
               const result = await apply({...row.game, target_ids:row.targetIds}, row.match, row.searchOptions);

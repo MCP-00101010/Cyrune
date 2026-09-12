@@ -2,14 +2,14 @@
   "schemaVersion": 1,
   "id": "widgets",
   "name": "Widgets",
-  "version": "0.2.17",
+  "version": "0.2.18",
   "kind": "catalogue",
   "entrypoint": "core/sdk/fixture.html",
   "icon": "core/sdk/assets/widgets.svg",
   "summary": "Widget catalogue, SDK, providers and browser-local runtime state.",
   "documents": { "todo": "Widgets-TODO.md", "changelog": "Widgets-CHANGELOG.md" },
   "capabilities": ["asset-cache", "daily-briefing", "local-cache", "managed-network", "native-gateways", "presets", "settings-inheritance", "text-scaling"],
-  "protocols": { "widget-sdk": 3, "component-settings": 2 },
+  "protocols": { "widget-sdk": 4, "component-settings": 2 },
   "schemas": { "widgetDescriptor": 3 },
   "nexus": { "accent": "cyan", "adapter": "widgets" }
 }

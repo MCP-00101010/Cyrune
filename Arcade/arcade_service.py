@@ -126,13 +126,11 @@ def default_runtime_data_root() -> Path:
 
 DEFAULT_COLLECTION_ROOT = Path(
     os.environ.get("CYRUNE_ARCADE_COLLECTION")
-    or os.environ.get("MORPHEUS_EMUGUI_COLLECTION")
     or r"E:\Emulation\Software Library\Sinclair\ZX Spectrum\Desasteron Spectrum Collection"
 ).expanduser()
 DESASTERON_COLLECTION = DEFAULT_COLLECTION_ROOT
 COLLECTIONS_BASE = Path(
     os.environ.get("CYRUNE_ARCADE_COLLECTIONS_BASE")
-    or os.environ.get("MORPHEUS_EMUGUI_COLLECTIONS_BASE")
     or str(DESASTERON_COLLECTION.parent)
 ).expanduser()
 COLLECTION = DESASTERON_COLLECTION
@@ -513,23 +511,23 @@ def resolve_atari_game_plan(collection_id, game_id, emulator_id="", profile_id="
     return plan
 
 
-def resolve_catalogue_launch_plan(catalogue_id, entry_revision=None, *, atari_emulator_override=''):
+def resolve_catalogue_launch_plan(catalogue_id, entry_revision=None, *, atari_emulator_override='', selection=None):
     """Private Host adapter, never exposed through Arcade API dispatchers."""
     from arcade_core.catalogue_identity import CatalogueError
     from arcade_core.catalogue_launch import resolve_plan
     lifecycle = get_library_catalogue()
     try:
-        return resolve_plan(lifecycle, catalogue_id, entry_revision, atari_emulator_override=atari_emulator_override)
+        return resolve_plan(lifecycle, catalogue_id, entry_revision, atari_emulator_override=atari_emulator_override, selection=selection)
     except CatalogueError:
         raise
     except Exception:
         raise CatalogueError("configuration-required") from None
 
 
-def launch_catalogue_plan(plan, *, launch_process, copy_profile, atari_emulator_override=''):
+def launch_catalogue_plan(plan, *, launch_process, copy_profile, atari_emulator_override='', selection=None):
     from arcade_core.catalogue_launch import launch_plan
     return launch_plan(sys.modules[__name__], plan, launch_process=launch_process, copy_profile=copy_profile,
-                       atari_emulator_override=atari_emulator_override)
+                       atari_emulator_override=atari_emulator_override, selection=selection)
 
 
 class Library(GameLibrary):
@@ -636,7 +634,6 @@ def init_config() -> None:
         })
         return
     config = load_config()
-    known = {item.get("id") for item in config.get("collections", [])}
     changed = False
     if "emulators" not in config:
         config["emulators"] = DEFAULT_EMULATORS
@@ -667,11 +664,6 @@ def init_config() -> None:
                     if key not in config["scrapers"][scraper_id]:
                         config["scrapers"][scraper_id][key] = value
                         changed = True
-    for item in discover_collections():
-        if item["id"] not in known:
-            config.setdefault("collections", []).append(item)
-            known.add(item["id"])
-            changed = True
     if changed:
         save_config(config)
 
@@ -708,10 +700,13 @@ def load_config() -> dict:
         key: value for key, value in config["scrapers"].items()
         if isinstance(key, str) and isinstance(value, dict)
     }
-    return config
+    from arcade_core.collections import current_config
+    return current_config(config)
 
 
 def save_config(config: dict) -> None:
+    from arcade_core.collections import current_config
+    config = current_config(config)
     lifecycle = get_catalogue_lifecycle()
     if lifecycle is not None:
         lifecycle.ensure_settled()
@@ -1265,10 +1260,14 @@ def load_metadata() -> dict:
         metadata["games"] = []
     if not isinstance(metadata.get("poks"), list):
         metadata["poks"] = []
-    return metadata
+    from arcade_core.index_schema import index_document
+    return index_document(metadata)
 
 
 def save_metadata(metadata: dict) -> None:
+    from arcade_core.index_schema import assign_groups, index_document
+    assign_groups(metadata.get('games', []))
+    metadata = index_document(metadata)
     metadata["updated_at"] = dt.datetime.now(dt.UTC).isoformat(timespec="seconds")
     lifecycle = get_catalogue_lifecycle()
     if lifecycle is not None and lifecycle.save_metadata(COLLECTION, metadata):
@@ -1368,7 +1367,7 @@ def _parse_pok_file(path: Path) -> list[dict[str, object]]:
 def load_games(poks: dict[tuple[str, str], list[dict[str, str]]], favourites: set[str], progress=None) -> list[Game]:
     collection = active_collection()
     from arcade_core.platforms import collection_platform
-    if not collection_platform(collection) or collection.get('adapter', '') not in {'', 'spectrum-metadata-v1', 'scummvm-config-v1', 'atari-st-disks-v1', 'gameboy-cartridges-v1'}:
+    if not collection_platform(collection) or collection.get('adapter', '') not in {'spectrum-metadata-v1', 'scummvm-config-v1', 'atari-st-disks-v1', 'gameboy-cartridges-v1'}:
         raise ValueError('This collection adapter is not supported. Check its platform settings.')
     if collection.get('adapter') == 'gameboy-cartridges-v1':
         from arcade_core.catalogue_gameboy import effective_rows
@@ -1480,6 +1479,7 @@ def _load_metadata_games(poks: dict[tuple[str, str], list[dict[str, str]]], favo
         games.append(
             Game(
                 id=game_id,
+                metadata_group_id=item.get('metadata_group_id', ''),
                 title=title,
                 title_key=title_key,
                 sort_title=sort_title,
@@ -1574,6 +1574,7 @@ def game_to_metadata_item(game: Game, pok_files: list[str] | None = None) -> dic
     hardware = list(game.hardware) or (["ULAPlus"] if game.is_ulaplus else [])
     return {
         "id": game.id,
+        "metadata_group_id": game.metadata_group_id,
         "title": game.title,
         "title_key": game.title_key,
         "sort_title": article_sort_title(game.title),
@@ -1981,16 +1982,23 @@ def dispatch_arcade_api(method: object, path: object, query: object = None, data
         return emulator_shortcut_request(verb, route, query if verb == 'GET' else data)
 
     from arcade_core.collection_context import scoped, validate
+    from arcade_core.catalogue_identity import CatalogueError
     parameters = query if verb == 'GET' else data
-    if scoped(verb, route) and 'collection_id' in parameters:
+    if scoped(verb, route):
         with COLLECTION_JOB_LOCK:
             try:
-                validate(parameters['collection_id'], active_collection())
+                validate(parameters.get('collection_id'), active_collection())
+            except CatalogueError:
+                return {'ok': False, 'code':'review-required', 'error':'Open Catalogue Recovery before using this collection.'}
             except ValueError as error:
-                return {'ok': False, 'code':'collection-changed', 'error':str(error)}
-            clean = {key:value for key,value in parameters.items() if key != 'collection_id'}
-            return dispatch_arcade_api(verb, route, clean if verb == 'GET' else query, clean if verb != 'GET' else data)
+                return {'ok': False, 'code': 'collection-changed', 'error': str(error)}
+            clean = {key: value for key, value in parameters.items() if key != 'collection_id'}
+            return _dispatch_current_arcade_api(verb, route, clean if verb == 'GET' else query, clean if verb != 'GET' else data)
+    return _dispatch_current_arcade_api(verb, route, query, data)
 
+
+def _dispatch_current_arcade_api(verb, route, query, data):
+    """Internal dispatcher; scoped public requests arrive under the collection lock."""
     recovery_routes = {f"/api/catalogue-recovery/{action}": action for action in ("status", "preview", "confirm")}
     if verb == "POST" and route in recovery_routes:
         return catalogue_recovery_request(recovery_routes[route], data)
@@ -2045,6 +2053,8 @@ def dispatch_arcade_api(method: object, path: object, query: object = None, data
         except (ValueError, OSError, CatalogueError) as error:
             return {'ok': False, 'error': str(error)}
     if verb == "GET":
+        if route == "/api/collection-context":
+            return {"collection_id": active_collection()["id"]}
         if route == "/api/games":
             from arcade_core.catalogue_identity import _writer_lock
             with COLLECTION_JOB_LOCK:
@@ -2057,17 +2067,12 @@ def dispatch_arcade_api(method: object, path: object, query: object = None, data
                         if METADATA_SERVICE is not None:
                             METADATA_SERVICE.clear_history()
                 view = _api_query_value(query, "view", "collection")
-                games = (
-                    get_library().list_game_summaries(view)
-                    if _api_query_value(query, "shape") == "summary"
-                    else get_library().list_games(view)
-                )
-                if _api_query_value(query, "groupVersions") == "true":
-                    try:
-                        game_version_summaries(games)
-                    except CatalogueError as error:
-                        if error.code != "unavailable":
-                            return {"ok": False, "error": "Game versions could not be loaded.", "code": error.code}
+                games = get_library().list_game_summaries(view)
+                try:
+                    game_version_summaries(games)
+                except CatalogueError as error:
+                    if error.code != 'unavailable':
+                        return {'ok': False, 'error': 'Game versions could not be loaded.', 'code': error.code}
                 newly_indexed = metadata_notes().observe(row.id for row in get_library().games if row.view == 'collection')
                 reviews = care_state.get('reviews', {})
                 for row in games:
@@ -2076,10 +2081,8 @@ def dispatch_arcade_api(method: object, path: object, query: object = None, data
                     row['cleanup'] = {'artwork': not bool(game.screenshot or game.loading_screen),
                                       'description': not bool(game.description.strip()),
                                       'review': bool(reviews.get(game.id))}
-                if _api_query_value(query, 'compact') == 'true':
-                    scope = (str(DATA.resolve()), str(COLLECTION.resolve()), active_collection()['id'], view, _api_query_value(query, 'groupVersions'))
-                    return {**SUMMARY_SNAPSHOTS.response(scope, games, _api_query_value(query, 'since')), 'collection_id':active_collection()['id']}
-                return {"games": games, "collection_id": active_collection()["id"]}
+                scope = (str(DATA.resolve()), str(COLLECTION.resolve()), active_collection()['id'], view)
+                return {**SUMMARY_SNAPSHOTS.response(scope, games, _api_query_value(query, 'since')), 'collection_id':active_collection()['id']}
         if route == "/api/game-versions":
             entry = catalogue_game_entry(active_collection()["id"], _api_query_value(query, "game_id"))
             service = get_catalogue_service()
@@ -2167,10 +2170,7 @@ def dispatch_arcade_api(method: object, path: object, query: object = None, data
         if route == "/api/open-explorer":
             return open_in_explorer(str(data.get("game_id", "")))
         if route == "/api/scrape-preview":
-            if data.get('background') is True:
-                return start_scrape_preview(data)
-            return scrape_preview(str(data.get("game_id", "")), str(data.get("provider", "manual")),
-                                  data.get("search_term"), data.get("search_platform", "current"))
+            return start_scrape_preview(data)
         if route == '/api/scrape-targets':
             return scrape_targets(data.get('game_ids'))
         if route == "/api/rebuild":
@@ -2246,9 +2246,7 @@ def read_arcade_asset(relative_path: object, max_bytes: object = 4 * 1024 * 1024
 
 
 # Compatibility exports retained for installed Host versions predating the Arcade rename.
-dispatch_emugui_read = dispatch_arcade_read
-dispatch_emugui_api = dispatch_arcade_api
-read_emugui_asset = read_arcade_asset
+ARCADE_SERVICE_PROTOCOL_VERSION = 2
 
 
 def emulator_payload() -> list[dict]:
@@ -2424,11 +2422,11 @@ def prepare_emulator_profile(emulator: dict[str, object], game: Game, profile_id
     )
 
 
-def get_launch_service(*, bound_game=None, bound_root=None) -> GameLaunchService:
+def get_launch_service() -> GameLaunchService:
     """Build a launch service around the current configuration and library."""
 
     return GameLaunchService(
-        get_game=lambda game_id: (bound_game if game_id == bound_game.id else None) if bound_game is not None else get_library().get_game(game_id),
+        get_game=lambda game_id: get_library().get_game(game_id),
         get_pok=lambda pok_id: get_library().get_pok(pok_id),
         emulator_provider=lambda: configured_emulators(include_hidden=True),
         expand_path=expand_config_path,
@@ -2439,37 +2437,9 @@ def get_launch_service(*, bound_game=None, bound_root=None) -> GameLaunchService
         find_running_window=find_running_emulator_window,
         focus_emulator=focus_launched_emulator,
         bring_to_front=bring_window_to_front,
-        collection_root=lambda: COLLECTION if bound_root is None else bound_root,
+        collection_root=lambda: COLLECTION,
         check_immediate_exit=should_check_immediate_exit,
     )
-
-
-def _bound_spectrum_game(collection_id, game_id):
-    """Resolve a legacy native binding without changing Arcade's active library."""
-    service = get_catalogue_service()
-    entry = catalogue_game_entry(collection_id, game_id)
-    if entry.base['platformId'] not in {'zx-spectrum', 'game-boy'}:
-        raise ValueError('The saved game is not a supported cartridge or Spectrum target')
-    source = next(source for source in service._sources if source.collection_id == collection_id)
-    item = source._row_index().get(game_id)
-    games = load_metadata_games({}, set(), root=source.root, items=[item] if item else [])
-    if not games:
-        raise FileNotFoundError('The bound game file is missing from its collection')
-    return games[0], source.root
-
-
-def bound_game_source(collection_id, game_id):
-    with COLLECTION_JOB_LOCK:
-        game, root = _bound_spectrum_game(collection_id, game_id)
-        return {'game': {**asdict(game), '_collectionRoot': str(root)},
-                'active': {'id': collection_id, 'root': str(root)},
-                'emulators': emulator_payload(), 'profiles': emulator_profiles_payload()}
-
-
-def launch_bound_game(collection_id, game_id, emulator_id, profile_id=''):
-    with COLLECTION_JOB_LOCK:
-        game, root = _bound_spectrum_game(collection_id, game_id)
-        return get_launch_service(bound_game=game, bound_root=root).launch_game(game_id, emulator_id, profile_id=profile_id)
 
 
 def launch_game(game_id: str, emulator_id: str, launch_action: str = "", force_new: bool = False, profile_id: str = "") -> dict:

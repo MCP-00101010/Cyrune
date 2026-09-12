@@ -46,7 +46,7 @@ def test_hatari_properties_migrate_existing_portal_key_and_switch_back(hatari):
     before = env.store.load()
     plan = select_hatari(env, save=True)
     after = env.store.load()
-    assert after['schemaVersion'] == 4
+    assert after['schemaVersion'] == 5
     assert after['receipts'] == before['receipts'] and set(after['bindings']) == set(before['bindings'])
     assert env.store.resolve(key) == plan
     disk = Path(plan['settings']['saveDisk'])
@@ -60,7 +60,7 @@ def test_hatari_properties_migrate_existing_portal_key_and_switch_back(hatari):
     assert env.store.resolve(key)['settings']['driveB'] == plan['settings']['driveB']
     assert env.store.resolve(key)['settings']['saveDisk'] == plan['settings']['saveDisk']
     assert disk.read_bytes()[-512:] == b'x' * 512
-    assert env.store.load()['schemaVersion'] == 4, 'Never downgrade a migrated store'
+    assert env.store.load()['schemaVersion'] == 5, 'Never downgrade a migrated store'
 
 
 @pytest.mark.parametrize('drive', ['empty', 'game:1', 'game:2'])
@@ -129,7 +129,7 @@ def test_hatari_bind_requires_atari_capability_and_rejects_forged_plans(hatari):
     assert env.store.bind(env.session, request)['results'][0]['code'] == 'unsupported-target'
     request['requestId'] = str(uuid.uuid4())
     result = env.store.bind(env.session, request, allow_atari=True)['results'][0]
-    assert result['ok'] and env.store.load()['schemaVersion'] == 4
+    assert result['ok'] and env.store.load()['schemaVersion'] == 5
     module = env.host._catalogue_binding_module()
     for field, value in [('arguments', ['--parse', str(env.hatari)]), ('schemaVersion', 4), ('adapterId', 'steem')]:
         changed = deepcopy(plan)

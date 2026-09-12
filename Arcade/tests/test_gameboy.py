@@ -130,6 +130,7 @@ def test_scrape_and_inactive_shortcut_keep_cartridge_identity(tmp_path, monkeypa
     assert (updated.system, updated.platform, updated.path, updated.tags, updated.default_emulator) == (
         before.system, before.platform, before.path, before.tags, before.default_emulator)
     monkeypatch.setattr(server, 'COLLECTION', tmp_path/'inactive')
-    scoped = server.bound_game_source('game-boy', game.id)
-    assert scoped['game']['path'] == before.path
+    entry = server.catalogue_game_entry('game-boy', game.id)
+    plan = server.resolve_catalogue_launch_plan(entry.base['catalogueId'])
+    assert plan['media'] == before.path
     assert server.COLLECTION == tmp_path/'inactive'

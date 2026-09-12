@@ -50,7 +50,7 @@ test('component settings client rejects unknown or mismatched component roles', 
   const api = makeClientApi();
   assert.throws(() => api.normalizeProfile(profile('arcade'), 'portal-widgets'), /role mismatch/);
   assert.throws(() => api.normalizeProfile(profile('portal-widgets'), 'unknown'), /role mismatch/);
-  assert.equal(api.normalizeProfile(profile('portal-widgets', 2, 1), 'portal-widgets').profileSchemaVersion, 2);
+  assert.throws(() => api.normalizeProfile(profile('portal-widgets', 2, 1), 'portal-widgets'), /Unsupported/);
   assert.throws(() => api.normalizeProfile({ ...profile(), profileSchemaVersion: 3 }, 'portal-widgets'), /Unsupported/);
 });
 

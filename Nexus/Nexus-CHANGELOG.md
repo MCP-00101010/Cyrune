@@ -1,5 +1,10 @@
 # Cyrune Nexus Changelog
 
+## [0.3.1] — 2026-09-09
+
+- Component settings clients require profile schema 2. Browser preview promotion is verified once; authoritative settings remain schema 2. Registry advertises the coordinated current contracts.
+- Validation: 26 component tests; coordinated migration/packaging/tooling checks, syntax, versions, infrastructure and Relay lint passed. Isolated Firefox Portal/Arcade acceptance passed.
+
 ## [0.3.0] — 2026-08-31
 
 ### Added

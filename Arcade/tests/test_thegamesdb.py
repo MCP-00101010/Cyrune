@@ -1,3 +1,4 @@
+from test_feature_parity import post
 import io
 import json
 from urllib.parse import parse_qs, urlsplit
@@ -91,7 +92,7 @@ def test_editable_search_reaches_provider_without_changing_game_or_retrying_titl
     first = server.scrape_preview(game.id, provider_type)
     assert first['query']['search_term'] == requests[-1][parameter][0]
     requests.clear()
-    result = server.dispatch_arcade_api('POST', '/api/scrape-preview', data={
+    result = post(server, '/api/scrape-preview', {
         'game_id':game.id, 'provider':provider_type, 'search_term':'  Another Game v1.0  '})
     assert result['ok'], result
     assert result['query']['search_term'] == 'Another Game v1.0'

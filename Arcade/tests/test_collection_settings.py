@@ -92,7 +92,7 @@ def test_other_platform_settings_do_not_switch_library_or_change_pins(tmp_path):
     assert result['ok'], result
     assert server.active_collection()['id'] == 'desasteron'
     assert server.LIBRARY is library
-    assert next(row for row in server.load_config()['collections'] if row['id']=='scummvm') == {**collection,'name':'Adventure library'}
+    assert next(row for row in server.load_config()['collections'] if row['id']=='scummvm') == {**collection,'name':'Adventure library','index_schema':2}
 
 
 def test_prepared_roots_require_reattachment_instead_of_retargeting(tmp_path):

@@ -22,7 +22,7 @@ test('last provider is shared across scrapers with configured and network-aware 
 test('batch previews do not save; Apply uses the reviewed highest match and skips unchecked/no-result games', async () => {
   const writes=[];
   const batch=createBatch(['a','b','c'].map(id=>({id,title:id})),{
-    preview:async game=>({matches:game.id==='c'?[]:[match('Low',10),match(game.id,95)]}),
+    preview:async game=>({needs_review:false,matches:game.id==='c'?[]:[match('Low',10),match(game.id,95)]}),
     apply:async (game,result)=>writes.push([game.id,result.candidate.title]),current:()=>true,changed(){}
   });
   await batch.search(); assert.deepEqual(writes,[]);
@@ -34,7 +34,7 @@ test('batch previews do not save; Apply uses the reviewed highest match and skip
 test('stop/resume never repeats saved or unconfirmed writes and independent failures allow later games', async () => {
   const writes=[];
   const batch=createBatch(['a','b','c'].map(id=>({id,title:id})),{
-    preview:async game=>({matches:[match(game.id,90)]}),
+    preview:async game=>({needs_review:false,matches:[match(game.id,90)]}),
     apply:async game=>{writes.push(game.id); if(game.id==='a')batch.stop(); if(game.id==='b')throw Error('connection lost');},
     current:()=>true,changed(){}
   });
@@ -46,7 +46,7 @@ test('stop/resume never repeats saved or unconfirmed writes and independent fail
 test('changed collection and simultaneous Apply cannot produce cross-library or duplicate saves', async () => {
   let current=true, release; const writes=[];
   const batch=createBatch([{id:'a',title:'Best'},{id:'b',title:'Best'}],{current:()=>current,changed(){},
-    preview:async()=>({matches:[match('Best',99)]}),apply:async game=>{writes.push(game.id);await new Promise(resolve=>{release=resolve;});}});
+    preview:async()=>({needs_review:false,matches:[match('Best',99)]}),apply:async game=>{writes.push(game.id);await new Promise(resolve=>{release=resolve;});}});
   await batch.search(); const pending=batch.apply(); await batch.apply();
   assert.deepEqual(writes,['a']); current=false; release();
   await assert.rejects(pending,/collection changed/); assert.deepEqual(writes,['a']);
@@ -62,7 +62,7 @@ test('Pirates never auto-applies Space Quest, weak or tied results; reviewed mat
     [match('Space Quest III: The Pirates of Pestulon',60),match('Pirates!',100)]
   ];
   const batch=createBatch(choices.map((_,id)=>({id:String(id),title:'Pirates'})),{
-    preview:async game=>({matches:choices[Number(game.id)]}),
+    preview:async game=>({needs_review:Number(game.id)!==3,matches:choices[Number(game.id)]}),
     apply:async game=>writes.push(game.id),current:()=>true,changed(){}
   });
   await batch.search();
@@ -76,7 +76,7 @@ test('failed searches can be edited and retried, alternative results chosen, and
   const batch=createBatch([{id:'a',title:'Wrong title'},{id:'b',title:'Saved'}],{
     preview:async (game, options)=>{
       calls.push([game.id,options]);
-      return {query:{search_platform:options.search_platform}, matches:game.id==='b'?[match('Saved',90)]:
+      return {needs_review:false,query:{search_platform:options.search_platform}, matches:game.id==='b'?[match('Saved',90)]:
         options.search_term==='Pirates'?[match('Pirates Gold',60),match('Pirates!',95)]:[]};
     },
     apply:async (game, chosen)=>writes.push([game.id,chosen.candidate.title]), current:()=>true,changed(){}
@@ -98,13 +98,13 @@ test('edits invalidate matches immediately and in-flight retries cannot accept e
   const batch=createBatch([{id:'a',title:'Pirates'}],{
     preview:async()=>new Promise(done=>{resolve=done;}), apply:async()=>writes.push('a'),current:()=>true,changed(){}
   });
-  const initial=batch.search(); resolve({matches:[match('Pirates!',90)]}); await initial;
+  const initial=batch.search(); resolve({needs_review:false,matches:[match('Pirates!',90)]}); await initial;
   batch.edit('a',{searchTerm:'Different'});
   await batch.apply(); assert.deepEqual(writes,[]);
   const retry=batch.retry('a');
   batch.edit('a',{searchTerm:'Ignored'}); await batch.apply();
   assert.equal(batch.snapshot().rows[0].searchTerm,'Different');
-  resolve({matches:[]}); await retry;
+  resolve({needs_review:false,matches:[]}); await retry;
   assert.equal(batch.snapshot().rows[0].status,'no-match');
   batch.edit('a',{searchTerm:' '}); await batch.retry('a');
   assert.match(batch.snapshot().rows[0].error,/Enter a search term/);
@@ -113,7 +113,7 @@ test('edits invalidate matches immediately and in-flight retries cannot accept e
 test('same-platform ScummVM versions reuse searches but retain their own apply targets; retries bypass cache', async () => {
   const requests=[], writes=[];
   const batch=createBatch(['dos1','dos2','amiga'].map(id=>({id,title:'Pirates',search_key:id==='amiga'?'amiga':'dos',target_ids:[id]})),{
-    preview:async game=>{requests.push(game.id);return {matches:[match('Pirates!',95)],target_ids:[game.id]};},
+    preview:async game=>{requests.push(game.id);return {needs_review:false,matches:[match('Pirates!',95)],target_ids:[game.id]};},
     apply:async game=>writes.push(game.target_ids),current:()=>true,changed(){}
   });
   await batch.search(); assert.deepEqual(requests,['dos1','amiga']);
@@ -146,13 +146,13 @@ test('bulk dialog plans ScummVM versions and wires editable searches, result cho
         if(tag!=='template')return overlay;
         return {set innerHTML(html) {const node={html,replaceWith(next){const nodes=control('results').children;nodes[nodes.indexOf(this)]=next;},remove(){}};this.content={firstElementChild:node};}};
       },body:{appendChild(){}}},escapeHtml:String,canScrapeMetadata:()=>true,
-    rememberScraperProvider(){},populateScraperProviders:async()=>[{id:'ss',type:'screenscraper'}],reloadGames:async()=>{},
+    updateScrapeReview(){},rememberScraperProvider(){},populateScraperProviders:async()=>[{id:'ss',type:'screenscraper'}],reloadGames:async()=>{},
     assetDisplayUrl:ref=>'data:image/png;base64,'+ref,extensionAssetCache:new Map(),
     api:async(route,options)=>{
       const body=JSON.parse(options.body); calls.push([route,body]);
       if(route==='/api/scrape-targets')return {games};
       if(route==='/api/apply-scrape'){writes.push(body);return {ok:true};}
-      return {query:{search_platform:body.search_platform},target_ids:[body.game_id],
+      return {needs_review:body.search_term!=='Pirates!',query:{search_platform:body.search_platform},target_ids:[body.game_id],
         matches:body.search_term==='Pirates!'?[
           {...match('Pirates Gold',60),remote_assets:{loading_screen:'gold-cover'}},
           {...match('Pirates!',95),remote_assets:{loading_screen:'pirates-cover'}}]:
@@ -235,7 +235,7 @@ test('quota pauses retain queued work and completed selections', async () => {
   const batch=ArcadeMetadataScraping.createBatch([{id:'one',title:'One'},{id:'two',title:'Two'}], {
     clock:()=>now, wait:async ms=>{now+=ms;}, current:()=>true, changed:view=>states.push(view), apply:async()=>{},
     preview:async game=>{if(game.id==='two' && count++===0)return {ok:false,error:'quota',retry_after:2};
-      return {matches:[match(game.title,90)],needs_review:false};}
+      return {needs_review:false,matches:[match(game.title,90)]};}
   });
   await batch.search();
   assert.ok(states.some(view=>view.pausedUntil>0 && view.rows[0].selected && view.rows[1].status==='queued'));
@@ -246,7 +246,7 @@ test('resumed review rechecks matches and never replays uncertain or saved write
   const searched=[], saved=[];
   const batch=ArcadeMetadataScraping.createBatch(['saved','unconfirmed','matched'].map(id=>({id,title:id})), {
     resume:['saved','unconfirmed','matched'].map(id=>({id,status:id,searchTerm:'Edited title',searchPlatform:'all'})),
-    current:()=>true,changed:()=>{},preview:async(game,options)=>{searched.push([game.id,options]);return {query:{search_platform:'all'},matches:[match('Edited title',95)],needs_review:false};},
+    current:()=>true,changed:()=>{},preview:async(game,options)=>{searched.push([game.id,options]);return {needs_review:false,query:{search_platform:'all'},matches:[match('Edited title',95)]};},
     apply:async game=>saved.push(game.id)
   });
   await batch.search();await batch.apply();

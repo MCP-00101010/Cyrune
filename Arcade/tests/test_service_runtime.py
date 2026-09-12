@@ -110,19 +110,22 @@ def test_transport_neutral_api_routes_existing_read_operations(tmp_path):
     class FakeLibrary:
         games = []
 
-        def list_games(self, view):
+        def list_game_summaries(self, view):
             return [{"id": "jetpac", "view": view}]
 
         def get_game(self, game_id):
             return SimpleNamespace(id=game_id, screenshot="", loading_screen="", description="")
 
     server.get_library = lambda: FakeLibrary()
+    server.active_collection = lambda: {'id':'spectrum', 'adapter':'spectrum-metadata-v1', 'root':str(tmp_path)}
+    server.game_version_summaries = lambda rows: rows
     server.collections_payload = lambda: {"active": {"id": "spectrum"}, "collections": []}
 
-    games = server.dispatch_arcade_api("GET", "/api/games", {"view": "all"}, {})
+    games = server.dispatch_arcade_api("GET", "/api/games", {"collection_id": "spectrum", "view": "all"}, {})
     collections = server.dispatch_arcade_api("GET", "/api/collections", {}, {})
 
-    assert games == {"collection_id": server.active_collection()["id"], "games": [{"id": "jetpac", "view": "all", "newly_indexed": False, "cleanup": {"artwork": True, "description": True, "review": False}}]}
+    assert games['collection_id'] == 'spectrum' and games['delta'] is False
+    assert [{**games['defaults'], **row} for row in games['games']] == [{"id": "jetpac", "view": "all", "newly_indexed": False, "cleanup": {"artwork": True, "description": True, "review": False}}]
     assert collections["active"]["id"] == "spectrum"
 
 
@@ -187,7 +190,7 @@ def test_file_transport_preserves_launch_choices_and_profile_routes():
     server.delete_emulator_profile = lambda profile_id: calls.append(("delete", profile_id)) or {"ok": True}
     server.update_emulator_profile_from_source = lambda profile_id: calls.append(("source", profile_id)) or {"ok": True}
 
-    launch = server.dispatch_arcade_api("POST", "/api/launch", {}, {
+    launch = server.dispatch_arcade_api("POST", "/api/launch", {}, {"collection_id":server.active_collection()["id"],
         "game_id": "jetpac", "emulator": "eightyone", "launch_action": "new", "force_new": True,
         "profile_id": "spectrum-48k",
     })

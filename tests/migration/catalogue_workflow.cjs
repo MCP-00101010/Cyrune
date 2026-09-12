@@ -83,7 +83,7 @@ async function main() {
   const document = { hidden: false, hasFocus: () => true, documentElement: { dataset: {} }, getElementById: () => null,
     querySelector: selector => selector === 'meta[name="morpheus-webhub"]' ? {} : null };
   const content = vm.createContext({ ...common, window, document, browser: { runtime: { sendMessage: send, onMessage: event() } } });
-  const protocols = "Object.freeze({ 'portal-relay': 1, 'component-settings': 2 })";
+  const protocols = "Object.freeze({ 'portal-relay': 2, 'component-settings': 2 })";
   let contentSource = source('Relay/content.js');
   if (['closed-gate', 'old-content'].includes(scenario)) contentSource = contentSource.replace(/(const PORTAL_CLIENT_PROTOCOLS = )Object\.freeze\(\{[^\n]+\}\)/, '$1' + protocols);
   vm.runInContext(contentSource, content, { filename: 'Relay/content.js' });
@@ -152,7 +152,7 @@ async function main() {
       '--config=' + path.join(root, 'scummvm.ini'), '--path=' + path.join(root, 'ScummVM/adventure-en'), 'adventure-en']);
     assert.deepEqual(launches.map(row => row.args.at(-1)), ['adventure-en', 'adventure-de', 'adventure-en', 'adventure-de']);
     assert.equal(launches[0].shell, false);
-    assert.equal(JSON.parse(fs.readFileSync(path.join(root, 'catalogue-bindings.json'))).schemaVersion, 2);
+    assert.equal(JSON.parse(fs.readFileSync(path.join(root, 'catalogue-bindings.json'))).schemaVersion, 5);
     assert.equal(nativeRequests.filter(request => request.type === 'ARCADE_CATALOGUE_ENABLE_SCUMMVM').length, 1);
     return;
   }

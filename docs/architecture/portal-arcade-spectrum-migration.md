@@ -1,5 +1,7 @@
 # Spectrum Catalogue Mapping and Acceptance Criteria
 
+The [2026-09-09 suite data cutover](suite-data-cutover.md) supersedes historical legacy-binding coexistence and older runtime protocol descriptions below. Current game approvals use one schema-5 store.
+
 Design baseline: 2026-09-06. Current status: prepared managed Spectrum sources and the regular-column picker are enabled in the [coordinated activation below](#column-picker-activation--2026-09-06). Earlier milestone sections preserve their status at the time. Live collection preparation remains an explicit user-reviewed operation.
 
 This document accompanies [Catalogue capability v1](portal-arcade-contract.md#catalogue-capability-v1--implementation-target). It defines the first Spectrum mapping and evidence required to enable Portal's Add Game flow. Component TODOs own the remaining work.

@@ -17,6 +17,7 @@ from arcade_core.catalogue_identity import CatalogueError, _writer_lock, read_ob
 from arcade_core.emulators import validate_emulator  # noqa: E402
 from arcade_core.import_scummvm import scummvm_manifest, launch_preflight  # noqa: E402
 from arcade_core.persistence import atomic_write_json  # noqa: E402
+from arcade_core.collections import current_config  # noqa: E402
 
 
 def configure(config_path, root, ini, executable):
@@ -56,6 +57,7 @@ def configure(config_path, root, ini, executable):
             if len(collections) >= 64 or len(emulators) > 64:
                 raise ValueError("Arcade configuration limit reached")
             collections.append(collection)
+        config = current_config(config)
         if config == before:
             return {"ok": True, "changed": False, "games": len(manifest["entries"])}
         digest = hashlib.sha256(json.dumps(before, sort_keys=True).encode()).hexdigest()[:16]

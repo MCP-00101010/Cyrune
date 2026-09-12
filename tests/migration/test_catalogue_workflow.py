@@ -42,7 +42,7 @@ def prepare_fixture(tmp_path, entries=125, *, prepared=True):
         "emulators": {"fixture": {"type": "generic", "path": str(executable), "arguments": ["--game", "{file}"]}},
         "emulator_profiles": []}), encoding="utf-8")
     (tmp_path / "host.json").write_text(json.dumps({"arcadeRoot": str(REPO / "Arcade"),
-        "databasePath": str(tmp_path / "portal.json"), "approvedGames": {}}), encoding="utf-8")
+        "databasePath": str(tmp_path / "portal.json"), "schemaVersion": 1}), encoding="utf-8")
     env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1"}
     if not prepared:
         return env

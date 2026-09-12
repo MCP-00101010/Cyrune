@@ -30,12 +30,11 @@
   }) || null;
 
   function loadPreview() {
-    for (const key of [model.PREVIEW_STORAGE_KEY, ...(model.LEGACY_PREVIEW_STORAGE_KEYS || [])]) {
-      try {
-        const stored = localStorage.getItem(key);
-        if (stored) return model.normalizeSettings(JSON.parse(stored));
-      } catch (_error) { /* try the next compatible preview */ }
-    }
+    try {
+      model.upgradePreview(localStorage);
+      const stored = localStorage.getItem(model.PREVIEW_STORAGE_KEY);
+      if (stored) return model.normalizeSettings(JSON.parse(stored));
+    } catch (_error) { /* unavailable preview never replaces authoritative settings */ }
     return model.normalizeSettings(null);
   }
 

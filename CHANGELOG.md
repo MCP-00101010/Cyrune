@@ -1,6 +1,19 @@
 # Cyrune Repository Changelog
 
+## 2026-09-09 — coordinated current-format cutover
+
+- Implemented the suite compatibility review across all six components; current runtime contracts and supported import/recovery baselines are recorded in [suite-data-cutover.md](docs/architecture/suite-data-cutover.md).
+- Migrated configured Portal/Arcade/Host data with verified originals and exact keys/IDs retained. Nexus settings needed no rewrite. One unavailable source and three unchanged stale approvals remain explicit, including one currently referenced Portal shortcut.
+- Validation: full coordinated release gate and isolated Firefox Portal/Arcade/ScummVM acceptance passed; Relay lint reported zero errors, notices or warnings.
+
 This log records repository-wide migration, tooling, and coordinated release changes only. Product changes belong in the affected component changelog.
+
+## 2026-09-09 — Development migration and compatibility policy
+
+- Prefer coordinated component updates and database/collection/settings migrations to maintaining old runtime behaviour across Cyrune. Require declared migration baselines, recoverable data conversion and clear guidance for incompatible components.
+- Retire obsolete compatibility code and its exclusive tests when documented removal conditions are met. Keep distinct current-behaviour, migration, recovery and authority coverage; avoid duplicate tests and unnecessary repeated full-suite runs.
+- Record the policy in repository instructions and architecture guidance, and align Portal's data-preservation instruction. No runtime formats, live data, protocols or existing support paths change in this documentation update.
+- Validation: infrastructure and component-version checks passed; `git diff --check` passed. Product suites were not rerun for this policy-only edit.
 
 ## 2026-09-07 — Direct Arcade library browsing
 

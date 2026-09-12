@@ -27,13 +27,23 @@ Repository-only work under `docs/`, `tools/`, or root `tests/` uses this file, b
 
 ## Shared Invariants
 
-- Preserve schemas, extension/native identifiers, persisted storage keys, message/event names, credential targets, opaque bindings, portable-format identifiers, and user data unless a separately documented compatibility migration explicitly changes them.
+- Protect user data, credentials and existing launch authority. Schemas, identifiers, storage keys, bindings and message formats may change through documented migrations and coordinated component updates; they are not permanent compatibility obligations.
 - Keep mutable runtime data, generated packages, credentials, logs, caches, and live device bindings outside the checkout.
 - Keep browser authority in Relay and device/filesystem/process/credential authority in Host. Portal, Widgets, and Arcade must use their declared bridge capabilities rather than bypassing those boundaries.
 - Keep shared Cyrune settings schemas and management in Nexus, transport in Relay, and native persistence in Host. The Nexus page is an editor and diagnostic client, not an always-running settings service.
 - Never place native paths, command authority, credentials, or unredacted binding targets in portable Portal, Arcade, or Widget data.
 - Use current Cyrune component names in user-facing text. Legacy names are allowed only for preserved compatibility identifiers, explicit migration handling, historical records, or tests of those contracts.
 - Use `docs/architecture/` for durable cross-component and interface rules, component READMEs for human-facing setup/shape, component `AGENTS.md` files for implementation constraints, TODOs for outstanding work, and changelogs for completed work.
+
+## Development Compatibility and Test Policy
+
+- Cyrune is in active development. Prefer updating databases, collections and settings to the current format over maintaining parallel legacy runtime behaviour. Apply this policy across Portal, Arcade, Nexus, Relay, Host and Widgets.
+- Coordinated component updates may require current protocol support. Detect outdated peers and provide update/reload guidance; do not add old-client fallbacks by default. Ordinary optional capabilities and temporary disconnect handling remain supported product behaviour.
+- For a format change, define the supported migration baseline, preserve a recoverable backup, validate the converted data, and use atomic or recoverable writes. Migrate at the load/import boundary, then operate on the current format. Preserve user choices and the meaning of bindings without retaining obsolete shapes throughout the application.
+- Retire old readers, aliases, branches and their exclusive tests when their supported migration path and documented removal conditions are satisfied. Update the compatibility register where applicable. A retained legacy identifier does not itself require supporting an old application version.
+- Add tests for distinct behaviour, meaningful regressions, migration integrity and authority boundaries. Consolidate duplicates and remove obsolete implementation-specific assertions with the code they cover. Test count is not a progress target.
+- Use focused tests while developing and the required coordinated checks for releases or actual runtime boundary changes. Avoid repeated full runs after a passing result unless a change or unresolved failure warrants them. Documentation-only policy edits need relevant document/contract checks, not a rerun of every product suite.
+- This policy guides implementation within the requested task; it does not authorize unrelated live-data migrations or weaken component authority boundaries. See `docs/architecture/component-boundaries.md` for the durable support policy.
 
 ## Release and Commit Checklist
 

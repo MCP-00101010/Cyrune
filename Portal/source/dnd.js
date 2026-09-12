@@ -993,7 +993,7 @@ function handleBoardColumnDrop(event, columnId) {
   pushUndoSnapshot();
 
   const board = getActiveBoard();
-  const column = board.columns.find(col => col.id === columnId);
+  const column = getBoardColumns(board).find(col => col.id === columnId);
   if (!column) return;
 
   if (isNavColWidget) {

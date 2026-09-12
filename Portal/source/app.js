@@ -1,4 +1,4 @@
-const APP_VERSION = '0.12.21';
+const APP_VERSION = '0.12.22';
 const PORTAL_UI_TEXT = Object.freeze({
   readOnlyCached: 'Read-only: reconnect Cyrune Relay to edit Portal data. The last authoritative cache remains available for viewing and export.',
   readOnlyIncompatible: 'Read-only: Cyrune Relay is incompatible or outdated. Reload the temporary extension from this checkout, then reload Portal.',
@@ -1029,7 +1029,7 @@ function attachEventListeners() {
     if (!board || !tab) return;
     pushUndoSnapshot();
     tab.showSetBar = tab.showSetBar === false;
-    syncBoardCompatibilityFields(board, tab.id);
+
     renderBoard();
     saveState();
   });

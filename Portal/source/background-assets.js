@@ -72,7 +72,7 @@ async function applyBackgroundImageDataUrl(rawDataUrl, options = {}) {
   tab.backgroundImage = await storeBackgroundImageDataUrl(rawDataUrl, options);
   document.getElementById('bstgBgUrl').value = '';
   updateBgDropZonePreview(tab.backgroundImage);
-  syncBoardCompatibilityFields(board, tab.id);
+
   applyBoardBackground(board);
 }
 
@@ -105,7 +105,7 @@ async function promoteActiveBackgroundUrlToAsset() {
   tab.backgroundImage = localPath;
   document.getElementById('bstgBgUrl').value = localPath;
   updateBgDropZonePreview(localPath);
-  syncBoardCompatibilityFields(board, tab.id);
+
   applyBoardBackground(board);
   return true;
 }
@@ -127,7 +127,7 @@ async function migrateEmbeddedBackgroundAssets() {
       if (!saved?.publicPath) continue;
       tab.backgroundImage = saved.publicPath;
       migrated += 1;
-      syncBoardCompatibilityFields(board, tab.id);
+
     }
   }
   if (migrated > 0) {
@@ -151,7 +151,7 @@ async function migrateRemoteBackgroundAssets() {
       if (!localPath) continue;
       tab.backgroundImage = localPath;
       migrated += 1;
-      syncBoardCompatibilityFields(board, tab.id);
+
     }
   }
   if (migrated > 0) {

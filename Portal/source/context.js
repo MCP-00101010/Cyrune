@@ -344,7 +344,7 @@ function handleContextMenuAction(action) {
       if (!tab || !contextTarget.setId || board?.locked) break;
       pushUndoSnapshot();
       tab.setBar = (tab.setBar || []).filter(id => id !== contextTarget.setId);
-      syncBoardCompatibilityFields(board, tab.id);
+
       renderAll();
       saveState();
       break;
@@ -946,7 +946,7 @@ function handleContextMenuAction(action) {
         pushUndoSnapshot();
         if (!Array.isArray(tab.setBar)) tab.setBar = [];
         tab.setBar.push(setId);
-        syncBoardCompatibilityFields(board, tab.id);
+
         renderAll();
         saveState();
       } else if (action === 'createSetFromBookmark') {

@@ -8,7 +8,6 @@ let _calendarDayModal = null;
 let _calendarMoonIconSequence = 0;
 let _calendarRequestSequence = 0;
 
-const CALENDAR_VIEW_PREFIX = 'morpheus-webhub-calendar-view:';
 const CALENDAR_MAX_SOURCES = 12;
 const CALENDAR_MAX_RESPONSE_CHARS = 2 * 1024 * 1024;
 const CALENDAR_RANGE_BEHIND_DAYS = 370;
@@ -83,14 +82,9 @@ function _calendarSourceUsesCredential(source) {
   return _calendarSourceNeedsSecret(source) || source.type === 'football';
 }
 
-function _calendarViewKey(widgetId) {
-  return `${CALENDAR_VIEW_PREFIX}${widgetId}`;
-}
-
 function _calendarReadView(widget) {
   if (_calendarViewMemory.has(widget.id)) return _calendarViewMemory.get(widget.id);
-  const stored = WidgetSDK.cache.get('protonCalendar', widget.id, 'view')
-    || WidgetSDK.cache.migrateLegacy('protonCalendar', widget.id, 'view', _calendarViewKey(widget.id));
+  const stored = WidgetSDK.cache.get('protonCalendar', widget.id, 'view');
   const defaultMode = widget.config?.defaultView === 'month' ? 'month' : 'agenda';
   const anchor = Number(stored?.anchor);
   const view = {
@@ -1268,7 +1262,7 @@ function _calendarDispose(widget) {
   if (_calendarDayModal?.widgetId === widget.id) _calendarCloseDayAgenda();
   _calendarRuntime.delete(widget.id);
   _calendarViewMemory.delete(widget.id);
-  WidgetSDK.cache.remove('protonCalendar', widget.id, 'view', { legacyKeys: [_calendarViewKey(widget.id)] });
+  WidgetSDK.cache.remove('protonCalendar', widget.id, 'view');
 }
 
 WIDGET_REGISTRY['protonCalendar'] = {

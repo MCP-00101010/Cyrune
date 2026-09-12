@@ -328,23 +328,6 @@ function getLocalCacheMeta() {
   return cloneData(localCacheMeta);
 }
 
-function migrateStyleSettings(settings) {
-  if (!settings.styleOverrides) settings.styleOverrides = cloneData(defaultSettings.styleOverrides);
-  else settings.styleOverrides = { ...defaultSettings.styleOverrides, ...settings.styleOverrides };
-  if (settings.showBookmarkTags === undefined) settings.showBookmarkTags = settings.showTags !== false;
-  if (settings.showFolderTags === undefined) settings.showFolderTags = settings.showTags !== false;
-  if (settings.styleOverridesMigrated) return;
-
-  const differs = (key, fallback) => settings[key] !== undefined && settings[key] !== fallback;
-  settings.styleOverrides.hubName = differs('hubNameFontSize', 18) || !!settings.hubNameFontFamily || !!settings.hubNameBold || !!settings.hubNameItalic || !!settings.hubNameUnderline || differs('hubNameTextAlign', 'left') || !!settings.hubNameColor;
-  settings.styleOverrides.boardTitle = differs('boardTitleFontSize', 22) || !!settings.boardTitleFontFamily || !!settings.boardTitleBold || !!settings.boardTitleItalic || !!settings.boardTitleUnderline || differs('boardTitleTextAlign', 'left') || !!settings.boardTitleColor;
-  settings.styleOverrides.board = differs('boardFontSize', 14) || !!settings.boardFontFamily || !!settings.boardBold || !!settings.boardItalic || !!settings.boardUnderline || differs('boardTextAlign', 'left') || !!settings.boardColor;
-  settings.styleOverrides.bookmark = differs('bookmarkFontSize', 14) || !!settings.bookmarkFontFamily || !!settings.bookmarkBold || !!settings.bookmarkItalic || !!settings.bookmarkUnderline || differs('bookmarkTextAlign', 'left') || !!settings.bookmarkColor;
-  settings.styleOverrides.folder = differs('folderFontSize', 15) || !!settings.folderFontFamily || !!settings.folderBold || !!settings.folderItalic || !!settings.folderUnderline || differs('folderTextAlign', 'left') || !!settings.folderColor;
-  settings.styleOverrides.title = differs('titleFontSize', 12) || differs('titleLineThickness', 1) || !!settings.titleLineColor || differs('titleLineStyle', 'solid') || !!settings.titleFontFamily || !!settings.titleBold || !!settings.titleItalic || !!settings.titleUnderline || !!settings.titleColor;
-  settings.styleOverridesMigrated = true;
-}
-
 function normalizeThemeStyleSettings(style) {
   const normalized = { ...cloneData(defaultThemeStyleSettings), ...(style || {}) };
   normalized.styleOverrides = {
@@ -357,43 +340,19 @@ function normalizeThemeStyleSettings(style) {
   return normalized;
 }
 
-function buildLegacyThemeStyleSettings(settings) {
-  const legacy = {};
-  THEME_STYLE_SETTING_KEYS.forEach(key => {
-    if (key === 'styleOverrides') {
-      legacy.styleOverrides = cloneData(settings.styleOverrides || defaultThemeStyleSettings.styleOverrides);
-      return;
-    }
-    if (settings[key] !== undefined) legacy[key] = cloneData(settings[key]);
-  });
-  return normalizeThemeStyleSettings(legacy);
+function getActiveThemeStyleSettings(options) {
+  return getThemeStyleProfile(state?.settings?.activeThemeName, options);
 }
 
-function migrateThemeStyleProfiles(settings) {
-  const rawProfiles = settings.themeStyleProfiles && typeof settings.themeStyleProfiles === 'object' && !Array.isArray(settings.themeStyleProfiles)
-    ? settings.themeStyleProfiles
-    : {};
-  const normalizedProfiles = {};
-  Object.entries(rawProfiles).forEach(([themeId, profile]) => {
-    if (typeof themeId !== 'string' || !themeId.trim()) return;
-    normalizedProfiles[themeId] = normalizeThemeStyleSettings(profile);
-  });
-  settings.themeStyleProfiles = normalizedProfiles;
+function duplicateThemeStyleProfile(sourceThemeId, targetThemeId) {
+  if (!targetThemeId) return normalizeThemeStyleSettings(null);
+  const source = getThemeStyleProfile(sourceThemeId, { create: false });
+  return setThemeStyleProfile(targetThemeId, cloneData(source));
+}
 
-  const activeThemeId = getResolvedThemeId(settings.activeThemeName || defaultSettings.activeThemeName);
-  const activeProfile = settings.themeStyleProfiles[activeThemeId];
-  if (!settings.themeStyleProfilesMigrated || !activeProfile) {
-    const legacyProfile = buildLegacyThemeStyleSettings(settings);
-    settings.themeStyleProfiles[activeThemeId] = normalizeThemeStyleSettings({
-      ...(activeProfile || {}),
-      ...legacyProfile,
-      styleOverrides: {
-        ...(activeProfile?.styleOverrides || {}),
-        ...(legacyProfile.styleOverrides || {})
-      }
-    });
-  }
-  settings.themeStyleProfilesMigrated = true;
+function removeThemeStyleProfile(themeId) {
+  if (!state?.settings?.themeStyleProfiles || !themeId) return;
+  delete state.settings.themeStyleProfiles[themeId];
 }
 
 function getThemeStyleProfile(themeId = null, { create = true } = {}) {
@@ -425,20 +384,6 @@ function setThemeStyleProfile(themeId, profile) {
   return normalized;
 }
 
-function getActiveThemeStyleSettings(options) {
-  return getThemeStyleProfile(state?.settings?.activeThemeName, options);
-}
-
-function duplicateThemeStyleProfile(sourceThemeId, targetThemeId) {
-  if (!targetThemeId) return normalizeThemeStyleSettings(null);
-  const source = getThemeStyleProfile(sourceThemeId, { create: false });
-  return setThemeStyleProfile(targetThemeId, cloneData(source));
-}
-
-function removeThemeStyleProfile(themeId) {
-  if (!state?.settings?.themeStyleProfiles || !themeId) return;
-  delete state.settings.themeStyleProfiles[themeId];
-}
 
 function migrateServiceApiKeys(settings) {
   if (!settings.serviceApiKeys || typeof settings.serviceApiKeys !== 'object') {
@@ -489,8 +434,7 @@ let serviceSecretsCanScrubState = false;
 function getServiceSecret(serviceName) {
   const value = serviceSecretCache?.[serviceName];
   if (typeof value === 'string' && value) return value.trim();
-  const legacy = state?.settings?.serviceApiKeys?.[serviceName];
-  return typeof legacy === 'string' ? legacy.trim() : '';
+  return '';
 }
 
 function setServiceSecretCache(serviceName, value) {
@@ -553,15 +497,14 @@ function createFolderRecord(title, options = {}) {
   };
   if (options.ignoreInheritedTags === true) folder.ignoreInheritedTags = true;
   if (options.locked === true) folder.locked = true;
-  migrateItems(folder.children);
+  normalizeItems(folder.children);
   return folder;
 }
 
-function migrateItems(items) {
+function normalizeItems(items) {
   for (const item of (items || [])) {
     if (!item) continue;
     if (item.ignoreInheritedTags !== true) delete item.ignoreInheritedTags;
-    if (item.type === 'divider') { item.type = 'title'; item.title = ''; }
     if (item.type === 'bookmark') {
       if (!item.tags) item.tags = [];
       if (item.faviconCache === undefined) item.faviconCache = '';
@@ -608,11 +551,9 @@ function migrateItems(items) {
     }
     if (item.type === 'folder') {
       if (!item.sharedTags) item.sharedTags = [];
-      if (item.labels && !item.tags) item.tags = item.labels;
-      delete item.labels;
       if (!item.tags) item.tags = [];
       if (!Array.isArray(item.children)) item.children = [];
-      item.folderMode = normalizeFolderMode(item.folderMode ?? item.mode);
+      item.folderMode = normalizeFolderMode(item.folderMode);
       item.rules = normalizeDynamicRules(item.rules);
       item.sortMode = normalizeDynamicSortMode(item.sortMode);
       delete item.mode;
@@ -620,7 +561,7 @@ function migrateItems(items) {
       delete item.autoRemoveTags;
     }
     if (item.type === 'widget' && typeof WidgetSDK !== 'undefined') WidgetSDK.state.migrate(item);
-    if (item.children) migrateItems(item.children);
+    if (item.children) normalizeItems(item.children);
   }
 }
 
@@ -704,7 +645,7 @@ function normalizeSetRecord(set, index = 0) {
 
 function normalizeImportManagerState(importManager) {
   const items = cloneData(Array.isArray(importManager?.items) ? importManager.items : []);
-  migrateItems(items);
+  normalizeItems(items);
   stripTransientItemLocks(items);
   return {
     items,
@@ -854,7 +795,7 @@ function restoreSetFromTrashItem(item) {
 function normalizeRestoredBoardItem(item) {
   if (!item) return null;
   const restored = cloneData(item);
-  migrateItems([restored]);
+  normalizeItems([restored]);
   return restored;
 }
 
@@ -862,49 +803,13 @@ function collectSetUrls(set) {
   return resolveSetItems(set).filter(item => item?.url).map(item => item.url);
 }
 
-function migrateWidgetServiceSettings(parsed) {
-  const serviceKeys = parsed.settings?.serviceApiKeys;
-  if (!serviceKeys) return;
-
-  const visitItem = item => {
-    if (!item) return;
-    if (item.type === 'widget' && item.widgetType === 'nasaApod' && item.config && typeof item.config === 'object') {
-      const oldKey = typeof item.config.apiKey === 'string' ? item.config.apiKey.trim() : '';
-      if (oldKey && !serviceKeys.nasa) serviceKeys.nasa = oldKey;
-      delete item.config.apiKey;
-      if (item.data?.apodCache && typeof item.data.apodCache === 'object') {
-        delete item.data.apodCache.apiKey;
-      }
-    }
-    if (item.children) item.children.forEach(visitItem);
-  };
-
-  (parsed.essentials || []).forEach(visitItem);
-  (parsed.navItems || []).forEach(visitItem);
-  for (const board of (parsed.boards || [])) {
-    for (const tab of getBoardTabs(board)) {
-      for (const col of (tab.columns || [])) {
-        (col.items || []).forEach(visitItem);
-      }
-      (getBoardInbox(board, tab)?.items || []).forEach(visitItem);
-    }
-  }
-}
-
 function getBoardTabs(board) {
   if (!board) return [];
-  if (Array.isArray(board.tabs)) return board.tabs;
-  return [board];
+  return Array.isArray(board.tabs) ? board.tabs : [];
 }
 
-function clearBoardCompatibilityFields(board) {
-  if (!board) return;
-  board.columnCount = 0;
-  board.backgroundImage = '';
-  board.backgroundFit = 'cover';
-  board.containerOpacity = 100;
-  board.columns = [];
-  board.inbox = null;
+function getBoardColumns(board) {
+  return getBoardTabs(board).flatMap(tab => tab.columns || []);
 }
 
 function normalizeBoardInboxRecord(inbox, tabId) {
@@ -915,7 +820,7 @@ function normalizeBoardInboxRecord(inbox, tabId) {
   normalized.title = normalized.title || 'Inbox';
   normalized.isInbox = true;
   if (!Array.isArray(normalized.items)) normalized.items = [];
-  migrateItems(normalized.items);
+  normalizeItems(normalized.items);
   stripTransientItemLocks(normalized.items);
   return normalized;
 }
@@ -958,49 +863,14 @@ function normalizeBoardTabRecord(tab, boardId, index = 0) {
   };
   for (const col of normalized.columns) {
     if (!Array.isArray(col.items)) col.items = [];
-    migrateItems(col.items);
+    normalizeItems(col.items);
   }
   return normalized;
 }
 
-function syncBoardCompatibilityFields(board, preferredTabId = null) {
-  if (!board || !Array.isArray(board.tabs) || !board.tabs.length) return board;
-  const preferred = preferredTabId
-    || (board.id === state?.activeBoardId ? state?.activeTabId : null)
-    || board.tabs[0]?.id;
-  const tab = board.tabs.find(entry => entry.id === preferred) || board.tabs[0];
-  if (!tab) return board;
-  board.columnCount = tab.columnCount;
-  board.backgroundImage = tab.backgroundImage;
-  board.backgroundFit = tab.backgroundFit;
-  board.containerOpacity = tab.containerOpacity;
-  board.columns = tab.columns;
-  board.inbox = tab.inbox;
-  return board;
-}
-
-function syncBoardCompatibilityState() {
-  for (const board of (state?.boards || [])) {
-    syncBoardCompatibilityFields(board);
-  }
-}
-
 function normalizeBoardRecord(board, index = 0) {
   const id = board?.id || `board-${Date.now()}-${index}`;
-  const tabs = Array.isArray(board?.tabs)
-    ? board.tabs.map((tab, tabIndex) => normalizeBoardTabRecord(tab, id, tabIndex))
-    : [normalizeBoardTabRecord({
-        id: board?.tabId || `${id}-tab-1`,
-        title: board?.tabTitle || board?.title || 'Home',
-        columnCount: board?.columnCount,
-        backgroundImage: board?.backgroundImage,
-        backgroundFit: board?.backgroundFit,
-        containerOpacity: board?.containerOpacity,
-        sharedTags: board?.sharedTags,
-        tags: board?.tags,
-        columns: board?.columns,
-        locked: board?.locked
-      }, id, 0)];
+  const tabs = (Array.isArray(board?.tabs) ? board.tabs : []).map((tab, tabIndex) => normalizeBoardTabRecord(tab, id, tabIndex));
   const normalized = {
     ...board,
     id,
@@ -1011,25 +881,20 @@ function normalizeBoardRecord(board, index = 0) {
     showSpeedDial: board?.showSpeedDial !== false,
     speedDialSlotCount: board?.speedDialSlotCount,
     speedDial: Array.isArray(board?.speedDial) ? board.speedDial : [],
-    tabs,
-    columnCount: Array.isArray(board?.columns) ? board.columns.length : 0,
-    backgroundImage: typeof board?.backgroundImage === 'string' ? board.backgroundImage : '',
-    backgroundFit: board?.backgroundFit === 'contain' ? 'contain' : (board?.backgroundFit === 'fill' ? 'fill' : 'cover'),
-    containerOpacity: board?.containerOpacity === undefined ? 100 : board.containerOpacity,
-    columns: Array.isArray(board?.columns) ? board.columns : [],
-    inbox: board?.inbox || null
+    tabs
   };
+  for (const key of ['columns', 'inbox', 'columnCount', 'backgroundImage', 'backgroundFit', 'containerOpacity']) delete normalized[key];
   delete normalized.inheritTags;
   delete normalized.autoRemoveTags;
   normalizeSpeedDialSlots(normalized);
-  migrateItems(normalized.speedDial);
+  normalizeItems(normalized.speedDial);
   for (const item of (normalized.speedDial || [])) {
     if (!item) continue;
     if (!item.type) item.type = 'bookmark';
     if (!item.tags) item.tags = [];
     if (item.faviconCache === undefined) item.faviconCache = '';
   }
-  if (tabs.length) syncBoardCompatibilityFields(normalized, tabs[0]?.id);
+
   return normalized;
 }
 
@@ -1066,54 +931,6 @@ function deleteTag(id) {
 
 // --- One-time migration: string-name tags → ID-based tag objects ---
 
-function migrateToIdTags(parsed) {
-  if (Array.isArray(parsed.tags)) return; // already migrated
-
-  parsed.tags = [];
-  const nameToId = new Map();
-  let seq = 0;
-  const ts = Date.now();
-
-  function findGroupId(name) {
-    for (const g of (parsed.settings?.tagGroups || [])) {
-      if ((g.tags || []).includes(name)) return g.id;
-    }
-    return null;
-  }
-
-  function getOrCreate(name) {
-    if (nameToId.has(name)) return nameToId.get(name);
-    const id = `tag-${ts}-${seq++}`;
-    const color = parsed.settings?.tagColors?.[name] || null;
-    parsed.tags.push({ id, name, groupId: findGroupId(name), color });
-    nameToId.set(name, id);
-    return id;
-  }
-
-  function migrateItemTags(item) {
-    if (!item) return;
-    if (Array.isArray(item.tags))       item.tags       = item.tags.map(t => getOrCreate(t));
-    if (Array.isArray(item.sharedTags)) item.sharedTags = item.sharedTags.map(t => getOrCreate(t));
-    if (item.children) item.children.forEach(migrateItemTags);
-  }
-
-  for (const board of (parsed.boards || [])) {
-    migrateItemTags(board);
-    (board.speedDial || []).forEach(migrateItemTags);
-    for (const tab of getBoardTabs(board)) {
-      for (const col of (tab.columns || [])) col.items.forEach(migrateItemTags);
-      (getTabInbox(tab, tab.id)?.items || []).forEach(migrateItemTags);
-    }
-  }
-  (parsed.navItems  || []).forEach(migrateItemTags);
-  (parsed.essentials|| []).forEach(migrateItemTags);
-  (parsed.sets || []).forEach(set => (set.items || []).forEach(migrateItemTags));
-  (parsed.importManager?.items || []).forEach(migrateItemTags);
-
-  for (const g of (parsed.settings?.tagGroups || [])) delete g.tags;
-  if (parsed.settings) delete parsed.settings.tagColors;
-}
-
 function parseStateJson(saved, options = {}) {
   if (!saved) return cloneData(defaultState);
   try {
@@ -1131,36 +948,17 @@ function parseStateJson(saved, options = {}) {
     parsed.boards = Array.isArray(parsed.boards)
       ? parsed.boards.map((board, index) => normalizeBoardRecord(board, index))
       : [];
-    const legacyImportBoard = parsed.boards.find(board => board?.isImportManager);
-    if (legacyImportBoard) {
-      const legacyItems = [];
-      for (const tab of getBoardTabs(legacyImportBoard)) {
-        for (const col of (tab.columns || [])) {
-          if (!col?.isInbox && Array.isArray(col.items) && col.items.length) legacyItems.push(...cloneData(col.items));
-        }
-      }
-      if (legacyItems.length) {
-        stripTransientItemLocks(legacyItems);
-        parsed.importManager.items.push(...legacyItems);
-        if (!parsed.importManager.lastImportedAt) parsed.importManager.lastImportedAt = new Date().toISOString();
-      }
-    }
-    migrateItems(parsed.navItems);
+    normalizeItems(parsed.navItems);
     coerceNavFolderModes(parsed.navItems);
-    if (!parsed.hubName || parsed.hubName === 'Morpheus WebHub') parsed.hubName = 'Cyrune Portal';
+    if (!parsed.hubName) parsed.hubName = 'Cyrune Portal';
     if (!parsed.settings) parsed.settings = { ...defaultSettings };
     else parsed.settings = { ...defaultSettings, ...parsed.settings };
-    migrateStyleSettings(parsed.settings);
-    migrateThemeStyleProfiles(parsed.settings);
-    migrateServiceApiKeys(parsed.settings);
-    migrateWidgetServiceSettings(parsed);
     // Tag ID migration — must run before essentials migration (which also has tags)
-    migrateToIdTags(parsed);
     parsed.tags = parsed.tags || [];
     // Migrate: strip trailing nulls from old fixed-slot saves; preserve interior gaps
     parsed.essentials = parsed.essentials || [];
     while (parsed.essentials.length > 0 && !parsed.essentials[parsed.essentials.length - 1]) parsed.essentials.pop();
-    migrateItems(parsed.essentials);
+    normalizeItems(parsed.essentials);
     for (const e of parsed.essentials) {
       if (!e) continue;
       if (!e.tags) e.tags = [];
@@ -1173,11 +971,11 @@ function parseStateJson(saved, options = {}) {
       parsed.activeBoardId = first ? first.id : null;
     }
     const activeBoard = parsed.boards.find(b => b.id === parsed.activeBoardId) || parsed.boards[0] || null;
-    for (const board of parsed.boards) syncBoardCompatibilityFields(board);
+
     if (activeBoard) {
       const activeTab = activeBoard.tabs?.find(tab => tab.id === parsed.activeTabId) || activeBoard.tabs?.[0] || null;
       parsed.activeTabId = activeTab?.id || null;
-      syncBoardCompatibilityFields(activeBoard, parsed.activeTabId);
+
     } else {
       parsed.activeTabId = null;
     }
@@ -1382,19 +1180,11 @@ function notifySharedDiskConflict(detail = {}) {
 }
 
 function serializeStateSnapshot() {
-  syncBoardCompatibilityState();
+
   trimFaviconCache();
   stripLegacySharedTagToggleFields(state);
   if (canScrubStoredServiceApiKeys()) clearStoredServiceApiKeys(state);
   const snapshot = cloneData(state);
-  for (const board of (snapshot.boards || [])) {
-    delete board.columnCount;
-    delete board.backgroundImage;
-    delete board.backgroundFit;
-    delete board.containerOpacity;
-    delete board.columns;
-    delete board.inbox;
-  }
   return JSON.stringify(snapshot);
 }
 
@@ -1562,7 +1352,7 @@ async function persistGamePickerBatch(destination, games) {
 function getActiveBoard() {
   if (!state.activeBoardId) return null;
   const board = state.boards.find(b => b.id === state.activeBoardId) || null;
-  if (board) syncBoardCompatibilityFields(board, state.activeTabId);
+
   return board;
 }
 
@@ -1572,7 +1362,7 @@ function getActiveBoardContainer() {
 
 function getBoardTab(board, tabId = null) {
   if (!board) return null;
-  if (!Array.isArray(board.tabs)) return board;
+  if (!Array.isArray(board.tabs)) return null;
   if (!board.tabs.length) return null;
   const preferredTabId = tabId || (board.id === state.activeBoardId ? state.activeTabId : null);
   return board.tabs.find(tab => tab.id === preferredTabId) || board.tabs[0] || null;
@@ -1585,7 +1375,7 @@ function getActiveTab() {
   const tab = getBoardTab(board, state.activeTabId);
   if (tab) {
     if (state.activeTabId !== tab.id) state.activeTabId = tab.id;
-    syncBoardCompatibilityFields(board, tab.id);
+
   }
   return tab;
 }
@@ -1651,7 +1441,7 @@ function createBoardTab(board, title = 'New Tab', options = {}) {
   }, board.id, board.tabs.length);
   board.tabs.push(tab);
   state.activeTabId = tab.id;
-  syncBoardCompatibilityFields(board, tab.id);
+
   return tab;
 }
 
@@ -1663,14 +1453,14 @@ function removeBoardTab(board, tabId, options = {}) {
   board.tabs.splice(index, 1);
   if (!board.tabs.length) {
     state.activeTabId = null;
-    clearBoardCompatibilityFields(board);
+
     return true;
   }
   if (deletingActiveTab) {
     const fallback = board.tabs[Math.max(0, index - 1)] || board.tabs[0] || null;
     state.activeTabId = fallback?.id || null;
   }
-  syncBoardCompatibilityFields(board, deletingActiveTab ? state.activeTabId : (state.activeTabId || board.tabs[0]?.id || null));
+
   return true;
 }
 
@@ -1689,7 +1479,7 @@ function reorderBoardTab(board, draggedTabId, targetTabId = null, position = 'af
     insertIndex = targetIndex + (position === 'after' ? 1 : 0);
   }
   board.tabs.splice(Math.max(0, Math.min(insertIndex, board.tabs.length)), 0, dragged);
-  syncBoardCompatibilityFields(board, state.activeTabId);
+
   return true;
 }
 
@@ -1966,7 +1756,7 @@ function removeBoardItemById(itemId) {
 
 function addBoardItemToColumn(columnId, item) {
   const board = getActiveBoard();
-  const column = board.columns.find(col => col.id === columnId);
+  const column = getBoardColumns(board).find(col => col.id === columnId);
   if (column) column.items.push(item);
 }
 
@@ -2000,15 +1790,9 @@ function createBoardRecord(title, options = {}) {
     sharedTags: Array.isArray(options.sharedTags) ? options.sharedTags : [],
     tags: Array.isArray(options.tags) ? options.tags : [],
     tabs,
-    columnCount: tabs[0]?.columnCount || 0,
-    backgroundImage: tabs[0]?.backgroundImage || '',
-    backgroundFit: tabs[0]?.backgroundFit || 'cover',
-    containerOpacity: tabs[0]?.containerOpacity ?? 100,
-    columns: tabs[0]?.columns || [],
-    inbox: tabs[0]?.inbox || null,
     ...(options.extra || {})
   };
-  if (tabs[0]) syncBoardCompatibilityFields(board, tabs[0].id);
+
   normalizeSpeedDialSlots(board);
   return board;
 }
@@ -2047,7 +1831,7 @@ function addNavSection(item) {
 function addBookmark(title, url, columnId, tags = [], faviconCache = '', options = {}) {
   if (!isValidUrl(url)) { alert('Please enter a valid URL.'); return false; }
   const board = getActiveBoard();
-  const column = board.columns.find(col => col.id === columnId) || board.columns[0];
+  const column = getBoardColumns(board).find(col => col.id === columnId) || getBoardTab(board)?.columns[0];
   const bookmark = { id: `bm-${Date.now()}`, type: 'bookmark', title, url: normalizeUrl(url), tags, faviconCache };
   if (options.ignoreInheritedTags === true) bookmark.ignoreInheritedTags = true;
   column.items.push(bookmark);
@@ -2068,7 +1852,7 @@ function addSpeedDialBookmark(title, url, tags = [], faviconCache = '') {
 
 function addBookmarkItem(type, title, columnId, options = {}) {
   const board = getActiveBoard();
-  const column = board.columns.find(col => col.id === columnId) || board.columns[0];
+  const column = getBoardColumns(board).find(col => col.id === columnId) || getBoardTab(board)?.columns[0];
   const item = type === 'folder'
     ? createFolderRecord(title, { ...options, id: `id-${Date.now()}` })
     : { id: `id-${Date.now()}`, type, title };
@@ -2118,7 +1902,7 @@ function renameContextItem(text, contextTarget) {
     const tab = findBoardTabById(board, contextTarget.tabId);
     if (tab) {
       tab.title = text;
-      syncBoardCompatibilityFields(board, tab.id);
+
     }
   }
 }
@@ -2446,7 +2230,7 @@ function findDuplicateUrl(url) {
       if (!sd) continue;
       if (sd.url === normalized) return { item: sd, location: `${board.title} (Speed Dial)` };
     }
-    for (const col of board.columns) {
+    for (const col of getBoardColumns(board)) {
       const r = walk(col.items, board.title);
       if (r) return r;
     }
@@ -2460,7 +2244,7 @@ function findDuplicateUrl(url) {
 
 function getBoardInbox(board, tab = null) {
   const sourceTab = tab || getBoardTab(board);
-  if (!sourceTab) return board?.inbox || null;
+  if (!sourceTab) return null;
   return getTabInbox(sourceTab, sourceTab.id);
 }
 
@@ -2699,7 +2483,7 @@ function restoreFromTrash(trashId) {
       const inboxTab = source.columnId ? findBoardTabByInboxId(board, source.columnId) : null;
       const col = inboxTab
         ? getBoardInbox(board, inboxTab)
-        : (board.columns.find(c => c.id === source.columnId) || board.columns[0] || getBoardInbox(board));
+        : (getBoardColumns(board).find(c => c.id === source.columnId) || getBoardTab(board)?.columns[0] || getBoardInbox(board));
       const restored = normalizeRestoredBoardItem(item);
       if (source.parentId) {
         const parent = findBoardItemInColumns(board, source.parentId)?.item;
@@ -2723,7 +2507,7 @@ function cleanTrashAfterRestore() {
   const walkNav = (items) => { for (const ni of (items || [])) { liveIds.add(ni.id); if (ni.children) walkNav(ni.children); } };
   for (const board of (state.boards || [])) {
     liveIds.add(board.id);
-    for (const col of (board.columns || [])) walkItems(col.items);
+    for (const col of getBoardColumns(board)) walkItems(col.items);
     for (const tab of getBoardTabs(board)) walkItems(getBoardInbox(board, tab)?.items || []);
     for (const i of (board.speedDial || [])) if (i?.id) liveIds.add(i.id);
   }
@@ -2759,7 +2543,7 @@ function trimFaviconCache(skipItem = null) {
   walk(state.essentials);
   for (const board of state.boards) {
     walk(board.speedDial);
-    for (const col of board.columns) walk(col.items);
+    for (const col of getBoardColumns(board)) walk(col.items);
     for (const tab of getBoardTabs(board)) walk(getBoardInbox(board, tab)?.items || []);
   }
   walk(state.importManager?.items || []);

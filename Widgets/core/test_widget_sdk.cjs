@@ -298,12 +298,13 @@ test('cache service migrates and removes legacy localStorage entries', () => {
     }
   });
   const result = vm.runInContext(`(() => {
-    localStorage.setItem('legacy-weather:one', JSON.stringify({ fetchedAt: 42, payload: { value: 7 } }));
-    const migrated = WidgetSDK.cache.migrateLegacy('weather', 'one', 'forecast', 'legacy-weather:one');
+    localStorage.setItem('morpheus-webhub-weather:one', JSON.stringify({ fetchedAt: 42, payload: { value: 7 } }));
+    _widgetSdkUpgradeCaches();
+    const migrated = WidgetSDK.cache.get('weather', 'one', 'forecast');
     return {
       migrated,
       current: WidgetSDK.cache.get('weather', 'one', 'forecast'),
-      legacy: localStorage.getItem('legacy-weather:one')
+      legacy: localStorage.getItem('morpheus-webhub-weather:one')
     };
   })()`, context);
   assert.deepEqual(JSON.parse(JSON.stringify(result)), {

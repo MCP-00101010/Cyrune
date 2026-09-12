@@ -1,5 +1,7 @@
 # Cyrune Portal–Arcade Integration Contract
 
+The [2026-09-09 suite data cutover](suite-data-cutover.md) supersedes historical legacy-binding coexistence and older runtime protocol descriptions below. Current game approvals use one schema-5 store.
+
 This document defines the durable security, data, and ownership rules for Portal/Arcade integration. Historical implementation steps remain in `docs/history/portal-arcade-integration-plan.md`.
 
 **Catalogue capability v1** lets Portal's regular-column picker browse configured managed Spectrum libraries directly, including read-only collections. Optional `arcade-scummvm: 1` adds existing ScummVM registrations through the [configured-source adapter](arcade-scummvm-adapter.md), with independently validated native bindings and original-platform selection. No catalogue preparation is required. The [2026-09-07 update](portal-arcade-spectrum-migration.md#direct-library-browsing--2026-09-07) replaces the initial preparation prerequisite and per-search launch preflight. Existing prepared identities, portable schemas and legacy actions remain compatible. Outstanding work remains in component TODOs.

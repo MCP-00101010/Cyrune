@@ -46,10 +46,9 @@ cat > "$CONFIG" <<JSON
 {
   "databasePath": "",
   "arcadeRoot": "",
-  "emuguiRoot": "",
   "approvedDirectories": {},
   "approvedApplications": {},
-  "approvedGames": {}
+  "schemaVersion": 1
 }
 JSON
     echo "Config  : $CONFIG"

@@ -7,10 +7,22 @@
 }(typeof globalThis !== 'undefined' ? globalThis : this, function createNexusModel(registry) {
   'use strict';
 
-  const NEXUS_VERSION = '0.3.0';
+  const NEXUS_VERSION = '0.3.1';
   const SETTINGS_SCHEMA_VERSION = 2;
   const PREVIEW_STORAGE_KEY = 'cyrune.nexus.settings.preview.v2';
-  const LEGACY_PREVIEW_STORAGE_KEYS = Object.freeze(['cyrune.nexus.settings.preview.v1']);
+  function upgradePreview(storage) {
+    const key = 'cyrune.nexus.settings.preview.v1';
+    const previous = storage.getItem(key);
+    if (!previous) return;
+    const existing = storage.getItem(PREVIEW_STORAGE_KEY);
+    if (existing) normalizeSettings(JSON.parse(existing));
+    else {
+      const current = JSON.stringify(normalizeSettings(JSON.parse(previous)));
+      storage.setItem(PREVIEW_STORAGE_KEY, current);
+      if (storage.getItem(PREVIEW_STORAGE_KEY) !== current) throw new Error('Preview upgrade could not be verified');
+    }
+    storage.removeItem(key);
+  }
 
   if (!registry || registry.schemaVersion !== 1 || !Array.isArray(registry.components)) {
     throw new Error('Cyrune component registry did not load');
@@ -244,7 +256,7 @@
     NEXUS_VERSION,
     SETTINGS_SCHEMA_VERSION,
     PREVIEW_STORAGE_KEY,
-    LEGACY_PREVIEW_STORAGE_KEYS,
+    upgradePreview,
     COMPONENTS,
     COMPONENT_SETTING_PATHS,
     DEFAULT_SETTINGS,

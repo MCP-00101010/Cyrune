@@ -18,6 +18,7 @@ def test_spectrum_folder_scrape_is_shared_and_retains_exact_launch_fields(tmp_pa
     configure_fixture(server, tmp_path)
     metadata = server.load_metadata()
     original = metadata['games'][0]
+    original.pop('metadata_group_id', None)
     # Conflicting legacy matches can share a dedicated game folder, but an
     # alphabet bucket must never be treated as one game.
     original['file'] = 'Games/Jetpac/Jetpac (1983)(Ultimate)(48K).tap'

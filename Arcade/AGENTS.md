@@ -10,7 +10,7 @@ Before acting on Arcade code, read `Arcade/README.md`, `Arcade/HEALTH-AUDIT.md`,
 
 - Arcade owns collections, metadata, artwork, scrapers, incoming/review/trash flows, emulator definitions, profiles, launch decisions, favourites, and recent games.
 - Keep `web/index.html`, `web/app.js`, and `web/styles.css` as the canonical external `file://` frontend. Do not copy, vendor, build, or embed the frontend into Relay or Portal.
-- Keep business logic transport-independent under `arcade_core`/`arcade_service.py`. The former `emugui_core` and `emugui_service.py` names are compatibility shims only. Relay may route authenticated bounded requests; Host may provide platform authority; neither owns Arcade business logic.
+- Keep business logic transport-independent under `arcade_core`/`arcade_service.py`. The former `emugui_core` and `emugui_service.py` shims were retired by `docs/architecture/suite-data-cutover.md`; use only canonical imports. Relay may route authenticated bounded requests; Host may provide platform authority; neither owns Arcade business logic.
 - Preserve compatibility-sensitive `EMUGUI_*` operation names, environment variables, meta identifiers, stable game/library/profile IDs, and persisted shapes unless a documented migration changes them.
 
 ## Filesystem, Metadata, and Launch Safety

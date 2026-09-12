@@ -5,6 +5,7 @@ import threading
 
 from arcade_core.atari_overrides import AtariOverrides, edition_target
 from arcade_core.shared_metadata import shared_rows
+from arcade_core.index_schema import assign_groups
 from test_feature_parity import load_server, configure_fixture, post, wait_for_job
 import test_atari_overrides
 
@@ -38,6 +39,7 @@ def test_legacy_containers_keep_unrelated_games_separate_during_load_scrape_edit
     configure_fixture(server, tmp_path)
     metadata = server.load_metadata()
     base = metadata['games'][0]
+    base.pop('metadata_group_id', None)
     rows = []
     for key, title, system in [('airwolf', 'Airwolf', '48K'), ('airwolf128', 'Airwolf', '128K'),
                                ('afterburner', 'After Burner', '48K')]:
@@ -73,7 +75,7 @@ def test_legacy_containers_keep_unrelated_games_separate_during_load_scrape_edit
     saved = server.load_metadata()
     assert next(row for row in saved['games'] if row['id'] == 'afterburner') == rows[2]
     server.LIBRARY = None
-    summaries = server.dispatch_arcade_api('GET', '/api/games', {'shape':'summary', 'groupVersions':'true'})['games']
+    summaries = server.dispatch_arcade_api('GET', '/api/games', {'collection_id': server.active_collection()['id'], 'shape':'summary', 'groupVersions':'true'})['games']
     assert next(row for row in summaries if row['id']=='afterburner')['title'] == 'After Burner'
 
 
@@ -91,7 +93,7 @@ def test_old_atari_scrape_and_newly_indexed_version_share_metadata_without_rescr
         assert {g.title for g in games} == {'Correct game'}
         assert {g.description for g in games} == {'Shared description'}
         assert {g.loading_screen for g in games} == {'scraper-artwork/screenscraper/42/42/box-2D/wor'}
-        summary = server.dispatch_arcade_api('GET', '/api/games', {'shape': 'summary'})['games']
+        summary = server.dispatch_arcade_api('GET', '/api/games', {'collection_id': server.active_collection()['id'], 'shape': 'summary'})['games']
         assert all(not row['cleanup']['artwork'] and not row['cleanup']['description'] for row in summary)
         catalogue = server.get_catalogue_service()
         catalogue.search({'includeAtari': True})
@@ -146,6 +148,7 @@ def test_shared_metadata_preserves_protected_blanks_and_never_mixes_folders_or_m
             {'id':'manual', 'file':'PowerMonger/STE.st', 'title':'PowerMonger', 'description':'',
              'protected_fields':['description']},
             {'id':'other', 'file':'Carrier Command/ST.st', 'title':'Carrier Command', 'description':'Other'}]
+    assign_groups(rows)
     before = deepcopy(rows)
     result = shared_rows(rows)
     assert [row['description'] for row in result] == ['', '', 'Other']

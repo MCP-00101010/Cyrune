@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "nexus",
   "name": "Nexus",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "kind": "page",
   "entrypoint": "index.html",
   "icon": "assets/icons/nexus.svg",

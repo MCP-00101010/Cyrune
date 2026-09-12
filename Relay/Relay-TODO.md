@@ -1,6 +1,8 @@
 # Cyrune Relay TODO
 
-- Monitor 1.1.12: scrape retry/resume, cross-platform artwork, repeated collection switches and Game Boy picker use. Implementation details and validation: `../docs/reviews/arcade-implementation-2026-09-08.md`.
+- Monitor 1.1.13: coordinated data cutover, current protocol negotiation and first-reload browser upgrades. See `docs/architecture/suite-data-cutover.md` at repository root.
+
+- Monitor 1.1.13: scrape retry/resume, cross-platform artwork, repeated collection switches and Game Boy picker use. Implementation details and validation: `../docs/reviews/arcade-implementation-2026-09-08.md`.
 
 - Monitor Relay 1.1.11 committed Portal-theme handoff, custom/light themes, Relay restart and Arcade appearance with Portal closed.
 

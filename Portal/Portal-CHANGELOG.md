@@ -5,6 +5,11 @@ Format: `[version] — date` followed by Added / Changed / Fixed sections.
 
 ---
 
+## [0.12.22] — 2026-09-09
+
+- Canonical schema 7 stores and consumes tabs directly. Old board/item/theme conversion is confined to the import upgrade; secure credentials no longer fall back to portable plaintext. Requires Relay protocol 2.
+- Validation: 165 component tests; coordinated migration/packaging/tooling checks, syntax, versions, infrastructure and Relay lint passed. Isolated Firefox Portal/Arcade acceptance passed.
+
 ## [0.12.21] — 2026-09-08
 
 - Accept negotiated Game Boy catalogue results with GB/GBC/GBA hardware labels. Keep exact cartridge bindings and compact presentation-only records.

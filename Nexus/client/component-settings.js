@@ -2,7 +2,7 @@
   'use strict';
 
   const PROFILE_SCHEMA_VERSION = 2;
-  const SUPPORTED_PROFILE_SCHEMA_VERSIONS = new Set([1, PROFILE_SCHEMA_VERSION]);
+  const SUPPORTED_PROFILE_SCHEMA_VERSIONS = new Set([PROFILE_SCHEMA_VERSION]);
   const COMPONENTS = new Set(['portal-widgets', 'arcade']);
   const DEFAULTS = Object.freeze({
     region: { country: 'GB', city: '', timeZone: 'Europe/London', locationMode: 'manual', latitude: null, longitude: null },
@@ -70,7 +70,7 @@
         if (!Object.prototype.hasOwnProperty.call(supplied, key)) continue;
         values[section][key] = normalizedValue(section, key, supplied[key], fallback);
         const path = `${section}.${key}`;
-        sources[path] = profile.profileSchemaVersion === PROFILE_SCHEMA_VERSION && profile.sources?.[path] === 'component'
+        sources[path] = profile.sources?.[path] === 'component'
           ? 'component'
           : 'global';
       }

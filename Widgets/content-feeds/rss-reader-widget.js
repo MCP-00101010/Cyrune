@@ -4,8 +4,6 @@ const _rssMemoryCache = new Map();
 const _rssViewMemory = new Map();
 const _rssRuntime = new Map();
 
-const RSS_CACHE_PREFIX = 'morpheus-webhub-rss-cache:';
-const RSS_VIEW_PREFIX = 'morpheus-webhub-rss-view:';
 const RSS_CACHE_SCHEMA = 1;
 const RSS_MAX_FEEDS = 12;
 const RSS_MAX_RESPONSE_CHARS = 2 * 1024 * 1024;
@@ -58,14 +56,9 @@ function _rssValidUrl(value) {
   }
 }
 
-function _rssCacheKey(widgetId) {
-  return `${RSS_CACHE_PREFIX}${widgetId}`;
-}
-
 function _readRssCache(widgetId) {
   if (_rssMemoryCache.has(widgetId)) return _rssMemoryCache.get(widgetId);
-  let cache = WidgetSDK.cache.get('rssReader', widgetId, 'feeds')
-    || WidgetSDK.cache.migrateLegacy('rssReader', widgetId, 'feeds', _rssCacheKey(widgetId));
+  let cache = WidgetSDK.cache.get('rssReader', widgetId, 'feeds');
   if (!cache || cache.schema !== RSS_CACHE_SCHEMA || typeof cache.feeds !== 'object') {
     cache = { schema: RSS_CACHE_SCHEMA, feeds: {} };
   }
@@ -80,14 +73,9 @@ function _writeRssCache(widgetId, cache) {
   return normalized;
 }
 
-function _rssViewKey(widgetId) {
-  return `${RSS_VIEW_PREFIX}${widgetId}`;
-}
-
 function _readRssView(widgetId) {
   if (_rssViewMemory.has(widgetId)) return _rssViewMemory.get(widgetId);
-  let view = WidgetSDK.cache.get('rssReader', widgetId, 'view')
-    || WidgetSDK.cache.migrateLegacy('rssReader', widgetId, 'view', _rssViewKey(widgetId));
+  let view = WidgetSDK.cache.get('rssReader', widgetId, 'view');
   const articleScroll = {};
   Object.entries(view?.articleScroll && typeof view.articleScroll === 'object' ? view.articleScroll : {}).slice(0, 25).forEach(([key, value]) => {
     articleScroll[String(key).slice(0, 120)] = Math.max(0, Math.min(100000, Number(value) || 0));
@@ -436,8 +424,8 @@ WIDGET_REGISTRY['rssReader'] = {
     _rssRuntime.delete(widget.id);
     _rssMemoryCache.delete(widget.id);
     _rssViewMemory.delete(widget.id);
-    WidgetSDK.cache.remove('rssReader', widget.id, 'feeds', { legacyKeys: [_rssCacheKey(widget.id)] });
-    WidgetSDK.cache.remove('rssReader', widget.id, 'view', { legacyKeys: [_rssViewKey(widget.id)] });
+    WidgetSDK.cache.remove('rssReader', widget.id, 'feeds');
+    WidgetSDK.cache.remove('rssReader', widget.id, 'view');
   },
 
   reload(widget) {

@@ -174,7 +174,7 @@ def test_api_stays_reachable_while_loading_and_secret_migration_are_blocked(tmp_
     for action in (server.load_config, server.load_metadata, manager.service):
         with pytest.raises(CatalogueError):
             action()
-    assert server.dispatch_arcade_api("GET", "/api/games")["code"] == "review-required"
+    assert server.dispatch_arcade_api("GET", "/api/games", {"collection_id": "spectrum"})["code"] == "review-required"
     status = server.dispatch_arcade_api("POST", "/api/catalogue-recovery/status", data={})
     assert status["status"] == "recovery-required" and not migrated
     assert files(tmp_path) == original

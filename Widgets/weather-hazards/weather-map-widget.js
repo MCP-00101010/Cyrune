@@ -5,8 +5,6 @@ const _weatherMapRuntime = new Map();
 const _weatherMapInstances = new Map();
 const _weatherMapViewMemory = new Map();
 
-const WEATHER_MAP_CACHE_PREFIX = 'morpheus-webhub-weather-map:';
-const WEATHER_MAP_VIEW_PREFIX = 'morpheus-webhub-weather-map-view:';
 const WEATHER_MAP_CACHE_TTL_MS = 60 * 60 * 1000;
 const WEATHER_MAP_ROWS = 5;
 const WEATHER_MAP_COLUMNS = 7;
@@ -42,16 +40,11 @@ function _weatherMapBaseLocationSignature(widget) {
   return `${latitude.toFixed(4)}:${longitude.toFixed(4)}:${_normalizeWeatherMapOriginZoom(config.originZoom).toFixed(2)}`;
 }
 
-function _weatherMapViewKey(widgetId) {
-  return `${WEATHER_MAP_VIEW_PREFIX}${widgetId}`;
-}
-
 function _readWeatherMapView(widget) {
-  const key = _weatherMapViewKey(widget.id);
+
   let view = _weatherMapViewMemory.get(widget.id) || null;
   if (!view) {
-    view = WidgetSDK.cache.get('weatherMap', widget.id, 'view')
-      || WidgetSDK.cache.migrateLegacy('weatherMap', widget.id, 'view', key);
+    view = WidgetSDK.cache.get('weatherMap', widget.id, 'view');
     if (view) _weatherMapViewMemory.set(widget.id, view);
   }
   return view?.baseLocationSignature === _weatherMapBaseLocationSignature(widget) ? view : null;
@@ -60,7 +53,7 @@ function _readWeatherMapView(widget) {
 function _writeWeatherMapView(widget, updates = {}) {
   const baseLocationSignature = _weatherMapBaseLocationSignature(widget);
   if (!baseLocationSignature) return null;
-  const key = _weatherMapViewKey(widget.id);
+
   const view = {
     ...(_readWeatherMapView(widget) || {}),
     ...updates,
@@ -72,9 +65,9 @@ function _writeWeatherMapView(widget, updates = {}) {
 }
 
 function _clearWeatherMapView(widget) {
-  const key = _weatherMapViewKey(widget.id);
+
   _weatherMapViewMemory.delete(widget.id);
-  WidgetSDK.cache.remove('weatherMap', widget.id, 'view', { legacyKeys: [key] });
+  WidgetSDK.cache.remove('weatherMap', widget.id, 'view');
 }
 
 function _weatherMapCenter(widget) {
@@ -113,23 +106,18 @@ function _weatherMapSignature(widget) {
   return `${latitude.toFixed(4)}:${longitude.toFixed(4)}:${_normalizeWeatherUnits(c.units)}:${WEATHER_MAP_ROWS}x${WEATHER_MAP_COLUMNS}`;
 }
 
-function _weatherMapCacheKey(widgetId) {
-  return `${WEATHER_MAP_CACHE_PREFIX}${widgetId}`;
-}
-
 function _readWeatherMapCache(widget) {
-  const key = _weatherMapCacheKey(widget.id);
+
   let cache = _weatherMapMemoryCache.get(widget.id) || null;
   if (!cache) {
-    cache = WidgetSDK.cache.get('weatherMap', widget.id, 'forecast')
-      || WidgetSDK.cache.migrateLegacy('weatherMap', widget.id, 'forecast', key);
+    cache = WidgetSDK.cache.get('weatherMap', widget.id, 'forecast');
     if (cache) _weatherMapMemoryCache.set(widget.id, cache);
   }
   return cache?.signature === _weatherMapSignature(widget) && Array.isArray(cache?.payload) ? cache : null;
 }
 
 function _writeWeatherMapCache(widget, payload, signature = _weatherMapSignature(widget)) {
-  const key = _weatherMapCacheKey(widget.id);
+
   const cache = { signature, fetchedAt: Date.now(), payload };
   _weatherMapMemoryCache.set(widget.id, cache);
   try { WidgetSDK.cache.set('weatherMap', widget.id, 'forecast', cache); } catch {}
@@ -624,14 +612,13 @@ WIDGET_REGISTRY['weatherMap'] = {
   },
 
   dispose(widget) {
-    const cacheKey = _weatherMapCacheKey(widget.id);
-    const viewKey = _weatherMapViewKey(widget.id);
+
     _destroyWeatherMap(widget.id, { preserveView: false });
     _weatherMapRuntime.delete(widget.id);
     _weatherMapMemoryCache.delete(widget.id);
     _weatherMapViewMemory.delete(widget.id);
-    WidgetSDK.cache.remove('weatherMap', widget.id, 'forecast', { legacyKeys: [cacheKey] });
-    WidgetSDK.cache.remove('weatherMap', widget.id, 'view', { legacyKeys: [viewKey] });
+    WidgetSDK.cache.remove('weatherMap', widget.id, 'forecast');
+    WidgetSDK.cache.remove('weatherMap', widget.id, 'view');
   },
 
   onSettingsCommit(widget, previousConfig) {

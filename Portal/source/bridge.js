@@ -28,7 +28,7 @@ const bridge = (() => {
       }).catch(() => {}); // A theme handoff never turns a successful database operation into a failure.
     } catch { /* An invalid snapshot is handled by the existing state boundary. */ }
   }
-  const CLIENT_PROTOCOLS = Object.freeze({ 'portal-relay': 1, 'component-settings': 2, 'arcade-catalogue': 1, 'arcade-scummvm': 1, 'arcade-atari-st': 1, 'arcade-gameboy': 1 });
+  const CLIENT_PROTOCOLS = Object.freeze({ 'portal-relay': 2, 'component-settings': 2, 'arcade-catalogue': 1, 'arcade-scummvm': 1, 'arcade-atari-st': 1, 'arcade-gameboy': 1 });
   let _catalogueEpoch = 0;
   const CATALOGUE_MESSAGES = new Set(['MW_SEARCH_ARCADE_CATALOGUE', 'MW_GET_ARCADE_CATALOGUE_ENTRY',
     'MW_GET_ARCADE_CATALOGUE_ARTWORK', 'MW_BIND_ARCADE_CATALOGUE_ENTRIES']);
@@ -389,12 +389,7 @@ const bridge = (() => {
     catalogueIsAvailable: _catalogueEnabled,
     catalogueSession() { return _catalogueEpoch; },
     async searchArcadeCatalogue(payload) {
-      // Additive opt-in: an older Relay/Host keeps its exact-entry projection.
-      try { return await _catalogueRequest('MW_SEARCH_ARCADE_CATALOGUE', { groupVersions: true, ...payload }); }
-      catch (error) {
-        if (error.code !== 'invalid-request') throw error;
-        return _catalogueRequest('MW_SEARCH_ARCADE_CATALOGUE', payload);
-      }
+      return _catalogueRequest('MW_SEARCH_ARCADE_CATALOGUE', { groupVersions: true, ...payload });
     },
     getArcadeCatalogueEntry(catalogueId) { return _catalogueRequest('MW_GET_ARCADE_CATALOGUE_ENTRY', { catalogueId }); },
     getArcadeCatalogueArtwork(catalogueId, artworkRef) { return _catalogueRequest('MW_GET_ARCADE_CATALOGUE_ARTWORK', { catalogueId, artworkRef }); },
@@ -916,8 +911,6 @@ const bridge = (() => {
     },
 
     getArcadeStatus: _getArcadeStatus,
-    // Compatibility API retained for older Portal scripts during rolling reloads.
-    getEmuGuiStatus: _getArcadeStatus,
 
     async getGameStatus(gameKey, options = {}) {
       if (!_available) await _connect({ retries: 1, delayMs: 200 });
@@ -946,8 +939,6 @@ const bridge = (() => {
     },
 
     openGameInArcade: _openGameInArcade,
-    // Compatibility API retained for older Portal scripts during rolling reloads.
-    openGameInEmuGui: _openGameInArcade,
 
     async revealGame(gameKey) {
       if (!_available) await _connect({ retries: 1, delayMs: 200 });

@@ -89,6 +89,7 @@ test('legacy widget credential keys are discovered and migrated to global servic
     saveState: () => { saved += 1; },
     cloneData: value => structuredClone(value)
   });
+  vm.runInContext(fs.readFileSync(path.join(root, 'source', 'credential-upgrade.js'), 'utf8'), context);
   vm.runInContext(settingsSource, context);
 
   const discovered = vm.runInContext('collectLegacyWidgetServiceSecretKeys(state)', context);

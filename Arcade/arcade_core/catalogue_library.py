@@ -168,7 +168,7 @@ class LibraryCatalogue(CatalogueLifecycle):
         self._source_cache = {key:value for key,value in self._source_cache.items() if key in ids}
         count = 0
         for row in configured:
-            if row.get('adapter', '') not in {'', 'spectrum-metadata-v1', 'scummvm-config-v1', 'atari-st-disks-v1', 'gameboy-cartridges-v1'}:
+            if row.get('adapter', '') not in {'spectrum-metadata-v1', 'scummvm-config-v1', 'atari-st-disks-v1', 'gameboy-cartridges-v1'}:
                 continue
             collection_id, root = row["id"], Path(row["root"]).resolve()
             if not root.is_dir():

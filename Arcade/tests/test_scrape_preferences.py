@@ -59,6 +59,7 @@ def test_legacy_spectrum_buckets_share_only_versions_and_new_editions_inherit(tm
     sibling = {**original, 'id':'new-edition', 'file':'Games/J/Jetpac128.tap', 'system':'128K'}
     unrelated = {**original, 'id':'other', 'file':'Games/J/Other.tap', 'title':'Other',
         'title_key':'other', 'tosec_title':'Other', 'scrape_family_title':'Other'}
+    unrelated.pop('metadata_group_id', None)
     for row in (sibling, unrelated):
         (server.COLLECTION / row['file']).write_bytes(b'fixture')
         metadata['games'].append(row)

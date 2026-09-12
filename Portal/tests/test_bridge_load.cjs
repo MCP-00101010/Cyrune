@@ -12,7 +12,7 @@ test('theme publication uses authoritative snapshots and cannot fail a database 
     postMessage(message) {
       sent.push(message);
       const reply = message.type === 'MW_PING' ? {ok:true,nativeAvailable:false,storageMode:'relay',
-        capabilities:['portalAuthority','portalTheme'],protocols:{'portal-relay':1,'component-settings':2}}
+        capabilities:['portalAuthority','portalTheme'],protocols:{'portal-relay':2,'component-settings':2}}
         : message.type === 'MW_SAVE' ? saveReply
         : message.type === 'MW_LOAD' ? {ok:true,json:'{"settings":{"theme":"loaded"}}'} : publishReply;
       queueMicrotask(()=>listeners.forEach(fn=>fn({source:window,data:{_mw:true,_res:true,id:message.id,...reply}})));
@@ -42,7 +42,7 @@ test('Relay reconnection never replays uncertain game actions', async () => {
   }, dispatchEvent() {}, postMessage(message) {
     sent.push(message);
     if (message.type === 'MW_PING') queueMicrotask(() => dispatch({_mw: true, _res: true, id: message.id,
-      ok: true, nativeAvailable: true, capabilities: ['emuguiService'], protocols: {'portal-relay': 1, 'component-settings': 2}}));
+      ok: true, nativeAvailable: true, capabilities: ['emuguiService'], protocols: {'portal-relay': 2, 'component-settings': 2}}));
   }};
   const context = vm.createContext({window, document: {hidden:false, hasFocus:() => true},
     setTimeout, clearTimeout, CustomEvent: class {}, TextDecoder, Uint8Array});
@@ -112,7 +112,7 @@ test('Portal remains unavailable when Relay does not advertise required protocol
       if (!message?._req || message.type !== 'MW_PING') return;
       setImmediate(() => (listeners.get('message') || []).forEach(listener => listener({
         source: window,
-        data: { _mw: true, _res: true, id: message.id, ok: true, protocols: { 'portal-relay': 1 } }
+        data: { _mw: true, _res: true, id: message.id, ok: true, protocols: { 'portal-relay': 2 } }
       })));
     }
   };
@@ -161,7 +161,7 @@ test('shared database is transferred to the page in bounded chunks', async () =>
           });
           return;
         }
-        response = { ok: true, nativeAvailable: true, databasePath: 'C:\\hub.json', protocols: { 'portal-relay': 1, 'component-settings': 2 } };
+        response = { ok: true, nativeAvailable: true, databasePath: 'C:\\hub.json', protocols: { 'portal-relay': 2, 'component-settings': 2 } };
       } else if (message.type === 'MW_LOAD_SHARED_CHUNK') {
         const end = Math.min(sourceBytes.length, message.offset + message.length);
         response = {
@@ -237,7 +237,7 @@ test('relay-ready reconnects after the initial bridge attempts have expired', as
               ok: true,
               nativeAvailable: true,
               databasePath: 'C:\\hub.json',
-              protocols: { 'portal-relay': 1, 'component-settings': 2 }
+              protocols: { 'portal-relay': 2, 'component-settings': 2 }
             }
           });
         }
@@ -289,7 +289,7 @@ test('directory approval keeps the page request alive for the interactive picker
     postMessage(message) {
       if (!message?._req) return;
       let response;
-      if (message.type === 'MW_PING') response = { ok: true, nativeAvailable: true, protocols: { 'portal-relay': 1, 'component-settings': 2 }, capabilities: ['approvedDirectories', 'applicationLauncher', 'emuguiService'] };
+      if (message.type === 'MW_PING') response = { ok: true, nativeAvailable: true, protocols: { 'portal-relay': 2, 'component-settings': 2 }, capabilities: ['approvedDirectories', 'applicationLauncher', 'emuguiService'] };
       else if (message.type === 'MW_APPROVE_DIRECTORY') response = { ok: true, directory: { handle: 'dir_abcdefghijklmnop', label: 'Repository' } };
       else if (message.type === 'MW_APPROVE_APPLICATION') response = { ok: true, application: { appKey: 'app_abcdefghijklmnop', label: 'Editor', kind: 'executable', state: 'ready' } };
       else if (message.type === 'MW_GET_APPLICATION_STATUS') response = { ok: true, application: { appKey: message.appKey, label: 'Editor', kind: 'executable', state: 'ready' } };
@@ -341,7 +341,7 @@ test('directory approval keeps the page request alive for the interactive picker
   assert.equal((await vm.runInContext("bridge.getGameStatus('game_abcdefghijklmnop')", context)).state, 'ready');
   assert.equal(await vm.runInContext("bridge.launchGame('game_abcdefghijklmnop')", context), true);
   assert.equal(await vm.runInContext("bridge.openGameInArcade('game_abcdefghijklmnop', { rebind: true })", context), true);
-  assert.equal(await vm.runInContext("bridge.openGameInEmuGui('game_abcdefghijklmnop')", context), true);
+  assert.equal(await vm.runInContext("bridge.openGameInArcade('game_abcdefghijklmnop')", context), true);
   assert.equal(await vm.runInContext("bridge.revealGame('game_abcdefghijklmnop')", context), true);
   assert.equal(await vm.runInContext("bridge.forgetGame('game_abcdefghijklmnop')", context), true);
   assert.equal(scheduledTimeouts.filter(timeout => timeout === 120000).length, 7);

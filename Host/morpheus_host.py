@@ -1105,15 +1105,20 @@ def read_database_backup_chunk(database_path, name, offset=0, length=512 * 1024,
 
 def load_config():
     try:
-        with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-        if isinstance(data, dict):
-            return data
+        raw = Path(CONFIG_PATH).read_bytes()
     except FileNotFoundError:
         return {}
-    except Exception:
-        return {}
-    return {}
+    data = json.loads(raw)
+    if not isinstance(data, dict):
+        raise ValueError('The Host configuration is invalid; restore its backup')
+    if 'emuguiRoot' in data:
+        with game_binding_write_lock():
+            upgraded = _data_upgrades().config_document(data)
+            _data_upgrades().transaction_module().upgrade(
+                Path(CONFIG_PATH).with_name('config-v1-upgrade.json'),
+                [(Path(CONFIG_PATH), raw, upgraded)], apply=True)
+            data = upgraded
+    return data
 
 
 def configured_portal_database_path(required=False):
@@ -1369,11 +1374,7 @@ def save_config(config):
 def _save_config_locked(config):
     config = config or {}
     current_config = load_config()
-    arcade_root = config.get('arcadeRoot')
-    if arcade_root is None:
-        arcade_root = config.get('emuguiRoot')
-    if arcade_root is None:
-        arcade_root = current_config.get('arcadeRoot', current_config.get('emuguiRoot', ''))
+    arcade_root = config.get('arcadeRoot', current_config.get('arcadeRoot', ''))
     arcade_root = str(arcade_root or '').strip()
     approved = config.get('approvedDirectories')
     if approved is None:
@@ -1425,48 +1426,17 @@ def _save_config_locked(config):
             'approvedAt': int(entry.get('approvedAt', 0) or 0),
             'iconDataUrl': str(entry.get('iconDataUrl', '') or '')[:700000]
         }
-    games = config.get('approvedGames')
-    if games is None:
-        games = current_config.get('approvedGames', {})
-    if not isinstance(games, dict):
-        games = {}
-    safe_games = {}
-    for game_key, entry in list(games.items())[:MAX_GAME_BINDINGS]:
-        if not GAME_KEY_PATTERN.fullmatch(str(game_key)) or not isinstance(entry, dict):
-            continue
-        library_id = str(entry.get('libraryId', '') or '')
-        game_id = str(entry.get('gameId', '') or '')
-        emulator_id = str(entry.get('emulatorId', '') or '')
-        profile_id = str(entry.get('profileId', '') or '')
-        if not all(EMUGUI_ID_PATTERN.fullmatch(value) for value in (library_id, game_id, emulator_id)):
-            continue
-        if profile_id and not EMUGUI_ID_PATTERN.fullmatch(profile_id):
-            continue
-        safe_games[str(game_key)] = {
-            'libraryId': library_id,
-            'gameId': game_id,
-            'emulatorId': emulator_id,
-            'profileId': profile_id,
-            'label': str(entry.get('label', '') or 'Game')[:160],
-            'systemId': str(entry.get('systemId', '') or '')[:48] if GAME_SYSTEM_ID_PATTERN.fullmatch(str(entry.get('systemId', '') or '')) else '',
-            'systemName': str(entry.get('systemName', '') or '')[:80],
-            'emulatorName': str(entry.get('emulatorName', '') or '')[:120],
-            'profileName': str(entry.get('profileName', '') or '')[:120],
-            'approvedAt': int(entry.get('approvedAt', 0) or 0)
-        }
+    if current_config.get('approvedGames'):
+        get_catalogue_bindings()  # Complete the recoverable cutover before dropping old approvals.
     database_path = config.get('databasePath')
-    if len(safe_games) + _catalogue_binding_count() > MAX_GAME_BINDINGS:
-        raise _catalogue_binding_module().BindingError('binding-limit')
     if database_path is None:
         database_path = current_config.get('databasePath', '')
     data = {
         'databasePath': database_path or '',
         'arcadeRoot': os.path.realpath(arcade_root) if arcade_root else '',
-        # Retained for Host downgrades installed before the Arcade rename.
-        'emuguiRoot': os.path.realpath(arcade_root) if arcade_root else '',
+        'schemaVersion': 1,
         'approvedDirectories': safe_approved,
-        'approvedApplications': safe_applications,
-        'approvedGames': safe_games
+        'approvedApplications': safe_applications
     }
     atomic_write_text(CONFIG_PATH, json.dumps(data, ensure_ascii=False, indent=2) + '\n')
 
@@ -2386,13 +2356,11 @@ def nexus_project_status():
 
 def _configured_emugui_service():
     config = load_config()
-    configured_root = str(config.get('arcadeRoot', config.get('emuguiRoot', '')) or '').strip()
+    configured_root = str(config.get('arcadeRoot', '') or '').strip()
     if not configured_root:
         raise RuntimeError('Cyrune Arcade is not configured in Cyrune Host')
     root = os.path.realpath(configured_root)
     service_path = os.path.join(root, 'arcade_service.py')
-    if not os.path.isfile(service_path):
-        service_path = os.path.join(root, 'emugui_service.py')
     if not os.path.isdir(root) or not os.path.isfile(service_path):
         raise FileNotFoundError('The configured Cyrune Arcade installation is unavailable')
     return root, service_path
@@ -2428,30 +2396,19 @@ def _load_emugui_module():
                 sys.path.remove(root)
             except ValueError:
                 pass
-    if not callable(getattr(module, 'dispatch_arcade_read', None)) and not callable(getattr(module, 'dispatch_emugui_read', None)):
-        raise RuntimeError('The configured Cyrune Arcade installation does not expose the native service contract')
-    configure_secrets = getattr(module, 'configure_native_secret_service', None)
-    if callable(configure_secrets):
-        configure_secrets(
-            get_secret=secret_get,
-            set_secret=secret_set,
-            delete_secret=secret_delete,
-            status=secret_status,
-        )
-    configure_network = getattr(module, 'configure_optional_network_policy', None)
-    if callable(configure_network):
-        configure_network(arcade_optional_network_allowed)
-    if getattr(module, 'ARCADE_SCUMMVM_VERSION', None) == 1:
-        module.SCUMMVM_LAUNCH = _execute_catalogue_plan
-        module.DISK_SET_LAUNCH = _execute_catalogue_plan
-        module.GAME_PROPERTIES_ACCESS = lambda folder, game_id, disk=None: _atari_save_sessions().access(folder, game_id, disk)
-        module.GAME_PROPERTIES_APPROVE = _approve_atari_properties
+    if getattr(module, 'ARCADE_SERVICE_PROTOCOL_VERSION', None) != 2:
+        raise RuntimeError('Update Cyrune Arcade and reload Relay: arcade-service v2 is required')
+    module.configure_native_secret_service(get_secret=secret_get, set_secret=secret_set,
+                                           delete_secret=secret_delete, status=secret_status)
+    module.configure_optional_network_policy(arcade_optional_network_allowed)
+    module.SCUMMVM_LAUNCH = _execute_catalogue_plan
+    module.DISK_SET_LAUNCH = _execute_catalogue_plan
+    module.GAME_PROPERTIES_ACCESS = lambda folder, game_id, disk=None: _atari_save_sessions().access(folder, game_id, disk)
+    module.GAME_PROPERTIES_APPROVE = _approve_atari_properties
     if sys.platform == 'win32':
         module.NATIVE_REVEAL_GAME = _reveal_game_in_explorer
-    if hasattr(module, 'VERSION_APPROVE'):
-        module.VERSION_APPROVE = lambda plan: get_catalogue_bindings().approve_version(plan)
-    if hasattr(module, 'EMULATOR_ICON_READER'):
-        module.EMULATOR_ICON_READER = _application_icon_data_url
+    module.VERSION_APPROVE = lambda plan: get_catalogue_bindings().approve_version(plan)
+    module.EMULATOR_ICON_READER = _application_icon_data_url
     EMUGUI_MODULE = module
     EMUGUI_MODULE_PATH = service_path
     return module
@@ -2481,7 +2438,7 @@ def emugui_api_request(method, path, query=None, body=None):
     if path == '/api/scrape-preview' and str(body.get('provider', 'manual')) != 'manual' and not arcade_optional_network_allowed():
         raise PermissionError('Optional network access is disabled in Cyrune Nexus')
     module = _load_emugui_module()
-    dispatcher = getattr(module, 'dispatch_arcade_api', None) or getattr(module, 'dispatch_emugui_api', None)
+    dispatcher = module.dispatch_arcade_api
     if not callable(dispatcher):
         raise RuntimeError('The configured Cyrune Arcade installation does not expose the API service contract')
     result = dispatcher(method, path, query, body)
@@ -2494,7 +2451,7 @@ def emugui_api_request(method, path, query=None, body=None):
 
 def emugui_asset(relative_path, collection_id=None):
     module = _load_emugui_module()
-    reader = getattr(module, 'read_arcade_asset', None) or getattr(module, 'read_emugui_asset', None)
+    reader = module.read_arcade_asset
     if not callable(reader):
         raise RuntimeError('The configured Cyrune Arcade installation does not expose the asset service contract')
     starter = getattr(module, 'start_artwork_job', None)
@@ -2533,7 +2490,7 @@ def start_emugui_transfer(payload):
 
 def emugui_service_status():
     """Return a path-free summary suitable for the ordinary Hub client."""
-    payload = _load_emugui_module().dispatch_emugui_read('STATUS')
+    payload = _load_emugui_module().dispatch_arcade_read('STATUS')
     if not isinstance(payload, dict):
         raise RuntimeError('The Cyrune Arcade service returned an invalid status')
     active = payload.get('active') if isinstance(payload.get('active'), dict) else {}
@@ -2553,108 +2510,25 @@ def emugui_service_status():
     }
 
 
-def _emugui_record(method, params=None):
-    payload = _load_emugui_module().dispatch_emugui_read(method, params or {})
-    if not isinstance(payload, dict):
-        raise RuntimeError('The Cyrune Arcade service returned invalid data')
-    return payload
-
-
-def _emugui_binding_thumbnail(module, game):
-    scoped_root = game.get('_collectionRoot')
-    collection_root = os.path.realpath(str(scoped_root or getattr(module, 'COLLECTION', '') or ''))
-    def thumbnail_from_record(record):
-        for raw_source in (record.get('loading_screen'), record.get('screenshot')):
-            source = str(raw_source or '').strip()
-            if not source:
-                continue
-            if source.startswith('scraper-artwork/screenscraper/'):
-                resolver = getattr(module, 'cached_artwork_path', None)
-                target = resolver(source) if callable(resolver) else None
-                if target:
-                    data_url = _bounded_local_image_data_url(str(target))
-                    if data_url:
-                        return data_url
-                continue
-            parsed = urllib.parse.urlsplit(source)
-            if parsed.scheme:
-                if parsed.scheme.lower() != 'https' or not parsed.netloc or parsed.username or parsed.password:
-                    continue
-                try:
-                    downloaded = _download_favicon_candidate(source, MAX_APPLICATION_ICON_BYTES)
-                except Exception:
-                    continue
-                if downloaded.get('contentType') in {'image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/avif'}:
-                    return str(downloaded.get('dataUrl') or '')[:700000]
-                continue
-            if not collection_root:
-                continue
-            target = os.path.realpath(os.path.join(collection_root, source.replace('/', os.sep)))
-            try:
-                if os.path.commonpath([collection_root, target]) != collection_root:
-                    continue
-            except ValueError:
-                continue
-            data_url = _bounded_local_image_data_url(target)
-            if data_url:
-                return data_url
+def _catalogue_thumbnail(module, catalogue_id):
+    """Use the same exact, bounded local artwork read as the catalogue picker."""
+    try:
+        service = module.get_catalogue_service()
+        entry = service.detail({'catalogueId': catalogue_id})['entry']
+        if not entry.get('artworkRef'):
+            return ''
+        name = '_cyrune_host_catalogue_artwork'
+        if name not in sys.modules:
+            spec = importlib.util.spec_from_file_location(name, Path(HOST_DIR) / 'catalogue_artwork.py')
+            loaded = importlib.util.module_from_spec(spec)
+            sys.modules[name] = loaded
+            spec.loader.exec_module(loaded)
+        result = sys.modules[name].read_artwork(service, catalogue_id, entry['artworkRef'],
+            bindings=_catalogue_binding_module(), check=lambda: None)
+        return 'data:image/png;base64,' + result['data']
+    except Exception:
+        # Missing/disposable artwork must not change an approved launch target.
         return ''
-
-    return thumbnail_from_record(game)
-
-
-def _game_system_info(game=None, entry=None):
-    game = game if isinstance(game, dict) else {}
-    entry = entry if isinstance(entry, dict) else {}
-    explicit_name = str(game.get('system') or game.get('platform') or entry.get('systemName') or '').strip()[:80]
-    emulator_id = str(entry.get('emulatorId') or game.get('default_emulator') or '').strip()
-    values = [explicit_name, emulator_id]
-    tags = game.get('tags')
-    if isinstance(tags, list):
-        values.extend(str(value or '') for value in tags[:12])
-    haystack = ' '.join(values).lower().replace('_', ' ').replace('-', ' ')
-    compact = re.sub(r'[^a-z0-9+]+', '', haystack)
-
-    systems = (
-        ('zx-spectrum', 'ZX Spectrum', ('zx spectrum', 'spectrum', 'eightyone', 'spectaculator', 'fuse')),
-        ('atari-st', 'Atari ST', ('atari st', 'steem', 'hatari')),
-        ('game-boy', 'Game Boy', ('game boy', 'gameboy', 'visualboy', 'sameboy', 'gambatte')),
-        ('snes', 'Super Nintendo', ('super nintendo', 'snes', 'snes9x', 'bsnes')),
-        ('scummvm', 'ScummVM', ('scummvm', 'scumm vm')),
-        ('dosbox', 'DOSBox', ('dosbox', 'ms dos', 'dos game')),
-        ('mame', 'Arcade / MAME', ('mame', 'arcade')),
-    )
-    for system_id, system_name, aliases in systems:
-        if any(alias in haystack or alias.replace(' ', '') in compact for alias in aliases):
-            return system_id, system_name
-    spectrum_memory = explicit_name.lower().replace(' ', '')
-    if re.fullmatch(r'(?:16k|48k|128k|\+2a?|\+3)(?:[-/](?:16k|48k|128k|\+2a?|\+3))*', spectrum_memory):
-        return 'zx-spectrum', 'ZX Spectrum'
-
-    stored_id = str(entry.get('systemId') or '').strip().lower()
-    if GAME_SYSTEM_ID_PATTERN.fullmatch(stored_id):
-        return stored_id, explicit_name or str(entry.get('systemName') or 'Game system')[:80]
-    if explicit_name:
-        derived_id = re.sub(r'[^a-z0-9]+', '-', explicit_name.lower()).strip('-')[:48]
-        if GAME_SYSTEM_ID_PATTERN.fullmatch(derived_id):
-            return derived_id, explicit_name
-    return '', ''
-
-
-def _game_public_record(game_key, entry, game=None, state='ready', thumbnail_data_url=''):
-    system_id, system_name = _game_system_info(game, entry)
-    record = {
-        'gameKey': str(game_key),
-        'state': state,
-        'title': str((game or {}).get('title') or entry.get('label') or 'Game')[:160],
-        'tags': ['Games'] + ([system_name] if system_name else []),
-        'systemId': system_id,
-        'systemName': system_name,
-        'emulatorName': str(entry.get('emulatorName') or '')[:120],
-        'profileName': str(entry.get('profileName') or '')[:120],
-        'thumbnailCache': str(thumbnail_data_url or '')[:700000]
-    }
-    return record
 
 
 def _catalogue_binding_module():
@@ -2697,13 +2571,14 @@ def _serialize_game_bindings(function):
     return invoke
 
 
-def _legacy_game_keys():
-    module = _catalogue_binding_module()
-    config = module.read_object(CONFIG_PATH, 32 * 1024 * 1024) if Path(CONFIG_PATH).exists() else {}
-    entries = config.get('approvedGames', {})
-    if not isinstance(entries, dict) or len(entries) > MAX_GAME_BINDINGS:
-        raise module.BindingError('review-required')
-    return set(entries)
+def _data_upgrades():
+    name = '_cyrune_host_data_upgrades'
+    if name not in sys.modules:
+        spec = importlib.util.spec_from_file_location(name, Path(HOST_DIR) / 'data_upgrades.py')
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        sys.modules[name] = module
+    return sys.modules[name]
 
 
 def get_catalogue_bindings():
@@ -2715,31 +2590,20 @@ def get_catalogue_bindings():
         CATALOGUE_BINDINGS = module.CatalogueBindings(
             path, lock=game_binding_write_lock,
             write=lambda target, value: atomic_write_text(str(target), module.encoded(value).decode('utf-8')),
-            legacy_keys=_legacy_game_keys,
-            resolve=lambda catalogue_id, revision: _load_emugui_module().resolve_catalogue_launch_plan(catalogue_id, revision),
+            resolve=lambda catalogue_id, revision, **options: _load_emugui_module().resolve_catalogue_launch_plan(catalogue_id, revision, **options),
             present=lambda catalogue_id: _load_emugui_module().get_catalogue_service().detail({'catalogueId': catalogue_id})['entry'],
             execute=_execute_catalogue_plan,
             resolve_scope=lambda: _load_emugui_module().catalogue_read_snapshot(),
         )
         CATALOGUE_BINDINGS_PATH = path
+        try:
+            with game_binding_write_lock():
+                _data_upgrades().bindings(sys.modules[__name__], CATALOGUE_BINDINGS, apply=True)
+        except Exception:
+            CATALOGUE_BINDINGS = None
+            CATALOGUE_BINDINGS_PATH = None
+            raise
     return CATALOGUE_BINDINGS
-
-
-def _catalogue_binding_count():
-    path = Path(CONFIG_PATH).with_name('catalogue-bindings.json')
-    if not path.exists() and not path.with_suffix('.migration.json').exists():
-        return 0
-    return len(get_catalogue_bindings().load()['bindings'])
-
-
-def _is_catalogue_binding(game_key):
-    if not isinstance(game_key, str) or not GAME_KEY_PATTERN.fullmatch(game_key):
-        return False
-    if game_key in load_config().get('approvedGames', {}):
-        return False
-    if not Path(CONFIG_PATH).with_name('catalogue-bindings.json').exists():
-        return False
-    return game_key in get_catalogue_bindings().load()['bindings']
 
 
 ATARI_SAVE_SESSIONS = None
@@ -2782,13 +2646,13 @@ def _approve_atari_properties(collection_id, game_id, make_default):
         raise
 
 
-def _execute_catalogue_plan(plan, *, atari_emulator_override=''):
+def _execute_catalogue_plan(plan, *, atari_emulator_override='', selection=None):
     """Host independently guards native side effects while Arcade owns adapters."""
     bindings = _catalogue_binding_module()
     approval = bindings.validate_plan(plan)
     module = _load_emugui_module()
     def validate_current():
-        options = {'atari_emulator_override': atari_emulator_override} if atari_emulator_override else {}
+        options = {'atari_emulator_override': atari_emulator_override, 'selection': selection}
         current = module.resolve_catalogue_launch_plan(plan['catalogueId'], plan['entryRevision'], **options)
         if current != plan or bindings.validate_plan(current) != approval:
             raise bindings.BindingError('entry-changed')
@@ -2827,7 +2691,7 @@ def _execute_catalogue_plan(plan, *, atari_emulator_override=''):
             if os.path.exists(temporary):
                 os.remove(temporary)
     validate_current()
-    options = {'atari_emulator_override': atari_emulator_override} if atari_emulator_override else {}
+    options = {'atari_emulator_override': atari_emulator_override, 'selection': selection}
     return module.launch_catalogue_plan(plan, launch_process=launch, copy_profile=copy_profile, **options)
 
 
@@ -2847,121 +2711,33 @@ def create_emugui_game_binding(game_id, emulator_id='', profile_id='', game_key=
         raise ValueError('The game binding key is invalid')
 
     module = _load_emugui_module()
-    # Exact native adapters resolve their own target and policy. A full STATUS
-    # also walks collection queues and hashes every managed profile, once per
-    # game sent, although none of that data is needed for their approval.
-    active_provider = getattr(module, 'active_collection', None)
-    active = active_provider() if callable(active_provider) else {}
-    native_adapter = active.get('adapter') in {'atari-st-disks-v1', 'scummvm-config-v1'}
-    status = {} if native_adapter else _emugui_record('STATUS')
-    game = _emugui_record('GET_GAME', {'gameId': game_id}).get('game')
-    if not isinstance(game, dict):
-        raise ValueError('The selected Cyrune Arcade game is unavailable')
-    if not native_adapter:
-        active = status.get('active') if isinstance(status.get('active'), dict) else {}
-    library_id = str(active.get('id', '') or '')
-    if not EMUGUI_ID_PATTERN.fullmatch(library_id):
-        raise ValueError('The active Cyrune Arcade library has no stable ID')
-
-    if active.get('adapter') == 'atari-st-disks-v1':
+    active = module.active_collection()
+    library_id = active['id']
+    selection = None
+    if active['adapter'] == 'atari-st-disks-v1':
         if not atari_protocol_supported():
-            raise ValueError('Atari disk sets require compatible Cyrune Host and Arcade versions')
+            raise ValueError('Update Cyrune Host and Arcade for Atari support')
         plan = module.resolve_atari_game_plan(library_id, game_id, emulator_id, profile_id)
-        key = get_catalogue_bindings().approve_version(plan, game_key=game_key)
-        return {'gameKey': key, 'state': 'ready', **plan['public'], 'tags': [], 'thumbnailCache': ''}
-
-    if active.get('adapter') == 'scummvm-config-v1':
+    elif active['adapter'] == 'scummvm-config-v1':
         if not scummvm_protocol_supported():
-            raise ValueError('ScummVM requires compatible Cyrune Host and Arcade versions')
+            raise ValueError('Update Cyrune Host and Arcade for ScummVM support')
         plan = module.resolve_scummvm_game_plan(library_id, game_id, emulator_id, profile_id)
-        key = get_catalogue_bindings().approve_arcade_scummvm(plan, game_key=game_key)
-        return {'gameKey': key, 'state': 'ready', **plan['public'], 'tags': [], 'thumbnailCache': ''}
-
-    emulators = [item for item in status.get('emulators', []) if isinstance(item, dict)]
-    if not emulator_id:
-        emulator_id = str(game.get('default_emulator') or '')
-    if not emulator_id:
-        emulator_id = str(next((item.get('id') for item in emulators if item.get('available') is not False), '') or '')
-    emulator = next((item for item in emulators if str(item.get('id', '')) == emulator_id), None)
-    if emulator is None or emulator.get('available') is False:
-        raise ValueError('The selected Cyrune Arcade emulator is unavailable')
-
-    profiles = [item for item in status.get('profiles', []) if isinstance(item, dict)]
-    profile = None
-    if profile_id:
-        profile = next((item for item in profiles if str(item.get('id', '')) == profile_id), None)
-        if profile is None or str(profile.get('emulator_id', '')) != emulator_id:
-            raise ValueError('The selected Cyrune Arcade profile is unavailable for this emulator')
-
-    config = load_config()
-    bindings = config.setdefault('approvedGames', {})
-    if game_key and not isinstance(bindings.get(game_key), dict):
-        raise KeyError('This game is not set up on this device')
-    existing = game_key or next((key for key, entry in bindings.items() if isinstance(entry, dict)
-                                and entry.get('libraryId') == library_id and entry.get('gameId') == game_id
-                                and entry.get('emulatorId') == emulator_id and entry.get('profileId', '') == profile_id), '')
-    if not existing and len(bindings) + _catalogue_binding_count() >= MAX_GAME_BINDINGS:
-        raise ValueError(f'This device already has the maximum of {MAX_GAME_BINDINGS} game bindings')
-    game_key = existing if GAME_KEY_PATTERN.fullmatch(str(existing)) else f'game_{secrets.token_urlsafe(18)}'
-    system_id, system_name = _game_system_info(game, {'emulatorId': emulator_id})
-    entry = {
-        'libraryId': library_id,
-        'gameId': game_id,
-        'emulatorId': emulator_id,
-        'profileId': profile_id,
-        'label': str(game.get('title') or 'Game')[:160],
-        'systemId': system_id,
-        'systemName': system_name,
-        'emulatorName': str(emulator.get('name') or emulator_id)[:120],
-        'profileName': str((profile or {}).get('name') or profile_id or 'Automatic')[:120],
-        'approvedAt': int(time.time() * 1000)
-    }
-    bindings[game_key] = entry
-    save_config(config)
-    return _game_public_record(game_key, entry, game, thumbnail_data_url=_emugui_binding_thumbnail(module, game))
+    else:
+        entry = module.catalogue_game_entry(library_id, game_id)
+        if emulator_id:
+            selection = {'emulatorId': emulator_id, 'profileId': profile_id}
+        elif profile_id:
+            raise ValueError('Select the emulator for this profile')
+        plan = module.resolve_catalogue_launch_plan(entry.base['catalogueId'], selection=selection)
+    key = get_catalogue_bindings().approve_version(plan, game_key=game_key, selection=selection)
+    return {'gameKey': key, 'state': 'ready', **plan['public'], 'tags': [],
+            'thumbnailCache': _catalogue_thumbnail(module, plan['catalogueId'])}
 
 
 def resolve_emugui_game_source(game_key):
-    if _is_catalogue_binding(game_key):
-        plan = get_catalogue_bindings().resolve(game_key)
-        return ({'libraryId': plan['collectionId'], 'gameId': plan['gameId']},
-                {'path': plan['media'], 'title': plan['public']['title']}, {})
-    game_key = str(game_key or '')
-    if not GAME_KEY_PATTERN.fullmatch(game_key):
-        raise ValueError('The game binding key is invalid')
-    entry = load_config().get('approvedGames', {}).get(game_key)
-    if not isinstance(entry, dict):
-        raise KeyError('This game is not set up on this device')
-    status = _emugui_record('STATUS')
-    active = status.get('active') if isinstance(status.get('active'), dict) else {}
-    if str(active.get('id', '')) != str(entry.get('libraryId', '')):
-        scoped = getattr(_load_emugui_module(), 'bound_game_source', None)
-        if not callable(scoped):
-            raise RuntimeError('Update Cyrune Arcade to access an inactive game collection')
-        status = scoped(entry.get('libraryId', ''), entry.get('gameId', ''))
-        game = status.get('game')
-    else:
-        game = _emugui_record('GET_GAME', {'gameId': entry.get('gameId', '')}).get('game')
-    if not isinstance(game, dict):
-        raise FileNotFoundError('The bound game is missing from Cyrune Arcade')
-    return entry, game, status
-
-
-def resolve_emugui_game_binding(game_key):
-    entry, game, status = resolve_emugui_game_source(game_key)
-    emulator = next((item for item in status.get('emulators', []) if isinstance(item, dict)
-                     and str(item.get('id', '')) == str(entry.get('emulatorId', ''))), None)
-    if emulator is None or emulator.get('available') is False:
-        raise FileNotFoundError('The bound emulator is unavailable')
-    public_entry = dict(entry)
-    public_entry['emulatorName'] = str(emulator.get('name') or entry.get('emulatorName') or entry.get('emulatorId') or '')[:120]
-    profile_id = str(entry.get('profileId') or '')
-    profiles = [item for item in status.get('profiles', []) if isinstance(item, dict)]
-    profile = next((item for item in profiles if str(item.get('id', '')) == profile_id), None) if profile_id else None
-    if profile_id and (profile is None or str(profile.get('emulator_id', '')) != str(entry.get('emulatorId', ''))):
-        raise FileNotFoundError('The bound emulator profile is unavailable')
-    public_entry['profileName'] = str((profile or {}).get('name') or entry.get('profileName') or profile_id or 'Automatic')[:120]
-    return entry, game, public_entry
+    plan = get_catalogue_bindings().resolve(game_key)
+    return ({'libraryId': plan['collectionId'], 'gameId': plan['gameId']},
+            {'path': plan['media'], 'title': plan['public']['title']}, {})
 
 
 def _game_status_languages(values, label=''):
@@ -2988,10 +2764,7 @@ def _game_status_languages(values, label=''):
 def _game_version_anchor(game_key):
     if not isinstance(game_key, str) or not GAME_KEY_PATTERN.fullmatch(game_key):
         raise ValueError('Invalid game key')
-    if _is_catalogue_binding(game_key):
-        return get_catalogue_bindings().resolve(game_key)['catalogueId']
-    entry, _game, _public = resolve_emugui_game_binding(game_key)
-    return _load_emugui_module().catalogue_game_entry(entry['libraryId'], entry['gameId']).base['catalogueId']
+    return get_catalogue_bindings().resolve(game_key)['catalogueId']
 
 
 def game_versions_request(game_key, action='list', catalogue_id='', entry_revision=''):
@@ -3030,8 +2803,6 @@ def game_versions_request(game_key, action='list', catalogue_id='', entry_revisi
 
 def _saved_game_default(game_key):
     module = _load_emugui_module()
-    if not callable(getattr(module.get_catalogue_service(), 'family', None)):
-        return None  # Rolling updates preserve older Arcade's exact launch pins.
     anchor = _game_version_anchor(game_key)
     group, members, _default, saved = module.get_catalogue_service().family(anchor)
     if not saved:
@@ -3045,122 +2816,52 @@ def _saved_game_default(game_key):
 
 
 def emugui_game_status(game_key, include_thumbnail=False):
-    if _is_catalogue_binding(game_key):
-        try:
-            plan = get_catalogue_bindings().resolve(game_key)
-            module = _load_emugui_module()
-            family = getattr(module.get_catalogue_service(), 'family', None)
-            group, members = '', []
-            if callable(family):
-                group, members, _default, _saved = family(plan['catalogueId'])
-            saved_key = _saved_game_default(game_key)
-            if saved_key:
-                plan = get_catalogue_bindings().resolve(saved_key)
-            detail = _load_emugui_module().get_catalogue_service().detail({'catalogueId': plan['catalogueId']})['entry']
-            record = {'gameKey': game_key, 'state': 'ready', **plan['public'], 'tags': [], 'thumbnailCache': '',
-                      'languages': _game_status_languages(detail.get('languages'))}
-            record['defaultVersion'] = {'languages': record['languages'],
-                                        'platforms': [record.get('systemName', 'Unspecified platform')]}
-            if detail.get('platformId') == 'zx-spectrum':
-                record['defaultVersion']['systems'] = [detail['hardwareLabel']] if detail.get('hardwareLabel') else []
-            presentation = getattr(module.get_catalogue_service(), 'presentation', None)
-            if callable(presentation):
-                record['defaultVersion'].update(presentation(plan['catalogueId']))
-            if plan['adapterId'] in {'steem', 'hatari'}:
-                record['emulatorName'] = 'Hatari' if plan['adapterId'] == 'hatari' else 'STEem SSE'
-            if plan['adapterId'] == 'scummvm':
-                record.update(emulatorName='ScummVM', profileName='ScummVM settings')
-                try:
-                    from arcade_core.import_scummvm import platform_presentation
-                except ImportError:
-                    pass  # Older Arcade still supplies the exact platform label.
-                else:
-                    record['defaultVersion']['platforms'] = list(platform_presentation(plan['target']))
-                    record['defaultVersion']['systems'] = record['defaultVersion']['platforms']
-            if members:
-                record.update(versionGroup=group, versionCount=len(members),
-                              platforms=list(dict.fromkeys(row.base['platformLabel'] for row in members))[:12],
-                              languages=_game_status_languages(list(dict.fromkeys(lang for row in members for lang in row.detail['languages']))))
-            return record
-        except Exception as error:
-            return {'gameKey': game_key, 'state': 'unavailable', 'title': 'Game',
-                    'error': _catalogue_binding_module().error_code(error)}
-    game_key = str(game_key or '')
-    if not GAME_KEY_PATTERN.fullmatch(game_key):
-        return _game_public_record(game_key, {}, state='unbound') | {'error': 'The game binding key is invalid'}
-    entry = load_config().get('approvedGames', {}).get(game_key)
-    if not isinstance(entry, dict):
-        return _game_public_record(game_key, {}, state='unbound')
     try:
+        plan = get_catalogue_bindings().resolve(game_key)
         module = _load_emugui_module()
-        status = _emugui_record('STATUS')
-    except Exception as error:
-        return _game_public_record(game_key, entry, state='unavailable') | {'error': str(error)}
-    active = status.get('active') if isinstance(status.get('active'), dict) else {}
-    try:
-        if str(active.get('id', '')) != str(entry.get('libraryId', '')):
-            scoped = getattr(module, 'bound_game_source', None)
-            if not callable(scoped):
-                return _game_public_record(game_key, entry, state='library-missing') | {'error': 'Update Cyrune Arcade to access an inactive game collection'}
-            status = scoped(entry.get('libraryId', ''), entry.get('gameId', ''))
-            game = status.get('game')
-        else:
-            game = _emugui_record('GET_GAME', {'gameId': entry.get('gameId', '')}).get('game')
-    except Exception as error:
-        return _game_public_record(game_key, entry, state='game-missing') | {'error': str(error)}
-    if not isinstance(game, dict):
-        return _game_public_record(game_key, entry, state='game-missing') | {'error': 'The bound game is missing from Cyrune Arcade'}
-    emulators = [item for item in status.get('emulators', []) if isinstance(item, dict)]
-    emulator = next((item for item in emulators if str(item.get('id', '')) == str(entry.get('emulatorId', ''))), None)
-    if emulator is None or emulator.get('available') is False:
-        return _game_public_record(game_key, entry, game, state='emulator-missing') | {'error': 'The bound emulator is unavailable'}
-    public_entry = dict(entry)
-    public_entry['emulatorName'] = str(emulator.get('name') or entry.get('emulatorName') or entry.get('emulatorId') or '')[:120]
-    profile_id = str(entry.get('profileId') or '')
-    if profile_id:
-        profiles = [item for item in status.get('profiles', []) if isinstance(item, dict)]
-        profile = next((item for item in profiles if str(item.get('id', '')) == profile_id), None)
-        if profile is None or str(profile.get('emulator_id', '')) != str(entry.get('emulatorId', '')):
-            return _game_public_record(game_key, public_entry, game, state='profile-missing') | {'error': 'The bound emulator profile is unavailable'}
-        public_entry['profileName'] = str(profile.get('name') or entry.get('profileName') or profile_id)[:120]
-    thumbnail = _emugui_binding_thumbnail(module, game) if include_thumbnail else ''
-    record = {**_game_public_record(game_key, public_entry, game, thumbnail_data_url=thumbnail),
-              'languages': _game_status_languages(game.get('languages'), game.get('language', ''))}
-    record['defaultVersion'] = {'languages': record['languages'],
-                                'platforms': [record.get('systemName', 'Unspecified platform')]}
-    if record.get('systemId') == 'zx-spectrum':
-        record['defaultVersion']['systems'] = [str(game.get('system') or game.get('memory') or '')[:80]]
-    if hasattr(module, 'catalogue_game_entry'):
-        try:
-            anchor = module.catalogue_game_entry(entry['libraryId'], entry['gameId']).base['catalogueId']
-            group, members, _default, _saved = module.get_catalogue_service().family(anchor)
-            presentation = getattr(module.get_catalogue_service(), 'presentation', None)
-            if callable(presentation):
-                record['defaultVersion'].update(presentation(anchor))
+        group, members, _default, _saved = module.get_catalogue_service().family(plan['catalogueId'])
+        saved_key = _saved_game_default(game_key)
+        if saved_key:
+            plan = get_catalogue_bindings().resolve(saved_key)
+        detail = _load_emugui_module().get_catalogue_service().detail({'catalogueId': plan['catalogueId']})['entry']
+        record = {'gameKey': game_key, 'state': 'ready', **plan['public'], 'tags': [], 'thumbnailCache': '',
+                  'languages': _game_status_languages(detail.get('languages'))}
+        if include_thumbnail:
+            record['thumbnailCache'] = _catalogue_thumbnail(module, plan['catalogueId'])
+        record['defaultVersion'] = {'languages': record['languages'],
+                                    'platforms': [record.get('systemName', 'Unspecified platform')]}
+        if detail.get('platformId') == 'zx-spectrum':
+            record['defaultVersion']['systems'] = [detail['hardwareLabel']] if detail.get('hardwareLabel') else []
+        record['defaultVersion'].update(module.get_catalogue_service().presentation(plan['catalogueId']))
+        if plan['adapterId'] in {'steem', 'hatari'}:
+            record['emulatorName'] = 'Hatari' if plan['adapterId'] == 'hatari' else 'STEem SSE'
+        if plan['adapterId'] == 'scummvm':
+            record.update(emulatorName='ScummVM', profileName='ScummVM settings')
+            from arcade_core.import_scummvm import platform_presentation
+            record['defaultVersion']['platforms'] = list(platform_presentation(plan['target']))
+            record['defaultVersion']['systems'] = record['defaultVersion']['platforms']
+        if members:
             record.update(versionGroup=group, versionCount=len(members),
                           platforms=list(dict.fromkeys(row.base['platformLabel'] for row in members))[:12],
                           languages=_game_status_languages(list(dict.fromkeys(lang for row in members for lang in row.detail['languages']))))
-            if _saved:
-                record['defaultVersion'] = None
-                saved_key = _saved_game_default(game_key)
-                if saved_key:
-                    record['defaultVersion'] = emugui_game_status(saved_key).get('defaultVersion')
-        except Exception:
-            pass  # Legacy, unindexed games retain their existing exact shortcut.
-    return record
+        return record
+    except Exception as error:
+        return {'gameKey': game_key, 'state': 'unavailable', 'title': 'Game',
+                'error': _catalogue_binding_module().error_code(error)}
 
 
 def emugui_game_link(game_key, rebind=False):
-    collection = ''
-    if _is_catalogue_binding(game_key):
-        plan = get_catalogue_bindings().resolve(game_key)
+    store = get_catalogue_bindings()
+    stored = store.load()['bindings'].get(game_key, {})
+    if rebind and stored.get('mode') == 'unresolved':
+        entry = stored['previous']
+        collection = entry.get('libraryId', '')
+        if not all(isinstance(value, str) and EMUGUI_ID_PATTERN.fullmatch(value) for value in (collection, entry.get('gameId'))):
+            raise ValueError('The unavailable binding needs a new selection in Arcade')
+    else:
+        plan = store.resolve(game_key)
         collection = plan['collectionId']
-        if rebind and plan['adapterId'] not in {'scummvm', 'steem', 'hatari'}:
-            # Entry-policy Spectrum rebind still needs its own approval migration.
-            raise _catalogue_binding_module().BindingError('configuration-required')
-    entry, _game, _status = resolve_emugui_game_source(game_key)
-    if _game.get('_collectionRoot'):
-        collection = entry['libraryId']
+        entry = {'gameId': plan['gameId']}
     query = {'game': str(entry.get('gameId') or '')}
     if collection:
         query['collection'] = collection
@@ -3201,43 +2902,12 @@ def rebind_emugui_game(game_key, game_id, emulator_id='', profile_id=''):
 
 
 def launch_emugui_game(game_key):
-    if _is_catalogue_binding(game_key):
-        return get_catalogue_bindings().launch(_saved_game_default(game_key) or game_key)
-    entry, _game, _public_entry = resolve_emugui_game_binding(game_key)
-    module = _load_emugui_module()
-    defaults = getattr(module.get_library_catalogue(), 'version_defaults', None) if hasattr(module, 'get_library_catalogue') else None
-    if defaults is not None and defaults.load():
-        try:
-            _game_version_anchor(game_key)
-        except Exception as error:
-            if _catalogue_binding_module().error_code(error) not in {'entry-missing', 'unavailable'}:
-                raise
-        else:
-            saved_key = _saved_game_default(game_key)
-            if saved_key:
-                return get_catalogue_bindings().launch(saved_key)
-    if _game.get('_collectionRoot'):
-        result = module.launch_bound_game(entry['libraryId'], entry['gameId'], entry['emulatorId'], entry.get('profileId', ''))
-    else:
-        result = module.launch_game(entry['gameId'], entry['emulatorId'], profile_id=entry.get('profileId', ''))
-    if not isinstance(result, dict) or result.get('ok') is not True:
-        error = str((result or {}).get('error') or 'Cyrune Arcade could not launch the game')
-        if isinstance(result, dict) and (result.get('needs_choice') or result.get('needs_confirmation')):
-            error += ' Open the game in Cyrune Arcade to choose how to handle the running emulator.'
-        raise RuntimeError(error)
-    return True
+    return get_catalogue_bindings().launch(_saved_game_default(game_key) or game_key)
 
 
 @_serialize_game_bindings
 def forget_emugui_game(game_key):
-    if _is_catalogue_binding(game_key):
-        return get_catalogue_bindings().forget(game_key)
-    if not GAME_KEY_PATTERN.fullmatch(str(game_key or '')):
-        raise ValueError('The game binding key is invalid')
-    config = load_config()
-    removed = config.get('approvedGames', {}).pop(str(game_key), None)
-    save_config(config)
-    return removed is not None
+    return get_catalogue_bindings().forget(game_key)
 
 
 # ---------------------------------------------------------------------------

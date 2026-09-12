@@ -1,7 +1,7 @@
 // Widget and Integration SDK. Loaded after the legacy built-in catalogue so it
 // can normalize those descriptors without changing their classic-script order.
 
-const WIDGET_SDK_VERSION = 3;
+const WIDGET_SDK_VERSION = 4;
 const WIDGET_LOCAL_OPT_IN_KEY = 'morpheus-widget-sdk-local-opt-in';
 const WIDGET_SDK_CACHE_PREFIX = 'morpheus-widget-sdk-cache:v1:';
 const WIDGET_SDK_DEFAULT_CACHE_QUOTA = 256 * 1024;
@@ -538,8 +538,13 @@ function _widgetSdkMigrateState(widget) {
   if (!descriptor) return widget;
   widget.config = { ..._widgetSdkClone(descriptor.defaultConfig), ...(widget.config || {}) };
   widget.data = { ..._widgetSdkClone(descriptor.defaultData), ...(widget.data || {}) };
+  const version = descriptor.stateVersion || 1;
+  if ((widget.widgetSchemaVersion || 0) > version) throw new Error('Update Widgets before opening this widget');
+  if (widget.widgetSchemaVersion === version) return widget;
   const migrated = descriptor.migrate(widget);
-  return migrated && typeof migrated === 'object' ? migrated : widget;
+  const current = migrated && typeof migrated === 'object' ? migrated : widget;
+  current.widgetSchemaVersion = version;
+  return current;
 }
 
 function _widgetSdkCacheKey(widgetType, widgetId, key) {
@@ -584,24 +589,39 @@ function _widgetSdkCacheSet(widgetType, widgetId, key, value, options = {}) {
   }
 }
 
-function _widgetSdkCacheRemove(widgetType, widgetId, key, options = {}) {
+function _widgetSdkCacheRemove(widgetType, widgetId, key) {
   try { localStorage.removeItem(_widgetSdkCacheKey(widgetType, widgetId, key)); } catch {}
-  (options.legacyKeys || []).forEach(legacyKey => {
-    try { localStorage.removeItem(String(legacyKey)); } catch {}
-  });
 }
 
-function _widgetSdkCacheMigrateLegacy(widgetType, widgetId, key, legacyKey) {
-  const current = _widgetSdkCacheGet(widgetType, widgetId, key);
-  if (current != null) return current;
-  let value = null;
-  try { value = JSON.parse(localStorage.getItem(String(legacyKey)) || 'null'); } catch { value = null; }
-  if (value == null) return null;
+function _widgetSdkUpgradeCaches() {
+  // One startup pass over the old namespaces; normal cache reads use one key.
+  const prefixes = [
+    ['weather-map-view:', 'weatherMap', 'view'], ['weather-map:', 'weatherMap', 'forecast'],
+    ['weather:', 'weather', 'forecast'], ['rss-cache:', 'rssReader', 'feeds'],
+    ['rss-view:', 'rssReader', 'view'], ['calendar-view:', 'protonCalendar', 'view'],
+    ['ip-info:', 'ipInfo', 'lookup'], ['ip-speed:', 'ipInfo', 'speed'], ['iss-view:', 'issTracker', 'view']
+  ];
   try {
-    _widgetSdkCacheSet(widgetType, widgetId, key, value);
-    localStorage.removeItem(String(legacyKey));
-  } catch {}
-  return value;
+    const keys = Array.from({ length: localStorage.length }, (_, index) => localStorage.key(index));
+    for (const oldKey of keys) {
+      const mapping = prefixes.find(([prefix]) => oldKey?.startsWith('morpheus-webhub-' + prefix));
+      const tle = oldKey === 'morpheus-webhub-iss-tle:v1';
+      if (!mapping && !tle) continue;
+      const [prefix, type, slot] = mapping || ['', 'issTracker', 'tle'];
+      const id = tle ? 'shared' : oldKey.slice(('morpheus-webhub-' + prefix).length);
+      try {
+        const value = JSON.parse(localStorage.getItem(oldKey));
+        const currentKey = _widgetSdkCacheKey(type, id, slot);
+        const existing = localStorage.getItem(currentKey);
+        if (existing && !Object.hasOwn(JSON.parse(existing), 'value')) continue;
+        if (!existing) {
+          _widgetSdkCacheSet(type, id, slot, value);
+          if (JSON.stringify(_widgetSdkCacheGet(type, id, slot)) !== JSON.stringify(value)) continue;
+        }
+        localStorage.removeItem(oldKey);
+      } catch { /* Failed promotion leaves the original recoverable. */ }
+    }
+  } catch { /* Optional local storage is unavailable. */ }
 }
 
 let _widgetSdkAssetDbPromise = null;
@@ -894,7 +914,7 @@ const WidgetSDK = Object.freeze({
   }),
   presets: Object.freeze({ list: _widgetSdkPresetList, save: _widgetSdkPresetSave, remove: _widgetSdkPresetRemove, apply: _widgetSdkPresetApply, export: _widgetSdkPresetExport, import: _widgetSdkPresetImport }),
   state: Object.freeze({ migrate: _widgetSdkMigrateState }),
-  cache: Object.freeze({ get: _widgetSdkCacheGet, set: _widgetSdkCacheSet, remove: _widgetSdkCacheRemove, migrateLegacy: _widgetSdkCacheMigrateLegacy }),
+  cache: Object.freeze({ get: _widgetSdkCacheGet, set: _widgetSdkCacheSet, remove: _widgetSdkCacheRemove }),
   assets: Object.freeze({ metadata: _widgetSdkAssetMetadata, list: _widgetSdkAssetList, get: _widgetSdkAssetGet, set: _widgetSdkAssetSet, remove: _widgetSdkAssetRemove, clear: _widgetSdkAssetClear }),
   network: Object.freeze({ request: _widgetSdkNetworkRequest, assertDomain: _widgetSdkAssertNetworkDomain }),
   extensionRelay: Object.freeze({ invoke: _widgetSdkExtensionInvoke, supports: _widgetSdkExtensionSupports }),
@@ -905,6 +925,7 @@ const WidgetSDK = Object.freeze({
 });
 
 _widgetSdkAdoptBuiltins();
+_widgetSdkUpgradeCaches();
 if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
   document.addEventListener('DOMContentLoaded', _widgetSdkAdoptBuiltins, { once: true });
 }

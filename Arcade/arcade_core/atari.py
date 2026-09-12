@@ -80,7 +80,8 @@ def discover(root, parse_name, *, exclude=()):
                       'countries': list(parsed['countries']), 'version': version,
                       'edition': ' / '.join(dict.fromkeys([*edition, *[f for f in flags if re.match(r'tr\s|monochrome|censored|falcon |tt ', f, re.I)]]))[:160],
                       'media_label': f'{total} disk' + ('s' if total != 1 else ''), 'status': 'Main'})
-    return {'schemaVersion': 1, 'adapter': ADAPTER, 'games': games}, rejected
+    from arcade_core.index_schema import index_document
+    return index_document({'schemaVersion': 1, 'adapter': ADAPTER, 'games': games}), rejected
 
 
 def read_rows(root):
@@ -90,6 +91,8 @@ def read_rows(root):
 
 
 def validated_rows(value):
+    from arcade_core.index_schema import index_document
+    value = index_document(value)
     if value.get('schemaVersion') != 1 or value.get('adapter') != ADAPTER or not isinstance(value.get('games'), list) or len(value['games']) > 100_000:
         raise CatalogueError('review-required')
     result, seen, media = {}, set(), set()
@@ -122,7 +125,10 @@ def refresh_index(root, parse_name):
         before = read_object(path, 32 * 1024 * 1024)
         rows = validated_rows(before)
         found, rejected = discover(root, parse_name, exclude=[d for r in rows.values() for d in r['disks']])
+        from arcade_core.index_schema import index_document, assign_groups
         after = {**before, 'games': [*before['games'], *found['games']]}
+        assign_groups(after['games'])
+        after = index_document(after)
         validated_rows(after)
         if len(encoded(after)) > 32 * 1024 * 1024:
             raise CatalogueError('review-required')

@@ -63,7 +63,7 @@ Games can be sent from Arcade to Portal and retain source-scoped launch identiti
 
 ## Shape
 
-- `arcade_service.py` provides the transport-independent API dispatcher and platform-specific filesystem/network adapters loaded by Cyrune Host. `emugui_service.py` is a compatibility shim for older Host installations.
+- `arcade_service.py` provides the transport-independent API dispatcher and platform-specific filesystem/network adapters loaded by Cyrune Host. Current Host installations require service protocol 2; old Python shims have been retired.
 - `arcade_core/library.py`, `collections.py`, and `collection_loading.py` own the in-memory library model, collection configuration, and loading/import orchestration.
 - `arcade_core/import_manifest.py` owns bounded native import validation and reference review. `import_spectrum.py` supplies the first source adapter and the running catalogue's shared identity/metadata normalization, preserving exact editions and explicit POK links. Drafts grant no launch authority.
 - `arcade_core/import_scummvm.py` preserves existing ScummVM registrations as native game-directory targets, including release platform/language and exact text-adventure filenames. Its launch preflight names the original configured target so native ScummVM preferences remain in effect; Host independently validates and executes those exact targets.
@@ -82,8 +82,8 @@ Games can be sent from Arcade to Portal and retain source-scoped launch identiti
 - `web/` contains the canonical local-file browser frontend, which uses extension RPC exclusively.
 - `%LOCALAPPDATA%/Cyrune/Arcade/state.json` stores favourites and recent plays on Windows. The default is `${XDG_DATA_HOME:-~/.local/share}/Cyrune/Arcade` elsewhere; set `CYRUNE_ARCADE_DATA` for a portable or development override.
 - The default collection is `E:\Emulation\Software Library\Sinclair\ZX Spectrum\Desasteron Spectrum Collection`.
-- Override the default collection with `CYRUNE_ARCADE_COLLECTION`; `MORPHEUS_EMUGUI_COLLECTION` remains a compatibility alias.
-- Override the sibling collection search root with `CYRUNE_ARCADE_COLLECTIONS_BASE`; `MORPHEUS_EMUGUI_COLLECTIONS_BASE` remains a compatibility alias.
+- Override the default collection with `CYRUNE_ARCADE_COLLECTION`.
+- Override the sibling collection search root with `CYRUNE_ARCADE_COLLECTIONS_BASE`.
 
 The runtime intentionally uses only Python's standard library.
 
@@ -168,3 +168,5 @@ Bulk scraping supports editing each search, retrying failed lookups and pausing 
 Recent native libraries, parsed POKs, provider results and artwork have bounded caches. Rebuild Index always refreshes collection data. Collection-scoped requests and generation checks prevent late replies from populating another platform. List reads support compact defaults and revision deltas while retaining exact version identities. Scraper jobs release the native message handler while fetching, and ScreenScraper concurrency starts at one until its account response advertises a larger allowance (currently capped at two workers). Cartridge hashes are used only for current-platform Game Boy searches without an edited term; other searches retain title matching.
 
 `arcade_core/tosec.py` owns filename parsing/building, `provider_metadata.py` owns provider text/media projection, and `web/scrape-views.js` owns the scraping dialogs alongside the independent `metadata-scraping.js` batch model. No build step or additional runtime framework is required.
+
+Data-format upgrades and coordinated release requirements are documented in [suite-data-cutover.md](../docs/architecture/suite-data-cutover.md). Collection indexes store explicit metadata groups; older backup/source conversion occurs at the import/index boundary.

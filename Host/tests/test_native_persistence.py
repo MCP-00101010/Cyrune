@@ -267,8 +267,8 @@ class NativePersistenceTests(unittest.TestCase):
             self.assertEqual(snapshot['data']['arcade']['schema'], {'valid': True, 'version': None})
             self.assertEqual(snapshot['data']['nexus']['health']['code'], 'nexus-settings-defaults')
             self.assertEqual(snapshot['services']['host']['health']['code'], 'host-healthy')
-            self.assertEqual(snapshot['services']['host']['version'], '0.2.25')
-            self.assertEqual(snapshot['services']['host']['protocols']['host-native'], 2)
+            self.assertEqual(snapshot['services']['host']['version'], '0.2.26')
+            self.assertEqual(snapshot['services']['host']['protocols']['host-native'], 3)
             self.assertTrue(all(component['version'] != 'Unversioned' for component in snapshot['components']))
             self.assertTrue(all('protocols' in component for component in snapshot['components']))
             self.assertEqual(snapshot['data']['portal']['location'], 'Configured external database')
@@ -279,8 +279,8 @@ class NativePersistenceTests(unittest.TestCase):
             self.assertNotIn('activeCollection', snapshot['data']['arcade']['service'])
 
     def test_host_version_protocols_and_nexus_dispatch_are_manifest_backed(self):
-        self.assertEqual(HOST.HOST_VERSION, '0.2.25')
-        self.assertEqual(HOST.HOST_PROTOCOLS['host-native'], 2)
+        self.assertEqual(HOST.HOST_VERSION, '0.2.26')
+        self.assertEqual(HOST.HOST_PROTOCOLS['host-native'], 3)
         self.assertIn('NEXUS_GET_STATUS', HOST.NEXUS_MESSAGE_TYPES)
         self.assertFalse(HOST.handle_nexus_message('READ_CONFIG', {}))
 
@@ -864,8 +864,11 @@ class NativePersistenceTests(unittest.TestCase):
         with TemporaryDirectory(dir=TEST_TEMP_ROOT) as directory:
             root = Path(directory) / 'EmuGUI'
             root.mkdir()
-            (root / 'emugui_service.py').write_text(
-                "def dispatch_emugui_read(method):\n"
+            (root / 'arcade_service.py').write_text(
+                "ARCADE_SERVICE_PROTOCOL_VERSION = 2\n"
+                "def configure_native_secret_service(**hooks): pass\n"
+                "def configure_optional_network_policy(check): pass\n"
+                "def dispatch_arcade_read(method):\n"
                 "    assert method == 'STATUS'\n"
                 "    return {\n"
                 "        'serviceVersion': 1,\n"
@@ -884,7 +887,7 @@ class NativePersistenceTests(unittest.TestCase):
             HOST.EMUGUI_MODULE = None
             HOST.EMUGUI_MODULE_PATH = ''
             try:
-                HOST.save_config({'databasePath': '', 'emuguiRoot': str(root)})
+                HOST.save_config({'databasePath': '', 'arcadeRoot': str(root)})
                 status = HOST.emugui_service_status()
                 stored = HOST.load_config()
                 self.assertEqual(status['activeCollection'], {'id': 'spectrum', 'name': 'ZX Spectrum'})
@@ -892,18 +895,21 @@ class NativePersistenceTests(unittest.TestCase):
                 self.assertEqual(status['emulatorCount'], 1)
                 self.assertEqual(status['profileCount'], 3)
                 self.assertNotIn('root', json.dumps(status).lower())
-                self.assertEqual(stored['emuguiRoot'], str(root.resolve()))
+                self.assertEqual(stored['arcadeRoot'], str(root.resolve()))
             finally:
                 HOST.CONFIG_PATH = original_path
                 HOST.EMUGUI_MODULE = original_module
                 HOST.EMUGUI_MODULE_PATH = original_module_path
 
-    def test_arcade_root_and_canonical_service_are_preferred_with_legacy_config_retained(self):
+    def test_arcade_root_uses_only_the_current_service_contract(self):
         with TemporaryDirectory(dir=TEST_TEMP_ROOT) as directory:
             root = Path(directory) / 'Arcade'
             root.mkdir()
             (root / 'arcade_service.py').write_text(
                 "EMULATOR_ICON_READER = None\n"
+                "ARCADE_SERVICE_PROTOCOL_VERSION = 2\n"
+                "def configure_native_secret_service(**hooks): pass\n"
+                "def configure_optional_network_policy(check): pass\n"
                 "def dispatch_arcade_read(method):\n"
                 "    return {'serviceVersion': 1, 'active': {}, 'collections': [], 'emulators': [], 'profiles': []}\n",
                 encoding='utf-8'
@@ -922,7 +928,7 @@ class NativePersistenceTests(unittest.TestCase):
                 self.assertEqual(configured_root, str(root.resolve()))
                 self.assertEqual(service_path, str((root / 'arcade_service.py').resolve()))
                 self.assertEqual(stored['arcadeRoot'], str(root.resolve()))
-                self.assertEqual(stored['emuguiRoot'], str(root.resolve()))
+                self.assertEqual(stored['arcadeRoot'], str(root.resolve()))
                 self.assertTrue(callable(HOST._load_emugui_module().dispatch_arcade_read))
                 self.assertIs(HOST._load_emugui_module().EMULATOR_ICON_READER, HOST._application_icon_data_url)
             finally:
@@ -944,11 +950,13 @@ class NativePersistenceTests(unittest.TestCase):
         with TemporaryDirectory(dir=TEST_TEMP_ROOT) as directory:
             root = Path(directory) / 'EmuGUI'
             root.mkdir()
-            (root / 'emugui_service.py').write_text(
+            (root / 'arcade_service.py').write_text(
                 "secret_hooks = {}\n"
                 "def configure_native_secret_service(**hooks):\n"
                 "    secret_hooks.update(hooks)\n"
-                "def dispatch_emugui_read(method):\n"
+                "ARCADE_SERVICE_PROTOCOL_VERSION = 2\n"
+                "def configure_optional_network_policy(check): pass\n"
+                "def dispatch_arcade_read(method):\n"
                 "    return {'serviceVersion': 1, 'active': {}, 'collections': [], 'emulators': [], 'profiles': []}\n",
                 encoding='utf-8'
             )
@@ -960,7 +968,7 @@ class NativePersistenceTests(unittest.TestCase):
             HOST.EMUGUI_MODULE = None
             HOST.EMUGUI_MODULE_PATH = ''
             try:
-                HOST.save_config({'databasePath': '', 'emuguiRoot': str(root)})
+                HOST.save_config({'databasePath': '', 'arcadeRoot': str(root)})
                 module = HOST._load_emugui_module()
                 self.assertIs(module.secret_hooks['get_secret'], HOST.secret_get)
                 self.assertIs(module.secret_hooks['set_secret'], HOST.secret_set)
@@ -971,141 +979,16 @@ class NativePersistenceTests(unittest.TestCase):
                 HOST.EMUGUI_MODULE = original_module
                 HOST.EMUGUI_MODULE_PATH = original_module_path
 
-    def test_emugui_game_binding_is_opaque_reused_and_launchable(self):
-        with TemporaryDirectory(dir=TEST_TEMP_ROOT) as directory:
-            root = Path(directory)
-            (root / 'emugui_service.py').write_text('# test service\n', encoding='utf-8')
-            (root / 'web').mkdir()
-            (root / 'web' / 'index.html').write_text('<meta name="morpheus-emugui">', encoding='utf-8')
-            image = root / 'cover.png'
-            image.write_bytes(b'\x89PNG\r\n\x1a\nsmall-cover')
-            (root / 'Jetpac.tap').write_bytes(b'game')
-            launches = []
-
-            class FakeEmuGui:
-                COLLECTION = root
-
-                @staticmethod
-                def dispatch_emugui_read(method, params=None):
-                    if method == 'STATUS':
-                        return {
-                            'active': {'id': 'spectrum', 'name': 'ZX Spectrum'},
-                            'emulators': [{'id': 'eightyone', 'name': 'EightyOne', 'available': True}],
-                            'profiles': [{'id': 'profile-48k', 'name': 'Spectrum 48K', 'emulator_id': 'eightyone'}]
-                        }
-                    if method == 'GET_GAME' and params.get('gameId') == 'jetpac':
-                        return {'game': {
-                            'id': 'jetpac', 'title': 'Jetpac', 'default_emulator': 'eightyone',
-                            'loading_screen': 'cover.png', 'path': str(root / 'Jetpac.tap'), 'languages': ['EN', 'de']
-                        }}
-                    raise ValueError('Unknown game')
-
-                @staticmethod
-                def launch_game(game_id, emulator_id, profile_id=''):
-                    launches.append((game_id, emulator_id, profile_id))
-                    return {'ok': True}
-
-            config_path = root / 'native-config.json'
-            original = HOST.CONFIG_PATH
-            HOST.CONFIG_PATH = str(config_path)
-            try:
-                HOST.save_config({'databasePath': '', 'emuguiRoot': str(root)})
-                with patch.object(HOST, '_load_emugui_module', return_value=FakeEmuGui):
-                    first = HOST.create_emugui_game_binding('jetpac', 'eightyone', 'profile-48k')
-                    second = HOST.create_emugui_game_binding('jetpac', 'eightyone', 'profile-48k')
-                    stored = HOST.load_config()['approvedGames'][first['gameKey']]
-                    self.assertEqual(first['gameKey'], second['gameKey'])
-                    self.assertEqual(first['state'], 'ready')
-                    self.assertEqual(first['systemId'], 'zx-spectrum')
-                    self.assertEqual(first['systemName'], 'ZX Spectrum')
-                    self.assertEqual(first['tags'], ['Games', 'ZX Spectrum'])
-                    self.assertEqual(first['emulatorName'], 'EightyOne')
-                    self.assertEqual(first['profileName'], 'Spectrum 48K')
-                    self.assertEqual(stored['systemId'], 'zx-spectrum')
-                    self.assertEqual(stored['emulatorName'], 'EightyOne')
-                    self.assertEqual(stored['profileName'], 'Spectrum 48K')
-                    self.assertTrue(first['thumbnailCache'].startswith('data:image/png;base64,'))
-                    self.assertNotIn('path', json.dumps(first).lower())
-                    self.assertNotIn('path', json.dumps(stored).lower())
-                    self.assertTrue(HOST.launch_emugui_game(first['gameKey']))
-                    self.assertEqual(launches, [('jetpac', 'eightyone', 'profile-48k')])
-                    self.assertEqual(HOST.emugui_game_status(first['gameKey'])['state'], 'ready')
-                    self.assertEqual(HOST.emugui_game_status(first['gameKey'])['languages'], ['en', 'de'])
-                    self.assertTrue(HOST.emugui_game_status(first['gameKey'], True)['thumbnailCache'].startswith('data:image/png;base64,'))
-                    link = HOST.emugui_game_link(first['gameKey'], rebind=True)
-                    self.assertTrue(link.startswith('file:'))
-                    self.assertIn('/web/index.html?', link)
-                    self.assertIn('game=jetpac', link)
-                    self.assertIn(f'hubRebind={first["gameKey"]}', link)
-                    self.assertNotIn('Jetpac.tap', link)
-                    rebound = HOST.rebind_emugui_game(first['gameKey'], 'jetpac', 'eightyone', 'profile-48k')
-                    self.assertEqual(rebound['gameKey'], first['gameKey'])
-                    with patch.object(HOST.subprocess, 'Popen') as opened, patch.object(HOST.sys, 'platform', 'win32'):
-                        self.assertTrue(HOST.reveal_emugui_game(first['gameKey']))
-                        self.assertEqual(opened.call_args.args[0][:2], ['explorer.exe', '/select,'])
-                    self.assertTrue(HOST.forget_emugui_game(first['gameKey']))
-                    self.assertEqual(HOST.emugui_game_status(first['gameKey'])['state'], 'unbound')
-            finally:
-                HOST.CONFIG_PATH = original
-
-    def test_emugui_game_status_reports_actionable_binding_failures(self):
-        with TemporaryDirectory(dir=TEST_TEMP_ROOT) as directory:
-            root = Path(directory)
-            (root / 'emugui_service.py').write_text('# test service\n', encoding='utf-8')
-            (root / 'web').mkdir()
-            (root / 'web' / 'index.html').write_text('<meta name="morpheus-emugui">', encoding='utf-8')
-            config_path = root / 'native-config.json'
-            original = HOST.CONFIG_PATH
-            HOST.CONFIG_PATH = str(config_path)
-            game_key = 'game_abcdefghijklmnop'
-            entry = {
-                'libraryId': 'spectrum', 'gameId': 'jetpac', 'emulatorId': 'eightyone',
-                'profileId': 'profile-48k', 'label': 'Jetpac'
-            }
-            HOST.save_config({'emuguiRoot': str(root), 'approvedGames': {game_key: entry}})
-            control = {'active': 'other', 'game': True, 'emulator': True, 'profile': True}
-
-            class FakeEmuGui:
-                COLLECTION = root
-
-                @staticmethod
-                def dispatch_emugui_read(method, params=None):
-                    if method == 'STATUS':
-                        return {
-                            'active': {'id': control['active']},
-                            'emulators': ([{'id': 'eightyone', 'name': 'EightyOne', 'available': True}] if control['emulator'] else []),
-                            'profiles': ([{'id': 'profile-48k', 'name': '48K', 'emulator_id': 'eightyone'}] if control['profile'] else [])
-                        }
-                    if method == 'GET_GAME' and control['game']:
-                        return {'game': {'id': 'jetpac', 'title': 'Jetpac', 'path': str(root / 'Jetpac.tap')}}
-                    raise ValueError('Unknown game')
-
-            try:
-                with patch.object(HOST, '_load_emugui_module', return_value=FakeEmuGui):
-                    self.assertEqual(HOST.emugui_game_status(game_key)['state'], 'library-missing')
-                    control['active'] = 'spectrum'
-                    control['game'] = False
-                    self.assertEqual(HOST.emugui_game_status(game_key)['state'], 'game-missing')
-                    control['game'] = True
-                    control['emulator'] = False
-                    self.assertEqual(HOST.emugui_game_status(game_key)['state'], 'emulator-missing')
-                    control['emulator'] = True
-                    control['profile'] = False
-                    self.assertEqual(HOST.emugui_game_status(game_key)['state'], 'profile-missing')
-                    self.assertIn('game=jetpac', HOST.emugui_game_link(game_key))
-            finally:
-                HOST.CONFIG_PATH = original
-
     def test_emugui_file_page_authorization_is_exact_and_query_safe(self):
         with TemporaryDirectory(dir=TEST_TEMP_ROOT) as directory:
             root = Path(directory) / 'EmuGUI'
             (root / 'web').mkdir(parents=True)
             (root / 'web' / 'index.html').write_text('<meta name="morpheus-emugui">', encoding='utf-8')
-            (root / 'emugui_service.py').write_text('# test service\n', encoding='utf-8')
+            (root / 'arcade_service.py').write_text('# test service\n', encoding='utf-8')
             original = HOST.CONFIG_PATH
             HOST.CONFIG_PATH = str(Path(directory) / 'native-config.json')
             try:
-                HOST.save_config({'emuguiRoot': str(root)})
+                HOST.save_config({'arcadeRoot': str(root)})
                 page_url = (root / 'web' / 'index.html').as_uri()
                 self.assertTrue(HOST.authorize_emugui_page(page_url + '?game=jetpac'))
                 self.assertFalse(HOST.authorize_emugui_page((root / 'web' / 'other.html').as_uri()))
@@ -1118,12 +1001,12 @@ class NativePersistenceTests(unittest.TestCase):
 
         class FakeEmuGui:
             @staticmethod
-            def dispatch_emugui_api(method, path, query, body):
+            def dispatch_arcade_api(method, path, query, body):
                 calls.append(('api', method, path, query, body))
                 return {'ok': True, 'games': []}
 
             @staticmethod
-            def read_emugui_asset(path, max_bytes):
+            def read_arcade_asset(path, max_bytes):
                 calls.append(('asset', path, max_bytes))
                 return {'dataUrl': 'data:image/png;base64,cG5n', 'contentType': 'image/png'}
 
@@ -1151,56 +1034,6 @@ class NativePersistenceTests(unittest.TestCase):
         self.assertEqual(rebuilt, payload)
         self.assertGreater(len(chunks), 1)
         self.assertNotIn(transfer_id, HOST.EMUGUI_TRANSFERS)
-
-    def test_game_system_identity_covers_planned_emulator_families(self):
-        cases = (
-            ({'system': 'ZX Spectrum 128K'}, {}, ('zx-spectrum', 'ZX Spectrum')),
-            ({'system': '48K-128K'}, {}, ('zx-spectrum', 'ZX Spectrum')),
-            ({}, {'emulatorId': 'hatari'}, ('atari-st', 'Atari ST')),
-            ({'platform': 'Game Boy Color'}, {}, ('game-boy', 'Game Boy')),
-            ({}, {'emulatorId': 'snes9x'}, ('snes', 'Super Nintendo')),
-            ({}, {'emulatorId': 'scummvm'}, ('scummvm', 'ScummVM')),
-            ({}, {'emulatorId': 'dosbox-staging'}, ('dosbox', 'DOSBox')),
-            ({'system': 'Arcade'}, {}, ('mame', 'Arcade / MAME')),
-        )
-        for game, entry, expected in cases:
-            with self.subTest(expected=expected[0]):
-                self.assertEqual(HOST._game_system_info(game, entry), expected)
-
-    def test_remote_emugui_artwork_is_bounded_and_https_only(self):
-        game = {
-            'loading_screen': 'https://cdn.thegamesdb.net/images/original/boxart/front/17951-1.jpg',
-            'screenshot': 'https://example.com/fallback.png'
-        }
-        downloaded = {
-            'contentType': 'image/jpeg',
-            'dataUrl': 'data:image/jpeg;base64,aW1hZ2U=',
-            'bytes': 5
-        }
-        with patch.object(HOST, '_download_favicon_candidate', return_value=downloaded) as fetch:
-            self.assertEqual(HOST._emugui_binding_thumbnail(object(), game), downloaded['dataUrl'])
-            fetch.assert_called_once_with(game['loading_screen'], HOST.MAX_APPLICATION_ICON_BYTES)
-        with patch.object(HOST, '_download_favicon_candidate') as fetch:
-            self.assertEqual(HOST._emugui_binding_thumbnail(object(), {'screenshot': 'http://example.com/image.png'}), '')
-            fetch.assert_not_called()
-
-    def test_emugui_artwork_never_borrows_another_registration_by_title(self):
-        class FakeEmuGui:
-            COLLECTION = ''
-
-            @staticmethod
-            def dispatch_emugui_read(method, params=None):
-                self.assertEqual(method, 'SEARCH_GAMES')
-                return {'games': [
-                    {'id': 'other-system', 'title': 'Ghostbusters', 'system': 'Atari ST', 'loading_screen': 'https://example.com/atari.jpg'},
-                    {'id': 'spectrum-art', 'title': 'Ghostbusters', 'system': '128K', 'loading_screen': 'https://example.com/spectrum.jpg'},
-                ]}
-
-        game = {'id': 'bound-game', 'title': 'Ghostbusters', 'system': '48K'}
-        downloaded = {'contentType': 'image/jpeg', 'dataUrl': 'data:image/jpeg;base64,c3BlY3RydW0=', 'bytes': 8}
-        with patch.object(HOST, '_download_favicon_candidate', return_value=downloaded) as fetch:
-            self.assertEqual(HOST._emugui_binding_thumbnail(FakeEmuGui(), game), '')
-            fetch.assert_not_called()
 
 
 def tearDownModule():

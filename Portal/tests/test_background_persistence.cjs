@@ -4,10 +4,10 @@ const path = require('node:path');
 const test = require('node:test');
 const vm = require('node:vm');
 
-const HOST_PROTOCOLS = { 'host-native': 2, 'arcade-service': 1, 'component-settings': 2 };
+const HOST_PROTOCOLS = { 'host-native': 3, 'arcade-service': 2, 'component-settings': 2 };
 const CLIENT_PROTOCOLS = {
-  MW_REGISTER: { 'portal-relay': 1, 'component-settings': 2 },
-  MW_EMUGUI_REGISTER: { 'arcade-relay': 1, 'arcade-service': 1, 'component-settings': 2 },
+  MW_REGISTER: { 'portal-relay': 2, 'component-settings': 2 },
+  MW_EMUGUI_REGISTER: { 'arcade-relay': 2, 'arcade-service': 2, 'component-settings': 2 },
   MW_NEXUS_REGISTER: { 'nexus-relay': 2, 'component-settings': 2 }
 };
 

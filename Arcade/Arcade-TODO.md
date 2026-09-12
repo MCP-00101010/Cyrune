@@ -1,6 +1,9 @@
 # Cyrune Arcade TODO
 
-- Monitor 0.2.57 remembered search terms and platform choices when re-scraping favourites, switching providers and scraping newly indexed versions.
+- Monitor 0.2.58: coordinated data cutover, current protocol negotiation and first-reload browser upgrades. See `docs/architecture/suite-data-cutover.md` at repository root.
+- Reconnect the unavailable configured Spectrum source, then rerun `tools/upgrade_suite_data.py --apply` from the repository root to materialize its index groups; all available indexes are already current.
+
+- Monitor 0.2.58 remembered search terms and platform choices when re-scraping favourites, switching providers and scraping newly indexed versions.
 
 - Monitor 0.2.56: scrape retry/resume, cross-platform artwork, repeated collection switches and Game Boy picker use. Implementation details and validation: `../docs/reviews/arcade-implementation-2026-09-08.md`.
 

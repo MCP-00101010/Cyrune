@@ -4,6 +4,11 @@ Historical entries below are preserved from Portal releases whose release notes 
 
 ---
 
+## [0.2.58] — 2026-09-09
+
+- Collection indexes now store stable metadata-group IDs under index schema 2 and explicit adapters. Current scoped summary/job APIs replace old client and service shims; native scrape classification is required. Exact versions, launch properties and ScummVM metadata ownership are preserved.
+- Validation: 522 component tests; coordinated migration/packaging/tooling checks, syntax, versions, infrastructure and Relay lint passed. Isolated Firefox Portal/Arcade acceptance passed.
+
 ## [0.2.57] — 2026-09-09
 
 - Remember each game's successfully applied search term and Current system/All platforms choice separately for each metadata provider. Individual and bulk scraping restore these defaults; unfinished review choices take precedence on resume.

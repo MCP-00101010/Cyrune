@@ -202,6 +202,24 @@ def validate_plan(plan):
     }
 
 
+def validate_selection(selection):
+    if not isinstance(selection, dict) or set(selection) != {'emulatorId', 'profileId'}:
+        raise BindingError('review-required')
+    for field, value in selection.items():
+        if not isinstance(value, str) or (field == 'emulatorId' or value) and not re.fullmatch(r'[A-Za-z0-9_-]{1,120}', value):
+            raise BindingError('review-required')
+
+
+def selected_approval(plan, selection=None):
+    approval = validate_plan(plan)
+    if selection is not None:
+        validate_selection(selection)
+        if plan['emulatorId'] != selection['emulatorId'] or selection['profileId'] and plan['profileId'] != selection['profileId']:
+            raise BindingError('configuration-required')
+        approval['selection'] = deepcopy(selection)
+    return approval
+
+
 def scummvm_module():
     name = "_cyrune_host_scummvm_plan"
     if name not in sys.modules:
@@ -221,11 +239,11 @@ class Session:
 
 
 class CatalogueBindings:
-    def __init__(self, path, *, lock, write, legacy_keys, resolve, present, execute, clock=time.monotonic, wall_clock=time.time, resolve_scope=nullcontext):
+    def __init__(self, path, *, lock, write, resolve, present, execute, clock=time.monotonic, wall_clock=time.time, resolve_scope=nullcontext):
         self.path = Path(path).resolve()
         if self.path.is_relative_to(Path(__file__).resolve().parents[1]):
             raise BindingError("invalid-request")
-        self._lock, self._write, self._legacy_keys = lock, write, legacy_keys
+        self._lock, self._write = lock, write
         self._resolve, self._present, self._execute, self._clock = resolve, present, execute, clock
         self._wall_clock = wall_clock
         self._resolve_scope = resolve_scope
@@ -259,16 +277,18 @@ class CatalogueBindings:
 
     def load(self):
         if not self.path.exists():
+            if self.path.with_name("bindings-v5-upgrade.json").exists():
+                raise BindingError("review-required")
             receipt = self.path.with_suffix(".migration.json")
             if receipt.exists() and read_object(receipt, 65536).get("status") == "completed":
                 raise BindingError("review-required")
-            return {"schemaVersion": 1, "revision": 0, "bindings": {}, "receipts": {}}
+            return {"schemaVersion": 5, "revision": 0, "bindings": {}, "receipts": {}}
         value = read_object(self.path, MAX_STORE_BYTES)
         self._validate(value)
         return value
 
     def _validate(self, value):
-        if type(value.get("schemaVersion")) is not int or value["schemaVersion"] not in (1, 2, 3, 4):
+        if type(value.get("schemaVersion")) is not int or value["schemaVersion"] != 5:
             raise BindingError("unsupported-protocol")
         if set(value) != {"schemaVersion", "revision", "bindings", "receipts"} or type(value["revision"]) is not int or value["revision"] < 0:
             raise BindingError("review-required")
@@ -276,10 +296,19 @@ class CatalogueBindings:
         if not isinstance(bindings, dict) or len(bindings) > MAX_BINDINGS or not isinstance(receipts, dict) or len(receipts) > 64:
             raise BindingError("review-required")
         for key, entry in bindings.items():
+            if not isinstance(key, str) or not KEY.fullmatch(key) or not isinstance(entry, dict):
+                raise BindingError("review-required")
+            if entry.get('mode') == 'unresolved':
+                if set(entry) != {'mode', 'previous', 'code'} or entry['code'] not in CODES or not isinstance(entry['previous'], dict) or len(encoded(entry)) > 65536:
+                    raise BindingError('review-required')
+                continue
+            if 'selection' in entry:
+                validate_selection(entry['selection'])
+                entry = {field: value for field, value in entry.items() if field != 'selection'}
             if isinstance(entry, dict) and entry.get("mode") == "scummvm-entry-v1":
                 fields = {"mode", "sourceId", "catalogueId", "targetDigest", "config", "directory", "directoryIdentity",
                           "executable", "executableSignature", "cwd"}
-                if value["schemaVersion"] not in (2, 3, 4) or not KEY.fullmatch(key) or set(entry) != fields:
+                if not KEY.fullmatch(key) or set(entry) != fields:
                     raise BindingError("review-required")
                 for field in ("sourceId", "catalogueId"):
                     if not isinstance(entry[field], str) or not ID.fullmatch(entry[field]):
@@ -307,7 +336,7 @@ class CatalogueBindings:
             signature = entry["executableSignature"]
             if not isinstance(signature, list) or len(signature) != 4 or any(type(n) is not int or n < 0 for n in signature):
                 raise BindingError("review-required")
-            if entry["adapterId"] not in ("generic", "eightyone", "spectaculator", "spectaculator_stub", "steem", "hatari") or entry['adapterId'] == 'steem' and value['schemaVersion'] < 3 or entry['adapterId'] == 'hatari' and value['schemaVersion'] != 4:
+            if entry["adapterId"] not in ("generic", "eightyone", "spectaculator", "spectaculator_stub", "steem", "hatari"):
                 raise BindingError("review-required")
         if len(encoded(receipts)) > MAX_RECEIPTS_BYTES:
             raise BindingError("busy")
@@ -381,7 +410,6 @@ class CatalogueBindings:
             receipts = group["requests"]
             if len(receipts) >= 64:
                 raise BindingError("busy")
-            legacy = self._legacy_keys()
             results, plans = [], []
             # Batch only read-only planning. The scope validates all source
             # observations on exit, before initialization, receipts or approvals.
@@ -403,10 +431,10 @@ class CatalogueBindings:
                             raise BindingError("entry-changed")
                         key = next((key for key, entry in state["bindings"].items() if entry == approval), None)
                         if key is None:
-                            if len(legacy) + len(state["bindings"]) >= MAX_BINDINGS:
+                            if len(state["bindings"]) >= MAX_BINDINGS:
                                 raise BindingError("binding-limit")
                             key = "game_" + secrets.token_urlsafe(18)
-                            while key in legacy or key in state["bindings"]:
+                            while key in state["bindings"]:
                                 key = "game_" + secrets.token_urlsafe(18)
                             state["bindings"][key] = approval
                         results.append({"catalogueId": catalogue_id, "key": key, "code": ""})
@@ -425,12 +453,6 @@ class CatalogueBindings:
                         results[index].update(key="", code=error_code(error))
             retained = set(before["bindings"]) | {result["key"] for result in results if result["key"]}
             state["bindings"] = {key: value for key, value in state["bindings"].items() if key in retained}
-            if any(value["mode"] == "scummvm-entry-v1" for value in state["bindings"].values()):
-                state["schemaVersion"] = max(state['schemaVersion'], 2)
-            if any(value.get('adapterId') in {'steem', 'hatari'} for value in state['bindings'].values()):
-                state['schemaVersion'] = max(state['schemaVersion'], 3)
-            if any(value.get('adapterId') == 'hatari' for value in state['bindings'].values()):
-                state['schemaVersion'] = 4
             receipts[request["requestId"]] = {"digest": digest, "results": results}
             state["revision"] += 1
             self._validate(state)
@@ -481,6 +503,12 @@ class CatalogueBindings:
             raise BindingError("review-required")
         return response
 
+    def _selected_plan(self, catalogue_id, revision, selection):
+        if selection is None:
+            return self._resolve(catalogue_id, revision)
+        validate_selection(selection)
+        return self._resolve(catalogue_id, revision, selection=selection)
+
     def resolve(self, key):
         if not isinstance(key, str) or not KEY.fullmatch(key):
             raise BindingError("invalid-request")
@@ -489,8 +517,11 @@ class CatalogueBindings:
         if approval is None:
             raise BindingError("binding-forgotten")
         try:
-            plan = self._resolve(approval["catalogueId"], None)
-            if validate_plan(plan) != approval:
+            if approval['mode'] == 'unresolved':
+                raise BindingError(approval['code'])
+            selection = approval.get('selection')
+            plan = self._selected_plan(approval["catalogueId"], None, selection)
+            if selected_approval(plan, selection) != approval:
                 raise BindingError("review-required")
             return plan
         except Exception as error:
@@ -501,7 +532,7 @@ class CatalogueBindings:
             raise BindingError("unsupported-target")
         return self.approve_version(plan, game_key=game_key)
 
-    def approve_version(self, plan, *, game_key=""):
+    def approve_version(self, plan, *, game_key="", selection=None):
         """Existing authenticated Arcade single-game Send/rebind route only.
 
         Reuse the independent plan checks, quota and atomic store. This does
@@ -509,23 +540,23 @@ class CatalogueBindings:
         """
         with self._lock():
             with self._resolve_scope():
-                approval = validate_plan(plan)
+                approval = selected_approval(plan, selection)
                 state = self.load()
                 before = deepcopy(state)
                 if game_key:
-                    if game_key not in state["bindings"] or (state['bindings'][game_key]['mode'] != 'scummvm-entry-v1' and state['bindings'][game_key].get('adapterId') not in {'steem', 'hatari'}):
+                    if game_key not in state["bindings"]:
                         raise BindingError("binding-forgotten")
                     key = game_key
                 else:
                     key = next((key for key, row in state["bindings"].items() if row == approval), None)
                     if key is None:
-                        if len(state["bindings"]) + len(self._legacy_keys()) >= MAX_BINDINGS:
+                        if len(state["bindings"]) >= MAX_BINDINGS:
                             raise BindingError("binding-limit")
                         key = "game_" + secrets.token_urlsafe(18)
-                        while key in state["bindings"] or key in self._legacy_keys():
+                        while key in state["bindings"]:
                             key = "game_" + secrets.token_urlsafe(18)
-                current = self._resolve(plan["catalogueId"], plan["entryRevision"])
-                if current != plan or validate_plan(current) != approval:
+                current = self._selected_plan(plan["catalogueId"], plan["entryRevision"], selection)
+                if current != plan or selected_approval(current, selection) != approval:
                     raise BindingError("entry-changed")
             if state["bindings"].get(key) == approval:
                 return key
@@ -536,7 +567,6 @@ class CatalogueBindings:
                             if result["key"] == key:
                                 result.update(key="", code="binding-forgotten")
             state["bindings"][key] = approval
-            state["schemaVersion"] = max(state['schemaVersion'], 4 if approval.get('adapterId') == 'hatari' else 3 if approval.get('adapterId') == 'steem' else 2)
             state["revision"] += 1
             self._validate(state)
             if len(encoded(state)) > MAX_STORE_BYTES:
@@ -563,8 +593,6 @@ class CatalogueBindings:
                     if self._resolve(plan['catalogueId'], plan['entryRevision']) != plan:
                         raise BindingError('entry-changed')
                 after['revision'] += 1
-                if approval['adapterId'] == 'hatari':
-                    after['schemaVersion'] = 4
                 self._validate(after)
                 self._write(self.path, after)
             return before, after
@@ -573,7 +601,8 @@ class CatalogueBindings:
         with self._lock():
             plan = self.resolve(key)
             try:
-                return self._execute(plan)
+                selection = self.load()['bindings'][key].get('selection')
+                return self._execute(plan, selection=selection) if selection is not None else self._execute(plan)
             except Exception as error:
                 raise BindingError(error_code(error)) from None
 

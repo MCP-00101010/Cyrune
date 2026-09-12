@@ -23,12 +23,8 @@ def folder_members(library, root, game):
     # collection for every provider request.
     members = [row for row in library.games if row.view == 'collection' and game_platform(row) == platform
                and Path(row.path).parent == anchor.parent]
-    if platform == 'zx-spectrum':
-        from arcade_core.shared_metadata import group_keys
-        original = library._load_metadata().get('games', [])
-        keys = group_keys(original)
-        key = keys.get(game.id)
-        members = [row for row in members if row.id == game.id or key is not None and keys.get(row.id) == key]
+    key = game.metadata_group_id
+    members = [row for row in members if row.id == game.id or key and row.metadata_group_id == key]
     if any(relative_to_root(Path(root), Path(row.path)).parent != folder for row in members):
         raise ValueError('The game folder changed. Re-index before scraping.')
     if not members or len(members) > MAX_SCRAPE_TARGETS:

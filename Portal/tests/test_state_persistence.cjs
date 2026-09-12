@@ -52,13 +52,19 @@ function loadStateScript() {
   return { context, saves, storage, storageWrites };
 }
 
-test('Portal persisted schema migrations are ordered and reject newer data', () => {
-  const context = vm.createContext({});
-  const filename = path.join(__dirname, '..', 'source', 'state-schema.js');
-  vm.runInContext(fs.readFileSync(filename, 'utf8'), context, { filename });
-  assert.equal(vm.runInContext('migrateStateSchema({ schemaVersion: 2 }).schemaVersion', context), 6);
-  assert.equal(vm.runInContext('Object.keys(STATE_SCHEMA_MIGRATIONS).join(",")', context), '1,2,3,4,5,6');
-  assert.throws(() => vm.runInContext('migrateStateSchema({ schemaVersion: 7 })', context), /newer than supported/);
+test('Portal upgrades its supported baseline once and rejects newer data', () => {
+  const { context } = loadStateScript();
+  assert.equal(vm.runInContext('migrateStateSchema({ schemaVersion: 2 }).schemaVersion', context), 7);
+  assert.throws(() => vm.runInContext('migrateStateSchema({ schemaVersion: 8 })', context), /unsupported/);
+  const result = vm.runInContext(`(() => {
+    const old = {schemaVersion:6, boards:[{id:'b', title:'Saved', columns:[{id:'c',items:[{id:'one',type:'bookmark',url:'https://example.com'}]}]}]};
+    const upgraded = migrateStateSchema(old);
+    const before = JSON.stringify(upgraded);
+    return {before, after:JSON.stringify(migrateStateSchema(upgraded)), board:upgraded.boards[0]};
+  })()`, context);
+  assert.equal(result.before, result.after);
+  assert.equal(result.board.tabs[0].columns[0].items[0].id, 'one');
+  assert.equal('columns' in result.board, false);
 });
 
 test('page cache updates only after the authoritative save succeeds', async () => {
@@ -202,7 +208,7 @@ test('application items receive portable normalized fields without a native path
   const harness = loadStateScript();
   const item = vm.runInContext(`(() => {
     const values = [{ id: 'legacy-app', type: 'application', title: '', tags: null, nativePath: 'C:/unsafe.exe' }];
-    migrateItems(values);
+    normalizeItems(values);
     return values[0];
   })()`, harness.context);
 
@@ -287,7 +293,6 @@ test('widget Inbox moves preserve identity, reject duplicates, and restore throu
         { id: 'board-b', title: 'Board B', tabs: [makeTab('tab-b')] }
       ]
     };
-    syncBoardCompatibilityState();
     const undoSnapshot = JSON.stringify(state);
     let undoCaptures = 0;
     const sameTab = moveWidgetToTabInbox('widget-column', 'board-a', 'tab-a', { beforeMove: () => { undoCaptures += 1; } });
@@ -363,7 +368,7 @@ test('state loading repairs orphaned boards instead of deleting them', () => {
   assert.equal(parsed.boards.length, 1);
   assert.equal(parsed.boards[0].id, 'orphan');
   assert.equal(parsed.navItems.some(item => item.boardId === 'orphan'), true);
-  assert.equal(parsed.schemaVersion, 6);
+  assert.equal(parsed.schemaVersion, 7);
 });
 
 test('state loading migrates only the exact legacy default Portal title', () => {
@@ -380,7 +385,7 @@ test('state loading migrates only the exact legacy default Portal title', () => 
 test('persisted snapshots omit active-tab board compatibility aliases', () => {
   const harness = loadStateScript();
   const snapshot = JSON.parse(harness.context.serializeStateSnapshot());
-  assert.equal(snapshot.schemaVersion, 6);
+  assert.equal(snapshot.schemaVersion, 7);
   assert.equal(Array.isArray(snapshot.boards[0].tabs[0].columns), true);
   assert.equal('columns' in snapshot.boards[0], false);
   assert.equal('inbox' in snapshot.boards[0], false);

@@ -4,15 +4,15 @@ const RELAY_PROTOCOLS = Object.freeze({
   'arcade-catalogue': 1,
   'arcade-scummvm': 1,
   'arcade-atari-st': 1, 'arcade-gameboy': 1,
-  'portal-relay': 1,
-  'arcade-relay': 1,
+  'portal-relay': 2,
+  'arcade-relay': 2,
   'nexus-relay': 2,
-  'host-native': 2,
+  'host-native': 3,
   'component-settings': 2
 });
 const REQUIRED_CLIENT_PROTOCOLS = Object.freeze({
-  portal: Object.freeze({ 'portal-relay': 1, 'component-settings': 2 }),
-  arcade: Object.freeze({ 'arcade-relay': 1, 'arcade-service': 1, 'component-settings': 2 }),
+  portal: Object.freeze({ 'portal-relay': 2, 'component-settings': 2 }),
+  arcade: Object.freeze({ 'arcade-relay': 2, 'arcade-service': 2, 'component-settings': 2 }),
   nexus: Object.freeze({ 'nexus-relay': 2, 'component-settings': 2 })
 });
 const RELAY_COMPONENT_CAPABILITIES = Object.freeze([
@@ -1429,44 +1429,41 @@ function mutateRelaySnapshot(task) {
   return next;
 }
 
-async function readRelaySnapshotEnvelope() {
-  const stored = await browser.storage.local.get([PORTAL_SNAPSHOT_KEY, 'morpheusState']);
-  const envelope = stored?.[PORTAL_SNAPSHOT_KEY];
-  if (envelope && envelope.schemaVersion === 1 && Number.isInteger(envelope.revision)
-      && envelope.revision >= 0 && typeof envelope.content === 'string'
-      && typeof envelope.contentHash === 'string') {
-    const actualHash = await contentSha256(envelope.content);
-    if (actualHash !== envelope.contentHash) throw new Error('Relay-owned Portal snapshot failed content verification');
-    return envelope;
-  }
-  if (typeof stored?.morpheusState !== 'string') return null;
+let relaySnapshotUpgrade = null;
 
-  const legacyContent = stored.morpheusState;
-  const contentHash = await contentSha256(legacyContent);
-  const migrated = {
-    schemaVersion: 1,
-    revision: 1,
-    contentHash,
-    content: legacyContent,
-    updatedAt: new Date().toISOString()
-  };
-  await browser.storage.local.set({
-    [PORTAL_SNAPSHOT_KEY]: migrated,
-    [PORTAL_SNAPSHOT_MIGRATION_RECEIPT_KEY]: {
-      schemaVersion: 1,
-      source: 'morpheusState',
-      destination: PORTAL_SNAPSHOT_KEY,
-      revision: migrated.revision,
-      contentHash,
-      completedAt: migrated.updatedAt
-    }
-  });
+async function upgradeRelaySnapshotStorage() {
+  const stored = await browser.storage.local.get([PORTAL_SNAPSHOT_KEY, 'morpheusState']);
+  if (stored?.[PORTAL_SNAPSHOT_KEY] || typeof stored?.morpheusState !== 'string') return;
+  const content = stored.morpheusState;
+  const contentHash = await contentSha256(content);
+  const migrated = { schemaVersion: 1, revision: 1, content, contentHash, updatedAt: new Date().toISOString() };
+  await browser.storage.local.set({ [PORTAL_SNAPSHOT_KEY]: migrated });
   const verified = (await browser.storage.local.get(PORTAL_SNAPSHOT_KEY))?.[PORTAL_SNAPSHOT_KEY];
   if (!verified || verified.contentHash !== contentHash || await contentSha256(verified.content) !== contentHash) {
-    throw new Error('Legacy Portal snapshot migration could not be verified');
+    throw new Error('Portal snapshot upgrade failed verification; its original is retained');
   }
+  await browser.storage.local.set({ [PORTAL_SNAPSHOT_MIGRATION_RECEIPT_KEY]: {
+    schemaVersion: 1, source: 'morpheusState', destination: PORTAL_SNAPSHOT_KEY,
+    revision: 1, contentHash, completedAt: migrated.updatedAt
+  } });
   await browser.storage.local.remove('morpheusState');
-  return verified;
+}
+
+async function readRelaySnapshotEnvelope() {
+  if (!relaySnapshotUpgrade) relaySnapshotUpgrade = upgradeRelaySnapshotStorage().catch(error => {
+    relaySnapshotUpgrade = null;
+    throw error;
+  });
+  await relaySnapshotUpgrade;
+  const stored = await browser.storage.local.get(PORTAL_SNAPSHOT_KEY);
+  const envelope = stored?.[PORTAL_SNAPSHOT_KEY];
+  if (!envelope) return null;
+  if (envelope.schemaVersion !== 1 || !Number.isInteger(envelope.revision) || envelope.revision < 0
+      || typeof envelope.content !== 'string' || typeof envelope.contentHash !== 'string'
+      || await contentSha256(envelope.content) !== envelope.contentHash) {
+    throw new Error('Relay-owned Portal snapshot failed content verification');
+  }
+  return envelope;
 }
 
 function scheduleRelaySnapshotSave(content, expectedVersion = null, expectedHash = '') {

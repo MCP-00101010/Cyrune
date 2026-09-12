@@ -236,4 +236,5 @@ def test_unknown_collection_adapter_never_falls_through_to_spectrum(tmp_path):
     library,_,root=fixture(tmp_path)
     config=read(library.config_path);config['collections'][0]['adapter']='future-console-v1'
     write(library.config_path,config)
-    assert library._sources_for_library()==[]
+    with pytest.raises(CatalogueError, match='review-required'):
+        library._sources_for_library()

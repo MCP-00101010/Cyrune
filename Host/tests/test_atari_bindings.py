@@ -41,11 +41,7 @@ def test_arcade_send_and_properties_avoid_unrelated_status_and_library_rebuilds(
     env.arcade.update_state(lambda state: state.update(active_collection_id='atari'))
     library = env.arcade.get_library()
     game = library.games[0]
-    record = env.host._emugui_record
-    def read(operation, *args):
-        assert operation != 'STATUS', 'Sending must not enumerate unrelated queues/profiles'
-        return record(operation, *args)
-    monkeypatch.setattr(env.host, '_emugui_record', read)
+    monkeypatch.setattr(env.arcade, 'dispatch_arcade_read', lambda *a, **k: pytest.fail('Sending must not enumerate status'))
     binding = env.host.create_emugui_game_binding(game.id)
     monkeypatch.setattr(library, 'rebuild', lambda *a, **k: pytest.fail('Saving properties must not reindex the collection'))
     preview = env.arcade.dispatch_arcade_api('GET', '/api/game-properties', {'collectionId':'atari', 'gameId':game.id})
@@ -69,7 +65,7 @@ def test_atari_binding_requires_capability_and_launches_exact_set_while_inactive
     item = response['results'][0]
     assert item['ok'], item
     game_key = item['game']['gameKey']
-    assert env.store.load()['schemaVersion'] == 3
+    assert env.store.load()['schemaVersion'] == 5
     plan = env.store.resolve(game_key)
     calls = []
     monkeypatch.setattr(env.host.subprocess, 'Popen', lambda command, **kwargs: calls.append((command, kwargs)) or RunningProcess())
@@ -134,11 +130,11 @@ def test_atari_schema_upgrade_preserves_existing_spectrum_approval(atari):
     from test_catalogue_bindings import bind
     key = bind(atari)
     before = atari.store.load()
-    assert before['schemaVersion'] == 1
+    assert before['schemaVersion'] == 5
     result = atari.store.bind(atari.session, selection(atari), allow_atari=True)
     assert result['results'][0]['ok']
     after = atari.store.load()
-    assert after['schemaVersion'] == 3
+    assert after['schemaVersion'] == 5
     assert after['bindings'][key] == before['bindings'][key]
     for session, group in before['receipts'].items():
         assert after['receipts'][session]['expiresAt'] == group['expiresAt']

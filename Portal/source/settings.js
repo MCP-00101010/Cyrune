@@ -74,7 +74,7 @@ function hideBoardSettingsPanel() {
   const tab = getActiveTab();
   if (board && tab && !titleEl.value.trim()) {
     tab.title = titleEl.placeholder || 'New Tab';
-    syncBoardCompatibilityFields(board, tab.id);
+
     renderBoard();
   }
   document.getElementById('boardSettingsDoneBtn').textContent = 'OK';
@@ -112,7 +112,7 @@ function attachBoardSettingsListeners() {
     const tab = getActiveTab();
     if (!board || !tab) return;
     tab.title = e.target.value || e.target.placeholder;
-    syncBoardCompatibilityFields(board, tab.id);
+
     renderBoard();
   });
 
@@ -135,7 +135,7 @@ function attachBoardSettingsListeners() {
         tab.columns = regularCols;
       }
       tab.columnCount = newCount;
-      syncBoardCompatibilityFields(board, tab.id);
+
       renderBoard();
     });
   });
@@ -144,7 +144,7 @@ function attachBoardSettingsListeners() {
     const board = getActiveBoard();
     const tab = getActiveTab();
     if (!board || !tab) return;
-    syncBoardCompatibilityFields(board, tab.id);
+
     applyBoardBackground(board);
   };
 
@@ -238,7 +238,7 @@ function attachBoardSettingsListeners() {
     const tab = getActiveTab();
     if (!board || !tab) return;
     tab.sharedTags = e.target.value.trim().split(/\s+/).filter(Boolean);
-    syncBoardCompatibilityFields(board, tab.id);
+
     renderBoard();
   });
   initChipInput(bstgSharedTagsEl, tagChipOpts());
@@ -249,7 +249,7 @@ function attachBoardSettingsListeners() {
     const tab = getActiveTab();
     if (!board || !tab) return;
     tab.tags = e.target.value.trim().split(/\s+/).filter(Boolean);
-    syncBoardCompatibilityFields(board, tab.id);
+
   });
   initChipInput(bstgTagsEl, tagChipOpts());
 
@@ -1154,34 +1154,19 @@ async function loadServiceSecretsIntoSettingsUi() {
 
 async function persistServiceSecret(serviceName, value) {
   if (!Object.prototype.hasOwnProperty.call(SERVICE_SECRET_KEYS, serviceName)) return false;
-  setServiceSecretCache(serviceName, value);
-  const secretKey = SERVICE_SECRET_KEYS[serviceName];
   const status = await getSecretStorageStatus();
   if (!status.available || typeof bridge === 'undefined') {
-    setServiceSecretsCanScrubState(false);
-    if (!state.settings.serviceApiKeys || typeof state.settings.serviceApiKeys !== 'object') state.settings.serviceApiKeys = cloneData(defaultSettings.serviceApiKeys);
-    state.settings.serviceApiKeys[serviceName] = value;
     updateServiceSecretUi(serviceName, status);
-    saveState();
+    showNotice('Credential Manager is unavailable. Reconnect Host to save this key.');
     return false;
   }
-  const ok = value
-    ? await bridge.secretSet(secretKey, value)
-    : await bridge.secretDelete(secretKey);
+  const key = SERVICE_SECRET_KEYS[serviceName];
+  const written = value ? await bridge.secretSet(key, value) : await bridge.secretDelete(key);
+  const ok = written && String(await bridge.secretGet(key) || '') === value;
+  if (ok) setServiceSecretCache(serviceName, value);
+  else showNotice('Credential Manager could not verify the saved key. Please retry.');
   updateServiceSecretUi(serviceName, status);
-  if (ok) {
-    if (!state.settings.serviceApiKeys || typeof state.settings.serviceApiKeys !== 'object') state.settings.serviceApiKeys = cloneData(defaultSettings.serviceApiKeys);
-    state.settings.serviceApiKeys[serviceName] = '';
-    setServiceSecretsCanScrubState(Object.values(state.settings.serviceApiKeys).every(stored => !String(stored || '').trim()));
-    saveState();
-  } else {
-    setServiceSecretsCanScrubState(false);
-    if (!state.settings.serviceApiKeys || typeof state.settings.serviceApiKeys !== 'object') state.settings.serviceApiKeys = cloneData(defaultSettings.serviceApiKeys);
-    state.settings.serviceApiKeys[serviceName] = value;
-    saveState();
-    showNotice('Could not update Windows Credential Manager. The key was kept in the shared JSON database for now.');
-  }
-  return ok;
+  return Boolean(ok);
 }
 
 function queueServiceSecretSave(serviceName, value) {
@@ -1196,82 +1181,18 @@ function queueServiceSecretSave(serviceName, value) {
   }, 350));
 }
 
-function collectLegacyWidgetServiceSecretKeys(root = state) {
-  const collected = { tmdb: [], footballData: [] };
-  const seen = { tmdb: new Set(), footballData: new Set() };
-  const add = (serviceName, key) => {
-    if (!key || seen[serviceName].has(key)) return;
-    seen[serviceName].add(key);
-    collected[serviceName].push(key);
-  };
-  const visit = item => {
-    if (!item || typeof item !== 'object') return;
-    if (item.type === 'widget' && item.id) {
-      if (item.widgetType === 'mediaWatchlist') add('tmdb', `media-watchlist:${item.id}:tmdb-token`);
-      if (item.widgetType === 'protonCalendar') {
-        (item.config?.calendars || []).filter(source => source?.type === 'football' && source.id).forEach(source => {
-          add('footballData', `proton-calendar:${item.id}:${source.id}`);
-        });
-      }
-    }
-    (item.children || []).forEach(visit);
-  };
-  (root?.essentials || []).forEach(visit);
-  (root?.navItems || []).forEach(visit);
-  if (typeof recentlyDeleted !== 'undefined' && Array.isArray(recentlyDeleted)) {
-    recentlyDeleted.forEach(entry => visit(entry?.item));
-  }
-  for (const board of (root?.boards || [])) {
-    for (const tab of (typeof getBoardTabs === 'function' ? getBoardTabs(board) : board.tabs || [])) {
-      for (const column of (tab.columns || [])) (column.items || []).forEach(visit);
-      (typeof getBoardInbox === 'function' ? getBoardInbox(board, tab)?.items || [] : tab.inbox?.items || []).forEach(visit);
-    }
-  }
-  return collected;
-}
-
 async function initializeServiceSecrets() {
-  const legacyKeys = { ...(state.settings?.serviceApiKeys || {}) };
   const status = await getSecretStorageStatus();
   if (!status.available || typeof bridge === 'undefined') {
     setServiceSecretsCanScrubState(false);
-    Object.entries(legacyKeys).forEach(([serviceName, value]) => {
-      if (value) setServiceSecretCache(serviceName, value);
-    });
     return false;
   }
-
-  let canScrub = true;
-  let migrated = false;
-  const legacyWidgetKeys = collectLegacyWidgetServiceSecretKeys(state);
-  for (const [serviceName, secretKey] of Object.entries(SERVICE_SECRET_KEYS)) {
-    let stored = await bridge.secretGet(secretKey);
-    const legacy = typeof legacyKeys[serviceName] === 'string' ? legacyKeys[serviceName].trim() : '';
-    let candidate = stored || legacy;
-    if (!candidate) {
-      for (const oldSecretKey of (legacyWidgetKeys[serviceName] || [])) {
-        candidate = String(await bridge.secretGet(oldSecretKey) || '').trim();
-        if (candidate) break;
-      }
-    }
-    if (!stored && candidate) {
-      const ok = await bridge.secretSet(secretKey, candidate);
-      if (ok) {
-        stored = candidate;
-        migrated = true;
-      } else {
-        canScrub = false;
-      }
-    }
-    setServiceSecretCache(serviceName, stored || candidate || '');
-    if (stored) await Promise.all((legacyWidgetKeys[serviceName] || []).map(oldSecretKey => bridge.secretDelete(oldSecretKey)));
-  }
-  setServiceSecretsCanScrubState(canScrub);
-  if (canScrub && (migrated || Object.values(legacyKeys).some(Boolean))) {
-    clearStoredServiceApiKeys(state);
-    saveState();
-  }
-  return canScrub;
+  const upgraded = await upgradeServiceCredentials();
+  await Promise.all(Object.entries(SERVICE_SECRET_KEYS).map(async ([service, key]) => {
+    setServiceSecretCache(service, await bridge.secretGet(key));
+  }));
+  setServiceSecretsCanScrubState(upgraded);
+  return upgraded;
 }
 
 async function updateSidebarExtensionStatus(info = null) {

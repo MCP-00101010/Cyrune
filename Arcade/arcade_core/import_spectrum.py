@@ -18,7 +18,8 @@ _HARDWARE = re.compile(r"^(?:16K|48K|128K|\+2A?|\+3)(?:[-/](?:16K|48K|128K|\+2A?
 
 
 def spectrum_rows(value):
-    games = value.get("games")
+    from arcade_core.index_schema import index_document
+    games = index_document(value).get("games")
     if not isinstance(games, list) or len(games) > MAX_ENTRIES:
         raise CatalogueError("review-required")
     seen_ids, seen_paths, result = set(), set(), []

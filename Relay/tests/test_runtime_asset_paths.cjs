@@ -18,13 +18,13 @@ test('Relay manifest and changelog identify the current component release', () =
   const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'manifest.json'), 'utf8'));
   const popup = fs.readFileSync(path.join(__dirname, '..', 'popup', 'popup.html'), 'utf8');
   const icon = fs.readFileSync(path.join(__dirname, '..', 'icons', 'icon-48.svg'), 'utf8');
-  assert.equal(manifest.version, '1.1.12');
+  assert.equal(manifest.version, '1.1.13');
   assert.match(popup, /rel="icon" type="image\/svg\+xml" href="\.\.\/icons\/icon-48\.svg"/);
   assert.match(icon, /RJ45-style connector/);
 });
 
 test('authenticated roles advertise fixed component protocols and use a focused Nexus handler', () => {
-  for (const declaration of ["'portal-relay': 1", "'arcade-relay': 1", "'nexus-relay': 2", "'host-native': 2"]) {
+  for (const declaration of ["'portal-relay': 2", "'arcade-relay': 2", "'nexus-relay': 2", "'host-native': 3"]) {
     assert.match(source, new RegExp(declaration));
   }
   assert.match(source, /function handleNexusRuntimeMessage\(msg, sender, sendResponse\)/);

@@ -35,7 +35,7 @@ def setup(tmp_path, monkeypatch):
     config = tmp_path / "Host" / "config.json"
     config.parent.mkdir()
     monkeypatch.setattr(host, "CONFIG_PATH", str(config))
-    write(config, {"arcadeRoot": str(ROOT / "Arcade"), "approvedGames": {}})
+    write(config, {"schemaVersion": 1, "arcadeRoot": str(ROOT / "Arcade")})
     runtime, source, emulators = (tmp_path / name for name in ("Arcade", "spectrum", "emulators"))
     for directory in (runtime, source, emulators):
         directory.mkdir()
@@ -128,7 +128,7 @@ def test_explicit_binding_persists_only_after_confirmation_and_reuses_key(setup)
     assert bind(env) == first["results"][0]["game"]["gameKey"]
     assert env.arcade.COLLECTION.name == "different-active-source"
     assert env.arcade.LIBRARY is None
-    assert read(env.host.CONFIG_PATH)["approvedGames"] == {}
+    assert "approvedGames" not in read(env.host.CONFIG_PATH)
     raw = json.dumps(first)
     for private in (str(env.source), str(env.executable), "elite.tap", "arguments", "test.exe", "entry-policy"):
         assert private not in raw
@@ -240,12 +240,12 @@ def test_missing_or_corrupt_persistence_never_remints_bindings(setup):
     assert env.store.path.read_bytes() == before
 
 
-def test_total_binding_limit_includes_legacy_and_reuse_at_capacity(setup):
+def test_total_binding_limit_includes_unresolved_and_reuse_at_capacity(setup):
     env = setup
     key = bind(env)
-    config = read(env.host.CONFIG_PATH)
-    config["approvedGames"] = {f"game_legacy_{index:012d}": {} for index in range(511)}
-    write(env.host.CONFIG_PATH, config)
+    state = env.store.load()
+    state['bindings'].update({f'game_unresolved_{index:012d}': {'mode':'unresolved', 'previous':{}, 'code':'source-unavailable'} for index in range(511)})
+    write(env.store.path, state)
     assert bind(env) == key
     metadata = read(env.source / "collection-metadata.json")
     metadata["games"].append({**metadata["games"][0], "id": "other", "file": "other.tap"})
@@ -253,7 +253,7 @@ def test_total_binding_limit_includes_legacy_and_reuse_at_capacity(setup):
     env.lifecycle.save_metadata(env.source, metadata)
     result = env.store.bind(env.session, request(env))
     assert sorted(item.get("code", "") for item in result["results"]) == ["", "binding-limit"]
-    assert len(env.store.load()["bindings"]) == 1
+    assert len(env.store.load()["bindings"]) == 512
 
 
 def test_receipt_limit_keeps_prior_retries_valid(setup):
@@ -341,8 +341,7 @@ def test_verified_reattachment_preserves_binding_and_does_not_activate_source(se
     link = env.host.emugui_game_link(key)
     assert parse_qs(urlsplit(link).query) == {"game": ["elite"], "collection": ["spectrum"]}
     assert env.arcade.COLLECTION.name == "different-active-source"
-    with pytest.raises(env.module.BindingError, match="configuration-required"):
-        env.host.emugui_game_link(key, rebind=True)
+    assert "hubRebind=" in env.host.emugui_game_link(key, rebind=True)
 
 
 def test_running_emulator_requires_existing_explicit_choice(setup, monkeypatch):
@@ -453,77 +452,45 @@ def test_host_independently_rejects_invalid_native_plan_fields(setup, monkeypatc
     assert env.store.load()["bindings"] == {}
 
 
-def test_legacy_pins_and_keys_coexist_without_conversion_or_new_policy_reuse(setup, monkeypatch):
+def test_binding_upgrade_preserves_exact_keys_and_pins_and_retains_unresolved_records(setup):
     env = setup
-    legacy_key = "game_legacy_pinned_123456"
-    legacy = {"libraryId": "spectrum", "gameId": "elite", "emulatorId": "test", "profileId": "pinned-profile",
-              "label": "Elite", "systemId": "zx-spectrum", "systemName": "ZX Spectrum", "approvedAt": 1}
+    existing = bind(env)
+    key, missing = 'game_migrated_123456789012', 'game_missing_123456789012'
     config = read(env.host.CONFIG_PATH)
-    config["approvedGames"][legacy_key] = legacy
+    pin = {'libraryId': 'spectrum', 'gameId': 'elite', 'emulatorId': 'test', 'profileId': ''}
+    config['approvedGames'] = {key: pin, missing: {**pin, 'profileId': 'missing-profile'}}
     write(env.host.CONFIG_PATH, config)
-    new_key = bind(env)
-    assert new_key != legacy_key
-    assert read(env.host.CONFIG_PATH)["approvedGames"][legacy_key] == legacy
-    monkeypatch.setattr(env.host, "_emugui_record", lambda method, _params=None: (
-        {"active": {"id": "spectrum"}, "emulators": [{"id": "test", "available": True}],
-         "profiles": [{"id": "pinned-profile", "emulator_id": "test"}]} if method == "STATUS"
-        else {"game": {"id": "elite", "title": "Elite", "system": "48K"}}))
-    launched = []
-    monkeypatch.setattr(env.arcade, "launch_game", lambda game, emulator, profile_id="": launched.append((game, emulator, profile_id)) or {"ok": True})
-    assert env.host.launch_emugui_game(legacy_key)
-    assert launched == [("elite", "test", "pinned-profile")]
-    assert env.host.forget_emugui_game(new_key)
-    assert env.host.launch_emugui_game(legacy_key)
-    assert legacy_key in read(env.host.CONFIG_PATH)["approvedGames"]
+    original = Path(env.host.CONFIG_PATH).read_bytes()
+    dry = env.host._data_upgrades().bindings(env.host, env.store)
+    assert dry['migrated'] == 2 and dry['unresolved'] == 1
+    assert Path(env.host.CONFIG_PATH).read_bytes() == original
+    result = env.host._data_upgrades().bindings(env.host, env.store, apply=True)
+    assert result['unresolved'] == 1
+    assert 'approvedGames' not in read(env.host.CONFIG_PATH)
+    assert set(env.store.load()['bindings']) == {existing, key, missing}
+    assert env.store.load()['schemaVersion'] == 5
+    plan = env.store.resolve(key)
+    assert (plan['collectionId'], plan['gameId'], plan['emulatorId']) == ('spectrum', 'elite', 'test')
+    assert env.host.emugui_game_status(key)['state'] == 'ready'
+    with pytest.raises(env.module.BindingError): env.store.resolve(missing)
+    assert env.store.load()['bindings'][missing]['previous'] == config['approvedGames'][missing]
+    journal = read(Path(env.host.CONFIG_PATH).with_name('bindings-v5-upgrade.json'))
+    assert Path(journal['files'][1]['original']).read_bytes() == original
+    assert env.host._data_upgrades().bindings(env.host, env.store, apply=True)['status'] == 'current'
 
 
-def test_legacy_status_badges_follow_an_approved_shared_default_and_hide_a_missing_one(setup, monkeypatch):
+def test_pinned_binding_uses_its_source_without_activating_it_and_can_rebind(setup):
     env = setup
-    legacy_key = 'game_legacy_pinned_123456'
-    config = read(env.host.CONFIG_PATH)
-    config['approvedGames'][legacy_key] = {'libraryId': 'spectrum', 'gameId': 'elite',
-        'emulatorId': 'test', 'profileId': '', 'label': 'Elite', 'systemId': 'zx-spectrum',
-        'systemName': 'ZX Spectrum', 'approvedAt': 1}
-    write(env.host.CONFIG_PATH, config)
-    monkeypatch.setattr(env.host, '_emugui_record', lambda method, _params=None: (
-        {'active': {'id': 'spectrum'}, 'emulators': [{'id': 'test', 'available': True}]}
-        if method == 'STATUS' else {'game': {'id': 'elite', 'title': 'Elite', 'languages': ['en']}}))
-    assert env.host.emugui_game_status(legacy_key)['defaultVersion'] == {'languages': ['en'], 'platforms': ['ZX Spectrum'], 'systems': ['48K']}
-    versions = env.host.game_versions_request(legacy_key)
-    choice = versions['versions'][0]
-    env.host.game_versions_request(legacy_key, 'default', choice['catalogueId'], choice['entryRevision'])
-    saved = env.arcade.get_library_catalogue().version_defaults.load()[versions['groupId']]['gameKey']
-    assert env.host.emugui_game_status(legacy_key)['defaultVersion'] == env.host.emugui_game_status(saved)['defaultVersion']
-    env.host.forget_emugui_game(saved)
-    assert env.host.emugui_game_status(legacy_key)['defaultVersion'] is None
-
-
-def test_legacy_spectrum_binding_reads_and_launches_its_source_while_scummvm_is_active(setup, monkeypatch):
-    env = setup
-    key = 'game_legacy_pinned_123456'
-    config = read(env.host.CONFIG_PATH)
-    config['approvedGames'][key] = {'libraryId':'spectrum', 'gameId':'elite', 'emulatorId':'test',
-        'profileId':'', 'label':'Elite', 'systemId':'zx-spectrum', 'systemName':'ZX Spectrum'}
-    write(env.host.CONFIG_PATH, config)
-    before = Path(env.host.CONFIG_PATH).read_bytes(), env.arcade.COLLECTION, read(env.runtime / 'config.json')
-    def active_scummvm(method, _params=None):
-        assert method == 'STATUS', 'Inactive Spectrum lookups must not query the active game index'
-        return {'active':{'id':'scummvm'}, 'emulators':[], 'profiles':[]}
-    monkeypatch.setattr(env.host, '_emugui_record', active_scummvm)
-    launched = []
-    monkeypatch.setattr(env.arcade, 'launch_visible', lambda args, cwd: launched.append((args, cwd)) or SimpleNamespace(pid=123,poll=lambda:None))
-    monkeypatch.setattr(env.arcade, 'mark_recent', lambda _: None)
-    status = env.host.emugui_game_status(key)
-    assert status['state'] == 'ready', status
-    assert status['defaultVersion'] == {'languages':['en'], 'platforms':['ZX Spectrum'], 'systems':['48K']}
-    assert env.host.game_versions_request(key)['versions']
-    assert env.host.launch_emugui_game(key)
-    assert launched == [([str(env.executable), '--game', str(env.source / 'elite.tap')], env.executable.parent)]
-    assert (Path(env.host.CONFIG_PATH).read_bytes(), env.arcade.COLLECTION, read(env.runtime / 'config.json')) == before
+    plan = env.arcade.resolve_catalogue_launch_plan(request(env)['entries'][0]['catalogueId'],
+                                                  selection={'emulatorId': 'test', 'profileId': ''})
+    key = env.store.approve_version(plan, selection={'emulatorId': 'test', 'profileId': ''})
+    active = env.arcade.COLLECTION
+    assert env.store.resolve(key) == plan
+    assert env.store.approve_version(plan, game_key=key, selection={'emulatorId': 'test', 'profileId': ''}) == key
+    assert env.host.emugui_game_status(key)['state'] == 'ready'
+    assert env.arcade.COLLECTION == active
     (env.source / 'elite.tap').unlink()
-    assert env.host.emugui_game_status(key)['state'] != 'ready'
-    with pytest.raises(Exception): env.host.launch_emugui_game(key)
-    assert len(launched) == 1
+    with pytest.raises(env.module.BindingError): env.store.launch(key)
 
 
 def test_spectrum_display_fills_language_and_system_without_changing_approval(setup):
@@ -538,27 +505,6 @@ def test_spectrum_display_fills_language_and_system_without_changing_approval(se
     assert status['defaultVersion'] == {'languages': ['en'], 'platforms': ['ZX Spectrum'], 'systems': ['16K-48K']}
     assert env.store.resolve(key) == plan
     assert read(path) == metadata
-
-
-def test_spectrum_hardware_uses_exact_detail_with_older_catalogue_service(setup, monkeypatch):
-    env = setup
-    key = bind(env)
-    monkeypatch.setattr(env.arcade.get_catalogue_service(), 'presentation', None)
-    status = env.host.emugui_game_status(key)
-    assert status['defaultVersion'] == {'languages': ['en'], 'platforms': ['ZX Spectrum'], 'systems': ['48K']}
-
-
-def test_legacy_config_updates_cannot_exceed_aggregate_capacity(setup):
-    env = setup
-    bind(env)
-    config = read(env.host.CONFIG_PATH)
-    config["approvedGames"] = {f"game_legacy_{index:012d}": {
-        "libraryId": "spectrum", "gameId": f"legacy{index}", "emulatorId": "test", "profileId": ""
-    } for index in range(512)}
-    before = Path(env.host.CONFIG_PATH).read_bytes()
-    with pytest.raises(env.module.BindingError, match="binding-limit"):
-        env.host.save_config(config)
-    assert Path(env.host.CONFIG_PATH).read_bytes() == before
 
 
 class ProcessInterrupted(BaseException):
@@ -908,4 +854,4 @@ def test_catalogue_reads_exact_cached_provider_artwork_without_network(setup, mo
     response=native_request(transport,session_id,'GET_ARTWORK',{key:entry[key] for key in ('catalogueId','artworkRef')})
     assert response['ok'] and response['width']==2 and response['height']==1
     assert 'scraper-cache' not in json.dumps(response) and reference not in json.dumps(response)
-    assert env.host._emugui_binding_thumbnail(env.arcade,{'loading_screen':reference}).startswith('data:image/png;base64,')
+    assert env.host._catalogue_thumbnail(env.arcade,entry['catalogueId']).startswith('data:image/png;base64,')

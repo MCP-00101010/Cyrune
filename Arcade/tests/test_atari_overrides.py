@@ -34,7 +34,7 @@ def test_scrape_saves_presentation_only_and_survives_reload(setup, artwork):
     original = deepcopy(game)
     files = {p: p.read_bytes() for p in root.rglob('*') if p.is_file()}
     other = next(row for row in server.get_library().games if row.id != game.id)
-    result = post(server, '/api/apply-scrape', {'game_id':game.id, 'candidate':{
+    result = post(server, '/api/apply-scrape', {'collection_id': server.active_collection()['id'], 'game_id':game.id, 'candidate':{
         'title':'Updated Adventure', 'publisher':'New Publisher', 'year':'1991', 'genre':'Adventure',
         'description':'New description', 'scraper_source':'thegamesdb', 'scraper_id':'42',
         'system':'Falcon', 'file':'outside.st', 'languages':['fr'], 'emulator_profile':'forged'},
@@ -52,8 +52,8 @@ def test_scrape_saves_presentation_only_and_survives_reload(setup, artwork):
     assert result['updated_count'] == 2
     assert {p:p.read_bytes() for p in files} == files
     assert AtariOverrides(server.DATA, collection).path.exists()
-    assert not post(server,'/api/rename',{'game_id':game.id,'name':'changed'})['ok']
-    assert not post(server,'/api/delete',{'game_id':game.id})['ok']
+    assert not post(server,'/api/rename',{'collection_id': server.active_collection()['id'], 'game_id':game.id,'name':'changed'})['ok']
+    assert not post(server,'/api/delete',{'collection_id': server.active_collection()['id'], 'game_id':game.id})['ok']
 
 
 def test_scrape_refreshes_the_folder_without_rebuilding(setup, monkeypatch):
@@ -61,7 +61,7 @@ def test_scrape_refreshes_the_folder_without_rebuilding(setup, monkeypatch):
     library = server.get_library()
     game, other = library.games[:2]
     monkeypatch.setattr(library, 'rebuild', lambda *a, **k: pytest.fail('Unrelated media must not be reindexed'))
-    assert post(server, '/api/apply-scrape', {'game_id':game.id, 'candidate':{'publisher':'Updated'}})['ok']
+    assert post(server, '/api/apply-scrape', {'collection_id': server.active_collection()['id'], 'game_id':game.id, 'candidate':{'publisher':'Updated'}})['ok']
     assert server.get_library() is library
     assert library.get_game(game.id).publisher == 'Updated'
     assert library.get_game(other.id).publisher == 'Updated'
@@ -84,7 +84,7 @@ def test_catalogue_keeps_family_default_and_target_after_scraped_title(setup):
     defaults = server.get_library_catalogue().version_defaults
     defaults.save(family, old.base['catalogueId'], 'fixture-game-key')
     saved = defaults.path.read_bytes()
-    assert post(server,'/api/apply-scrape',{'game_id':game.id,'candidate':{'title':'Scraped title','publisher':'New publisher'}})['ok']
+    assert post(server,'/api/apply-scrape',{'collection_id': server.active_collection()['id'], 'game_id':game.id,'candidate':{'title':'Scraped title','publisher':'New publisher'}})['ok']
     server.activate_collection('desasteron')
     server.update_state(lambda state: state.update(active_collection_id='desasteron'))
     page = catalogue.search({'includeAtari':True,'query':'Scraped title'})
@@ -108,7 +108,7 @@ def test_atari_rejects_unapproved_artwork(setup,url):
 def test_target_changes_and_other_collections_do_not_adopt_overrides(setup):
     server, collection, root, metadata = setup
     game = server.get_library().games[0]
-    assert post(server,'/api/apply-scrape',{'game_id':game.id,'candidate':{'publisher':'Override'}})['ok']
+    assert post(server,'/api/apply-scrape',{'collection_id': server.active_collection()['id'], 'game_id':game.id,'candidate':{'publisher':'Override'}})['ok']
     assert AtariOverrides(server.DATA,{**collection,'id':'other'}).load() == {}
     row = next(row for row in metadata['games'] if row['id'] == game.id)
     row['languages'] = ['fr']
@@ -125,7 +125,7 @@ def test_target_changes_and_other_collections_do_not_adopt_overrides(setup):
 def test_atomic_failure_and_corrupt_metadata_preserve_existing_override(setup,monkeypatch):
     server, collection, _, _ = setup
     game = server.get_library().games[0]
-    assert post(server,'/api/apply-scrape',{'game_id':game.id,'candidate':{'publisher':'Saved'}})['ok']
+    assert post(server,'/api/apply-scrape',{'collection_id': server.active_collection()['id'], 'game_id':game.id,'candidate':{'publisher':'Saved'}})['ok']
     store = AtariOverrides(server.DATA,collection)
     before = store.path.read_bytes()
     import arcade_core.persistence as persistence
@@ -149,7 +149,7 @@ def test_rebuild_discovers_added_disks_and_arcade_only_versions_include_filename
     job = post(server, '/api/rebuild', {})
     wait_for_job(server, job['job_id'])
     game = next(g for g in server.get_library().games if g.title == 'Powermonger')
-    versions = server.dispatch_arcade_api('GET', '/api/game-versions', {'game_id': game.id}, {})
+    versions = server.dispatch_arcade_api('GET', '/api/game-versions', {'collection_id': server.active_collection()['id'], 'game_id': game.id}, {})
     assert versions['versions'][0]['imageFiles'] == [filename]
     assert versions['versions'][0]['gameId'] == game.id
     assert versions['versions'][0]['collectionId'] == 'atari'

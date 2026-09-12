@@ -4,6 +4,11 @@ Historical entries below are preserved from Portal releases whose release notes 
 
 ---
 
+## [1.1.13] — 2026-09-09
+
+- Requires current Portal/Arcade protocols 2 and Host protocol 3. Legacy browser snapshots are promoted once with hash verification; current browser-owned persistence, conflict detection and recovery remain supported.
+- Validation: 34 component tests; coordinated migration/packaging/tooling checks, syntax, versions, infrastructure and Relay lint passed. Isolated Firefox Portal/Arcade acceptance passed.
+
 ## [1.1.12] — 2026-09-08
 
 - Bound complete Arcade transfers, native queue count/bytes and queued request lifetimes. Recheck page authority before queued Arcade requests start.

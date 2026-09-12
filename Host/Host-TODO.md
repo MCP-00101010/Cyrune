@@ -1,6 +1,9 @@
 # Cyrune Host TODO
 
-- Monitor 0.2.25: scrape retry/resume, cross-platform artwork, repeated collection switches and Game Boy picker use. Implementation details and validation: `../docs/reviews/arcade-implementation-2026-09-08.md`.
+- Monitor 0.2.26: coordinated data cutover, current protocol negotiation and first-reload browser upgrades. See `docs/architecture/suite-data-cutover.md` at repository root.
+- Cutover follow-up: the existing Portal shortcut for Impact! needs explicit rebind because its retained Atari launch fingerprint differs. Two other stale approvals are not referenced by Portal; no replacement authority was granted.
+
+- Monitor 0.2.26: scrape retry/resume, cross-platform artwork, repeated collection switches and Game Boy picker use. Implementation details and validation: `../docs/reviews/arcade-implementation-2026-09-08.md`.
 
 - Monitor Host 0.2.24 installed emulator icons in Arcade's application shortcuts. Retain monitoring of source-scoped Game Boy shortcuts; SameBoy and VBA-M game launches are confirmed working by the user.
 

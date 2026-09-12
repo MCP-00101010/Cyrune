@@ -1,5 +1,7 @@
 # Cyrune Nexus TODO
 
+- Monitor 0.3.1: coordinated data cutover, current protocol negotiation and first-reload browser upgrades. See `docs/architecture/suite-data-cutover.md` at repository root.
+
 This file owns project-status aggregation, shared Cyrune settings, Nexus presentation/cache state, sanitized validation receipts, and future shared theme/tag management.
 
 ## Status Dashboard
@@ -37,4 +39,4 @@ This file owns project-status aggregation, shared Cyrune settings, Nexus present
 - Add keyboard, screen-reader, contrast, reduced-motion, narrow-layout, corrupt-cache, and partial-service coverage.
 - Add migration, interrupted-write, corrupt-authoritative-state, and expanded redaction tests around the implemented Relay/Host contract.
 - Verify direct-file startup, stale cached snapshots, offline cache fallback, settings portability, and recovery guidance in Firefox.
-- Monitor Nexus 0.3.0's generated registry, protocol matrix, bounded event/settings journals, schema-2 settings, Widget consumers, document cache, and independent health service during normal Cyrune use before expanding its mutation surface.
+- Monitor Nexus 0.3.1's generated registry, protocol matrix, bounded event/settings journals, schema-2 settings, Widget consumers, document cache, and independent health service during normal Cyrune use before expanding its mutation surface.

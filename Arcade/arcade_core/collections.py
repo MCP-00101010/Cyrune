@@ -13,6 +13,23 @@ COLLECTION_EXTENSIONS = {".tap", ".tzx", ".z80", ".sna", ".szx", ".pok"}
 COLLECTION_DIRECTORY_HINTS = {"games", "tap", "tzx", "48k", "128k", "poks", "cheats"}
 
 
+def current_config(config):
+    """Unversioned configurations are the supported Spectrum migration baseline."""
+    from copy import deepcopy
+    result = deepcopy(config)
+    version = result.get('schemaVersion', 0)
+    if type(version) is not int or version not in (0, 1):
+        raise ValueError('Unsupported Arcade configuration; update Arcade')
+    for collection in result.get('collections', []):
+        if version == 0:
+            collection.setdefault('adapter', 'spectrum-metadata-v1')
+        if not collection_platform(collection):
+            raise ValueError('Collection adapter is missing or unsupported')
+        collection['index_schema'] = 2
+    result['schemaVersion'] = 1
+    return result
+
+
 def looks_like_collection(path: Path) -> bool:
     if (path / "collection-metadata.json").exists():
         return True
@@ -77,6 +94,8 @@ class CollectionService:
             "role": "library",
             "writable": True,
             "auto_metadata": True,
+            "adapter": "spectrum-metadata-v1",
+            "index_schema": 2,
         }]
         if not self.collections_base.exists():
             return collections
@@ -91,6 +110,8 @@ class CollectionService:
                 "role": "source",
                 "writable": False,
                 "auto_metadata": False,
+                "adapter": "spectrum-metadata-v1",
+                "index_schema": 2,
             })
         return collections
 
@@ -163,6 +184,8 @@ class CollectionService:
             "writable": writable,
             "auto_metadata": auto_metadata,
             "default_emulator": "",
+            "adapter": "spectrum-metadata-v1",
+            "index_schema": 2,
         }
         collections.append(item)
         self._save_config(config)

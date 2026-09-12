@@ -4,6 +4,11 @@ Historical entries below are preserved from Portal releases whose release notes 
 
 ---
 
+## [0.2.26] — 2026-09-09
+
+- Binding schema 5 consolidates all game approvals while preserving opaque keys and explicit launch selections. Verified transactions retain originals and unresolved targets. Canonical Arcade service/configuration and Host protocol 3 replace duplicate legacy paths; delivery uses exact catalogue artwork.
+- Validation: 232 component tests; coordinated migration/packaging/tooling checks, syntax, versions, infrastructure and Relay lint passed. Isolated Firefox Portal/Arcade acceptance passed.
+
 ## [0.2.25] — 2026-09-08
 
 - Preserve unfinished Arcade transfers under load; use a bounded transfer store and reject excess requests before dispatching mutations.

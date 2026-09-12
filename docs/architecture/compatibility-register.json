@@ -1,11 +1,111 @@
 {
   "schemaVersion": 1,
   "entries": [
-    { "id": "native-host-id", "canonical": "Cyrune Host", "legacy": ["morpheus_webhub"], "owners": ["host", "relay"], "status": "preserved", "removalCondition": "Never remove without a separately released extension and native-manifest migration." },
-    { "id": "browser-wire-prefix", "canonical": "Cyrune Relay messages", "legacy": ["MW_*"], "owners": ["arcade", "nexus", "portal", "relay"], "status": "preserved", "removalCondition": "Only after every installed page and Relay release negotiates a replacement protocol." },
-    { "id": "arcade-wire-prefix", "canonical": "Arcade service messages", "legacy": ["EMUGUI_*"], "owners": ["arcade", "host", "relay"], "status": "preserved", "removalCondition": "Only after an explicit persisted-binding and installed-client migration." },
-    { "id": "arcade-service-route", "canonical": "Arcade", "legacy": ["emugui", "emuguiService", "emugui_service"], "owners": ["arcade", "host", "relay"], "status": "compatibility-only", "removalCondition": "Remove only when stored bindings, environment variables and old service deployments are no longer supported." },
-    { "id": "portal-identity", "canonical": "Portal", "legacy": ["morpheus", "isMorpheus"], "owners": ["host", "portal", "relay"], "status": "compatibility-only", "removalCondition": "Remove only with a versioned registration and persisted-state migration." },
-    { "id": "credential-targets", "canonical": "Cyrune credential records", "legacy": ["morpheus-webhub", "emugui"], "owners": ["host"], "status": "preserved", "removalCondition": "Never rename in place; copy through a consented credential migration with rollback." }
+    {
+      "id": "native-host-id",
+      "canonical": "Cyrune Host",
+      "legacy": [
+        "morpheus_webhub"
+      ],
+      "owners": [
+        "host",
+        "relay"
+      ],
+      "status": "preserved",
+      "removalCondition": "Never remove without a separately released extension and native-manifest migration."
+    },
+    {
+      "id": "browser-wire-prefix",
+      "canonical": "Cyrune Relay messages",
+      "legacy": [
+        "MW_*"
+      ],
+      "owners": [
+        "arcade",
+        "nexus",
+        "portal",
+        "relay"
+      ],
+      "status": "preserved",
+      "removalCondition": "Only after every installed page and Relay release negotiates a replacement protocol."
+    },
+    {
+      "id": "arcade-wire-prefix",
+      "canonical": "Arcade service messages",
+      "legacy": [
+        "EMUGUI_*"
+      ],
+      "owners": [
+        "arcade",
+        "host",
+        "relay"
+      ],
+      "status": "preserved",
+      "removalCondition": "Only after an explicit persisted-binding and installed-client migration."
+    },
+    {
+      "id": "arcade-service-route",
+      "canonical": "Arcade",
+      "legacy": [
+        "emugui",
+        "emuguiService"
+      ],
+      "owners": [
+        "arcade",
+        "host",
+        "relay"
+      ],
+      "status": "compatibility-only",
+      "removalCondition": "Old Python loaders/shims and emuguiRoot writers retired by suite-data-cutover.md. Remaining wire/property identifiers stay until an explicit replacement registration protocol."
+    },
+    {
+      "id": "portal-identity",
+      "canonical": "Portal",
+      "legacy": [
+        "morpheus",
+        "isMorpheus"
+      ],
+      "owners": [
+        "host",
+        "portal",
+        "relay"
+      ],
+      "status": "compatibility-only",
+      "removalCondition": "Remove only with a versioned registration and persisted-state migration."
+    },
+    {
+      "id": "credential-targets",
+      "canonical": "Cyrune credential records",
+      "legacy": [
+        "morpheus-webhub",
+        "emugui"
+      ],
+      "owners": [
+        "host"
+      ],
+      "status": "preserved",
+      "removalCondition": "Never rename in place; copy through a consented credential migration with rollback."
+    },
+    {
+      "id": "development-data-upgrades",
+      "canonical": "Current suite data schemas",
+      "legacy": [
+        "Portal schemas 0–6",
+        "Arcade index 1",
+        "Host binding envelopes 1–4 and approvedGames",
+        "Nexus preview 1",
+        "widget cache keys"
+      ],
+      "owners": [
+        "arcade",
+        "host",
+        "nexus",
+        "portal",
+        "relay",
+        "widgets"
+      ],
+      "status": "compatibility-only",
+      "removalCondition": "Only remove supported upgrade boundaries after retained backups and disconnected collections have a documented replacement importer; see suite-data-cutover.md."
+    }
   ]
 }

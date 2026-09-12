@@ -64,7 +64,7 @@ let persistentSearchIndex = [];
 
 function resolveSidebarContainerAlpha(board = getActiveBoard()) {
   const settings = state.settings || {};
-  if (settings.sidebarUseActiveTabOpacity !== false) return (board?.containerOpacity ?? 100) / 100;
+  if (settings.sidebarUseActiveTabOpacity !== false) return (getBoardTab(board)?.containerOpacity ?? 100) / 100;
   return Math.min(100, Math.max(10, settings.sidebarOpacity ?? 100)) / 100;
 }
 
@@ -410,7 +410,7 @@ function renderInboxPanel(options = {}) {
     activeTab = getBoardTab(board, state.activeTabId);
     if (activeTab) {
       if (state.activeTabId !== activeTab.id) state.activeTabId = activeTab.id;
-      syncBoardCompatibilityFields(board, activeTab.id);
+
     }
   }
   const inbox = getBoardInbox(board, activeTab);
@@ -471,7 +471,7 @@ function renderInboxPanel(options = {}) {
 
 function prepareRenderState() {
   invalidateDerivedCaches();
-  syncBoardCompatibilityState();
+
   if (state.activeBoardId && !state.activeTabId) {
     const activeBoard = state.boards.find(b => b.id === state.activeBoardId);
     state.activeTabId = activeBoard?.tabs?.[0]?.id || null;
@@ -1608,15 +1608,16 @@ function createNavItem(item, depth = 0, parent = null) {
 let lastAppliedBoardBackgroundSignature = '';
 
 function applyBoardBackground(board) {
+  const tab = getBoardTab(board);
   const shell = elements.appShell;
   const mp = elements.mainPanel;
-  const backgroundImage = board.backgroundImage ? `url(${JSON.stringify(board.backgroundImage)})` : '';
-  const backgroundFit = board.backgroundFit === 'contain'
+  const backgroundImage = tab?.backgroundImage ? `url(${JSON.stringify(tab?.backgroundImage)})` : '';
+  const backgroundFit = tab?.backgroundFit === 'contain'
     ? 'contain'
-    : board.backgroundFit === 'fill'
+    : tab?.backgroundFit === 'fill'
       ? '100% 100%'
       : 'cover';
-  const containerAlpha = (board.containerOpacity ?? 100) / 100;
+  const containerAlpha = (tab?.containerOpacity ?? 100) / 100;
   const sidebarAlpha = resolveSidebarContainerAlpha(board);
   const uiPanelAlpha = resolveUiPanelAlpha();
   const signature = JSON.stringify([backgroundImage, backgroundFit, containerAlpha, sidebarAlpha, uiPanelAlpha]);
@@ -1834,7 +1835,7 @@ function _handleTabSetBarDrop(event, board, activeTab) {
   if (!draggedSetId) { dragPayload = null; return; }
   pushUndoSnapshot();
   insertSetLinkIntoTab(activeTab, draggedSetId, targetSetId, position);
-  syncBoardCompatibilityFields(board, activeTab.id);
+
   dragPayload = null;
   renderAll();
   saveState();
@@ -2099,7 +2100,7 @@ function renderBoard(options = {}) {
     activeTab = getBoardTab(board, state.activeTabId);
     if (activeTab) {
       if (state.activeTabId !== activeTab.id) state.activeTabId = activeTab.id;
-      syncBoardCompatibilityFields(board, activeTab.id);
+
     }
   }
 
@@ -2136,7 +2137,7 @@ function renderBoard(options = {}) {
 
   elements.mainPanel.classList.remove('no-board');
   elements.boardTitle.textContent = board.title;
-  elements.bookmarkColumns.style.setProperty('--columns', activeTab?.columnCount || Math.max(1, board.columnCount || 1));
+  elements.bookmarkColumns.style.setProperty('--columns', activeTab?.columnCount || 1);
   applyBoardBackground(board);
   elements.boardSettingsBtn.disabled = !!board.locked;
   elements.speedDialToggleBtn?.classList.toggle('is-inactive', board.showSpeedDial === false);
@@ -2250,7 +2251,7 @@ function renderColumns(board, activeTab = null) {
     element.remove();
   });
   elements.bookmarkColumns.innerHTML = '';
-  const columns = activeTab?.columns || board.columns || [];
+  const columns = activeTab?.columns || [];
   const nextWidgetIds = new Set(columns.flatMap(column => (column.items || []))
     .filter(item => item?.type === 'widget')
     .map(item => item.id));

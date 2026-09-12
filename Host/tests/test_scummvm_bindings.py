@@ -166,17 +166,17 @@ def test_arcade_summary_and_default_use_the_same_family(scummvm):
     env = scummvm
     env.arcade.update_state(lambda state: state.update(active_collection_id="scummvm"))
     env.arcade.activate_collection("scummvm")
-    rows = env.arcade.dispatch_arcade_api("GET", "/api/games", {"view": "all", "shape": "summary", "groupVersions": "true"}, {})["games"]
+    rows = env.arcade.dispatch_arcade_api("GET", "/api/games", {"collection_id":env.arcade.active_collection()["id"], "view": "all", "shape": "summary", "groupVersions": "true"}, {})["games"]
     monkeys = [row for row in rows if row["title"] == "Monkey Island"]
     assert len(monkeys) == 2 and len({row["version_group"] for row in monkeys}) == 1
     assert {row["version_count"] for row in monkeys} == {2}
     anchor = monkeys[0]
-    result = env.arcade.dispatch_arcade_api("GET", "/api/game-versions", {"game_id": anchor["id"]}, {})
+    result = env.arcade.dispatch_arcade_api("GET", "/api/game-versions", {"collection_id":env.arcade.active_collection()["id"], "game_id": anchor["id"]}, {})
     alternative = next(row for row in result["versions"] if not row["isDefault"])
-    result = env.arcade.dispatch_arcade_api("POST", "/api/game-version-default", {}, {"game_id": anchor["id"],
+    result = env.arcade.dispatch_arcade_api("POST", "/api/game-version-default", {}, {"collection_id":env.arcade.active_collection()["id"], "game_id": anchor["id"],
         "catalogueId": alternative["catalogueId"], "entryRevision": alternative["entryRevision"]})
     assert result["ok"]
-    updated = env.arcade.dispatch_arcade_api("GET", "/api/games", {"view": "all", "shape": "summary", "groupVersions": "true"}, {})["games"]
+    updated = env.arcade.dispatch_arcade_api("GET", "/api/games", {"collection_id":env.arcade.active_collection()["id"], "view": "all", "shape": "summary", "groupVersions": "true"}, {})["games"]
     selected = next(row for row in updated if row.get("catalogue_id") == alternative["catalogueId"])
     assert selected["default_version"] == selected["id"]
 
@@ -197,7 +197,7 @@ def test_scraped_metadata_keeps_existing_portal_approval_launchable(scummvm, mon
     env.arcade.activate_collection("scummvm")
     env.arcade.update_state(lambda state: state.update(active_collection_id="scummvm"))
     env.arcade.LIBRARY = None
-    result = env.arcade.dispatch_arcade_api("POST", "/api/apply-scrape", {}, {
+    result = env.arcade.dispatch_arcade_api("POST", "/api/apply-scrape", {}, {"collection_id":env.arcade.active_collection()["id"],
         "game_id": before_plan["gameId"], "candidate": {"title": "Scraped Monkey Island", "publisher": "LucasArts",
             "description": "Saved metadata", "platform": "PC", "scraper_source": "thegamesdb", "scraper_id": "42"}})
     assert result["ok"]
@@ -234,14 +234,14 @@ def test_scummvm_binding_requires_negotiation_and_preserves_spectrum_during_upgr
     env = scummvm
     spectrum = bind(env)
     original = deepcopy(env.store.load()["bindings"][spectrum])
-    assert env.store.load()["schemaVersion"] == 1
+    assert env.store.load()["schemaVersion"] == 5
     rejected = env.store.bind(env.session, scummvm_request(env))
     assert all(row["code"] == "unsupported-target" for row in rejected["results"])
-    assert env.store.load()["schemaVersion"] == 1
+    assert env.store.load()["schemaVersion"] == 5
     payload = scummvm_request(env)
     response = env.store.bind(env.session, payload, allow_scummvm=True)
     assert all(row["ok"] for row in response["results"]), response
-    assert env.store.load()["schemaVersion"] == 2
+    assert env.store.load()["schemaVersion"] == 5
     assert env.store.load()["bindings"][spectrum] == original
     assert env.store.resolve(spectrum)["adapterId"] == "generic"
     assert env.store.bind(env.session, payload, allow_scummvm=True) == response
@@ -355,7 +355,6 @@ def test_arcade_collection_launch_send_and_rebind_use_same_exact_policy(scummvm,
     key = env.store.approve_arcade_scummvm(plan)
     assert env.store.approve_arcade_scummvm(plan) == key
     assert depths and set(depths) == {0}
-    monkeypatch.setattr(env.host, "_emugui_record", lambda operation, *_: {"active": env.arcade.active_collection()} if operation == "STATUS" else {"game": vars(game)})
     assert env.host.create_emugui_game_binding(game.id)["gameKey"] == key
     assert env.host.rebind_emugui_game(key, game.id)["gameKey"] == key
 
@@ -410,14 +409,3 @@ def test_existing_scummvm_binding_status_exposes_languages_and_launcher_without_
     ('de', []), (['en'] * 12 + ['de'], ['en']), (None, [])])
 def test_game_status_language_values_are_bounded_codes(scummvm, value, expected):
     assert scummvm.host._game_status_languages(value) == expected
-def test_older_arcade_without_families_retains_exact_status_and_launch(scummvm, monkeypatch):
-    env = scummvm
-    response = env.store.bind(env.session, scummvm_request(env), allow_scummvm=True)
-    key = next(row['game']['gameKey'] for row in response['results'] if row['game']['systemId'] == 'windows')
-    monkeypatch.setattr(env.arcade.get_catalogue_service(), 'family', None)
-    status = env.host.emugui_game_status(key)
-    assert status['state'] == 'ready' and status['languages'] == ['de']
-    launched = []
-    monkeypatch.setattr(env.store, '_execute', lambda plan: launched.append(plan) or True)
-    assert env.host.launch_emugui_game(key)
-    assert launched[-1]['target']['targetId'] == 'monkey-de'

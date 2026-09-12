@@ -14,6 +14,7 @@ from arcade_core.atari import ADAPTER, discover, read_rows  # noqa: E402
 from arcade_core.catalogue_identity import _writer_lock, read_object  # noqa: E402
 from arcade_core.emulators import validate_emulator  # noqa: E402
 from arcade_core.persistence import atomic_write_json  # noqa: E402
+from arcade_core.collections import current_config  # noqa: E402
 from arcade_core.paths import ConfinedRoot  # noqa: E402
 
 
@@ -69,7 +70,7 @@ def configure(config_path, root, executable, *, apply=False):
             read_rows(root)
             if read_object(config_path, 4 * 1024 * 1024) != before:
                 raise ValueError('Configuration changed during setup')
-            atomic_write_json(config_path, config)
+            atomic_write_json(config_path, current_config(config))
         return {'ok': True, 'applied': apply, 'editions': len(metadata['games']),
                 'games': len({r['title'].casefold() for r in metadata['games']}),
                 'disks': sum(len(r['disks']) for r in metadata['games']),

@@ -4,8 +4,6 @@ const _ipInfoMemoryCache = new Map();
 const _ipInfoSpeedMemoryCache = new Map();
 const _ipInfoRuntime = new Map();
 
-const IP_INFO_CACHE_PREFIX = 'morpheus-webhub-ip-info:';
-const IP_INFO_SPEED_CACHE_PREFIX = 'morpheus-webhub-ip-speed:';
 const IP_INFO_REQUEST_TIMEOUT_MS = 12000;
 const IP_INFO_RETRY_MS = 5 * 60 * 1000;
 const IP_INFO_SPEED_TIMEOUT_MS = 60 * 1000;
@@ -25,14 +23,9 @@ function _normalizeIpInfoRefreshMinutes(value) {
   return [0, 5, 15, 30, 60, 180].includes(parsed) ? parsed : 15;
 }
 
-function _ipInfoCacheKey(widgetId) {
-  return `${IP_INFO_CACHE_PREFIX}${widgetId}`;
-}
-
 function _readIpInfoCache(widgetId) {
   if (_ipInfoMemoryCache.has(widgetId)) return _ipInfoMemoryCache.get(widgetId);
-  let cache = WidgetSDK.cache.get('ipInfo', widgetId, 'lookup')
-    || WidgetSDK.cache.migrateLegacy('ipInfo', widgetId, 'lookup', _ipInfoCacheKey(widgetId));
+  let cache = WidgetSDK.cache.get('ipInfo', widgetId, 'lookup');
   if (!cache || !cache.data || !Number.isFinite(Number(cache.fetchedAt))) cache = null;
   _ipInfoMemoryCache.set(widgetId, cache);
   return cache;
@@ -45,14 +38,9 @@ function _writeIpInfoCache(widgetId, data) {
   return cache;
 }
 
-function _ipInfoSpeedCacheKey(widgetId) {
-  return `${IP_INFO_SPEED_CACHE_PREFIX}${widgetId}`;
-}
-
 function _readIpInfoSpeedCache(widgetId) {
   if (_ipInfoSpeedMemoryCache.has(widgetId)) return _ipInfoSpeedMemoryCache.get(widgetId);
-  let cache = WidgetSDK.cache.get('ipInfo', widgetId, 'speed')
-    || WidgetSDK.cache.migrateLegacy('ipInfo', widgetId, 'speed', _ipInfoSpeedCacheKey(widgetId));
+  let cache = WidgetSDK.cache.get('ipInfo', widgetId, 'speed');
   if (
     !cache
     || !Number.isFinite(Number(cache.fetchedAt))
@@ -356,8 +344,8 @@ WIDGET_REGISTRY['ipInfo'] = {
     _ipInfoRuntime.delete(widget.id);
     _ipInfoMemoryCache.delete(widget.id);
     _ipInfoSpeedMemoryCache.delete(widget.id);
-    WidgetSDK.cache.remove('ipInfo', widget.id, 'lookup', { legacyKeys: [_ipInfoCacheKey(widget.id)] });
-    WidgetSDK.cache.remove('ipInfo', widget.id, 'speed', { legacyKeys: [_ipInfoSpeedCacheKey(widget.id)] });
+    WidgetSDK.cache.remove('ipInfo', widget.id, 'lookup');
+    WidgetSDK.cache.remove('ipInfo', widget.id, 'speed');
   },
 
   reload(widget) {

@@ -14,7 +14,7 @@ from arcade_core.paths import ConfinedRoot
 from arcade_core.profiles import EmulatorProfileService
 
 
-def resolve_plan(lifecycle, catalogue_id, entry_revision=None, *, atari_emulator_override=''):
+def resolve_plan(lifecycle, catalogue_id, entry_revision=None, *, atari_emulator_override='', selection=None):
     """Read one exact source and explicit policy; never activate a collection."""
     with lifecycle._lock:
         service = lifecycle.service()
@@ -39,7 +39,7 @@ def resolve_plan(lifecycle, catalogue_id, entry_revision=None, *, atari_emulator
             raise CatalogueError("entry-changed")
         config = lifecycle._config()
         collection = lifecycle._collection(config, indexed.collection_id)
-        emulator_id = item.get("default_emulator") or collection.get("default_emulator")
+        emulator_id = selection['emulatorId'] if selection is not None else item.get("default_emulator") or collection.get("default_emulator")
         if not emulator_id and source.browse:
             # Arcade's initial launcher selection is the first visible configured
             # emulator. An explicit missing/broken pin never falls through here.
@@ -74,7 +74,7 @@ def resolve_plan(lifecycle, catalogue_id, entry_revision=None, *, atari_emulator
         template = normalize_template(template, "arguments", required_file=True)
         game = SimpleNamespace(id=indexed.legacy_id, path=str(target), title=public["title"],
                                system=item.get("system") or item.get("memory", ""),
-                               tags=item.get("tags", []), emulator_profile=item.get("emulator_profile", ""))
+                               tags=item.get("tags", []), emulator_profile=(selection['profileId'] if selection is not None else '') or item.get("emulator_profile", ""))
         profiles = config.get("emulator_profiles", [])
         if not isinstance(profiles, list) or len(profiles) > 512 or any(not isinstance(p, dict) for p in profiles):
             raise CatalogueError("configuration-required")
@@ -132,13 +132,13 @@ def _native_path(value):
     return path.resolve()
 
 
-def launch_plan(runtime, plan, *, launch_process, copy_profile, atari_emulator_override=''):
+def launch_plan(runtime, plan, *, launch_process, copy_profile, atari_emulator_override='', selection=None):
     """Use existing adapter behaviour with exact-source data and Host callbacks."""
     lifecycle = runtime.get_library_catalogue()
     if lifecycle is None:
         raise CatalogueError("unavailable")
     with runtime.COLLECTION_JOB_LOCK, lifecycle._lock:
-        if resolve_plan(lifecycle, plan["catalogueId"], plan["entryRevision"], atari_emulator_override=atari_emulator_override) != plan:
+        if resolve_plan(lifecycle, plan["catalogueId"], plan["entryRevision"], atari_emulator_override=atari_emulator_override, selection=selection) != plan:
             raise CatalogueError("entry-changed")
         if plan["adapterId"] in {"scummvm", "steem", "hatari"}:
             process = launch_process([plan["executable"], *plan["arguments"]], Path(plan["cwd"]))

@@ -4,8 +4,6 @@ const _issTrackerInstances = new Map();
 const _issTrackerRuntime = new Map();
 let _issTleMemoryCache = null;
 
-const ISS_TLE_CACHE_KEY = 'morpheus-webhub-iss-tle:v1';
-const ISS_VIEW_PREFIX = 'morpheus-webhub-iss-view:';
 const ISS_TLE_TTL_MS = 6 * 60 * 60 * 1000;
 const ISS_TLE_RETRY_MS = 10 * 60 * 1000;
 const ISS_PATH_BEHIND_MINUTES = 45;
@@ -25,14 +23,9 @@ function _issMapStyleUrl(value) {
   return `https://tiles.openfreemap.org/styles/${_normalizeIssMapStyle(value)}`;
 }
 
-function _issViewKey(widgetId) {
-  return `${ISS_VIEW_PREFIX}${widgetId}`;
-}
-
 function _readIssView(widgetId) {
   try {
-    const view = WidgetSDK.cache.get('issTracker', widgetId, 'view')
-      || WidgetSDK.cache.migrateLegacy('issTracker', widgetId, 'view', _issViewKey(widgetId));
+    const view = WidgetSDK.cache.get('issTracker', widgetId, 'view');
     if (!view) return null;
     const camera = {
       longitude: Number(view.longitude),
@@ -87,8 +80,7 @@ function _validIssTle(value) {
 function _readIssTleCache() {
   if (_validIssTle(_issTleMemoryCache)) return _issTleMemoryCache;
   try {
-    const cached = WidgetSDK.cache.get('issTracker', 'shared', 'tle')
-      || WidgetSDK.cache.migrateLegacy('issTracker', 'shared', 'tle', ISS_TLE_CACHE_KEY);
+    const cached = WidgetSDK.cache.get('issTracker', 'shared', 'tle');
     if (_validIssTle(cached)) {
       _issTleMemoryCache = cached;
       return cached;
@@ -500,7 +492,7 @@ WIDGET_REGISTRY['issTracker'] = {
   dispose(widget) {
     _destroyIssTracker(widget.id);
     _issTrackerRuntime.delete(widget.id);
-    WidgetSDK.cache.remove('issTracker', widget.id, 'view', { legacyKeys: [_issViewKey(widget.id)] });
+    WidgetSDK.cache.remove('issTracker', widget.id, 'view');
   },
 
   reload(widget) {

@@ -138,7 +138,11 @@ class CatalogueLifecycle:
         config = read_object(self.config_path, MAX_METADATA_BYTES)
         if not isinstance(config.get("collections"), list):
             raise CatalogueError("review-required")
-        return config
+        from arcade_core.collections import current_config
+        try:
+            return current_config(config)
+        except ValueError:
+            raise CatalogueError('review-required') from None
 
     def _collection(self, config, collection_id):
         if not valid_id(collection_id, legacy=True):
@@ -637,7 +641,9 @@ class CatalogueLifecycle:
             if self.recover(dry_run=dry_run or _expected_review is not None)["status"] == "preview":
                 raise CatalogueError("busy")
             root = Path(new_root).resolve()
-            config = self._config()
+            raw_config = read_object(self.config_path, MAX_METADATA_BYTES)
+            from arcade_core.collections import current_config
+            config = current_config(raw_config)
             row = self._collection(config, collection_id)
             if row.get("writable") is not True:
                 raise CatalogueError("review-required")
@@ -665,7 +671,7 @@ class CatalogueLifecycle:
                 return {"status": "preview", "entries": verified, **({"_fingerprint": fingerprint} if _review else {})}
             changed_config = deepcopy(config)
             self._collection(changed_config, collection_id)["root"] = str(root)
-            documents = [{"kind": "config", "before": config, "after": changed_config},
+            documents = [{"kind": "config", "before": raw_config, "after": changed_config},
                          {"kind": "registry", "before": before, "after": state},
                          {"kind": "proofs", "before": old_proofs, "after": proofs}]
             if all(doc["before"] == doc["after"] for doc in documents):

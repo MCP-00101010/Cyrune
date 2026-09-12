@@ -1,4 +1,4 @@
-"""Explicit collection ownership for the interactive API's legacy routes."""
+"""Explicit collection ownership for the interactive API's current routes."""
 
 READ_ROUTES = frozenset('/api/' + name for name in (
     'games', 'game', 'game-versions', 'poks', 'recent',

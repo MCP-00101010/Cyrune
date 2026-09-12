@@ -12,8 +12,8 @@ const IS_ARCADE = (!!document.querySelector('meta[name="cyrune-arcade"]')
   && window.location.protocol === 'file:';
 const IS_NEXUS = !!document.querySelector('meta[name="cyrune-nexus"]')
   && window.location.protocol === 'file:';
-const PORTAL_CLIENT_PROTOCOLS = Object.freeze({ 'portal-relay': 1, 'component-settings': 2, 'arcade-catalogue': 1, 'arcade-scummvm': 1, 'arcade-atari-st': 1, 'arcade-gameboy': 1 });
-const ARCADE_CLIENT_PROTOCOLS = Object.freeze({ 'arcade-relay': 1, 'arcade-service': 1, 'component-settings': 2, 'arcade-catalogue': 1, 'arcade-scummvm': 1, 'arcade-atari-st': 1, 'arcade-gameboy': 1 });
+const PORTAL_CLIENT_PROTOCOLS = Object.freeze({ 'portal-relay': 2, 'component-settings': 2, 'arcade-catalogue': 1, 'arcade-scummvm': 1, 'arcade-atari-st': 1, 'arcade-gameboy': 1 });
+const ARCADE_CLIENT_PROTOCOLS = Object.freeze({ 'arcade-relay': 2, 'arcade-service': 2, 'component-settings': 2, 'arcade-catalogue': 1, 'arcade-scummvm': 1, 'arcade-atari-st': 1, 'arcade-gameboy': 1 });
 const NEXUS_CLIENT_PROTOCOLS = Object.freeze({ 'nexus-relay': 2, 'component-settings': 2 });
 const pendingPagePushes = new Map();
 let pushSequence = 0;

@@ -91,12 +91,12 @@ def test_cleanup_flags_follow_failed_search_apply_undo_and_reload(spectrum_setup
     server = spectrum_setup[0]
     monkeypatch.setattr(server, 'get_scraper_service', lambda: SimpleNamespace(preview=lambda *_: {'ok': True, 'matches': []}))
     server.scrape_preview('jetpac', 'screenscraper')
-    rows = server.dispatch_arcade_api('GET', '/api/games', {'shape': 'summary'})['games']
+    rows = server.dispatch_arcade_api('GET', '/api/games', {'collection_id': server.active_collection()['id'], 'shape': 'summary'})['games']
     assert next(row for row in rows if row['id'] == 'jetpac')['cleanup']['review']
     assert post(server, '/api/apply-scrape', {'game_id': 'jetpac', 'candidate': {'description': 'Complete'},
         'remote_assets': {'loading_screen': 'scraper-artwork/screenscraper/76/42/box-2D/wor'}})['ok']
     server.LIBRARY = None
-    rows = server.dispatch_arcade_api('GET', '/api/games', {'shape': 'summary'})['games']
+    rows = server.dispatch_arcade_api('GET', '/api/games', {'collection_id': server.active_collection()['id'], 'shape': 'summary'})['games']
     row = next(row for row in rows if row['id'] == 'jetpac')
     assert row['cleanup'] == {'artwork': False, 'description': False, 'review': False}
     assert 'description' not in row, 'Keep the summary payload compact'
@@ -127,7 +127,9 @@ def test_pending_scrape_recovers_after_interruption_and_remains_undoable(tmp_pat
 
 
 def test_unknown_platforms_do_not_inherit_spectrum_and_generated_definitions_match():
-    assert collection_platform({}) == 'zx-spectrum', 'Preserve legacy collections with no adapter field'
+    assert collection_platform({}) == '', 'Current collections require an explicit adapter'
+    from arcade_core.collections import current_config
+    assert current_config({'collections': [{'id':'old'}]})['collections'][0]['adapter'] == 'spectrum-metadata-v1'
     assert collection_platform({'adapter': 'future-adapter'}) == ''
     assert game_platform(SimpleNamespace(type='Future console')) == ''
     with pytest.raises(ValueError):

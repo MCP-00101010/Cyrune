@@ -11,7 +11,7 @@ Before acting on Portal code, read `Portal/README.md`, `docs/architecture/compon
 - Treat `source/state-schema.js` as the persisted-schema and structural-repair boundary, `source/state.js` as normalized state/persistence/selectors/mutations, `source/render.js` and `source/render-items.js` as composition/rendering, and `source/app.js` as startup and UI orchestration.
 - Portal remains a direct `file://` application. Its ordered classic scripts must keep unique top-level declarations; preserve `tests/test_global_script_symbols.cjs` coverage until code is explicitly namespaced or modularized.
 - Never silently replace an unavailable or unreadable configured shared database with an empty browser cache. Keep the last readable session visible where safe, block unsafe mutations, and provide actionable Relay/Host recovery.
-- Preserve schema IDs, storage keys, the exact-legacy-default title migration, and non-destructive repair of otherwise valid boards and navigation.
+- Preserve user boards, navigation and settings through documented schema/storage migrations. Follow the repository development compatibility policy when retiring old formats or the exact-legacy-default title migration; retain non-destructive repair of currently supported data.
 - Keep page-originated privileged requests bound to the exact authenticated Relay registration/session. Do not add direct browser or native authority to Portal.
 
 ## Interface and Rendering

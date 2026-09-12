@@ -1,5 +1,7 @@
 # Cyrune Widgets TODO
 
+- Monitor 0.2.18: coordinated data cutover, current protocol negotiation and first-reload browser upgrades. See `docs/architecture/suite-data-cutover.md` at repository root.
+
 This file owns widget implementations, the shared widget SDK, presets, local widget state, and widget-specific provider integrations.
 
 Future network- and native-dependent widgets must use the shared SDK, cache, scheduler, and capability layers. Runtime samples, histories, and view preferences remain local unless the user explicitly shares them.

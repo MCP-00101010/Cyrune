@@ -11,7 +11,7 @@ globalThis.CyruneComponentRegistry = (() => {
   {
     "id": "portal",
     "name": "Portal",
-    "version": "0.12.21",
+    "version": "0.12.22",
     "kind": "page",
     "accent": "violet",
     "adapter": "portal",
@@ -29,7 +29,7 @@ globalThis.CyruneComponentRegistry = (() => {
       "widget-host"
     ],
     "protocols": {
-      "portal-relay": 1,
+      "portal-relay": 2,
       "component-settings": 2,
       "arcade-catalogue": 1,
       "arcade-scummvm": 1,
@@ -37,13 +37,13 @@ globalThis.CyruneComponentRegistry = (() => {
       "arcade-gameboy": 1
     },
     "schemas": {
-      "portableState": 5
+      "portableState": 7
     }
   },
   {
     "id": "widgets",
     "name": "Widgets",
-    "version": "0.2.17",
+    "version": "0.2.18",
     "kind": "catalogue",
     "accent": "cyan",
     "adapter": "widgets",
@@ -63,7 +63,7 @@ globalThis.CyruneComponentRegistry = (() => {
       "text-scaling"
     ],
     "protocols": {
-      "widget-sdk": 3,
+      "widget-sdk": 4,
       "component-settings": 2
     },
     "schemas": {
@@ -73,7 +73,7 @@ globalThis.CyruneComponentRegistry = (() => {
   {
     "id": "arcade",
     "name": "Arcade",
-    "version": "0.2.57",
+    "version": "0.2.58",
     "kind": "page",
     "accent": "orange",
     "adapter": "arcade",
@@ -92,8 +92,8 @@ globalThis.CyruneComponentRegistry = (() => {
       "scrapers"
     ],
     "protocols": {
-      "arcade-relay": 1,
-      "arcade-service": 1,
+      "arcade-relay": 2,
+      "arcade-service": 2,
       "component-settings": 2,
       "arcade-catalogue": 1,
       "arcade-scummvm": 1,
@@ -103,13 +103,14 @@ globalThis.CyruneComponentRegistry = (() => {
     "schemas": {
       "arcadeState": 1,
       "collection": 1,
+      "collectionIndex": 2,
       "scummvmOverrides": 1
     }
   },
   {
     "id": "relay",
     "name": "Relay",
-    "version": "1.1.12",
+    "version": "1.1.13",
     "kind": "extension",
     "accent": "blue",
     "adapter": "relay",
@@ -127,10 +128,10 @@ globalThis.CyruneComponentRegistry = (() => {
       "portal-authority"
     ],
     "protocols": {
-      "portal-relay": 1,
-      "arcade-relay": 1,
+      "portal-relay": 2,
+      "arcade-relay": 2,
       "nexus-relay": 2,
-      "host-native": 2,
+      "host-native": 3,
       "component-settings": 2,
       "arcade-catalogue": 1,
       "arcade-scummvm": 1,
@@ -144,7 +145,7 @@ globalThis.CyruneComponentRegistry = (() => {
   {
     "id": "host",
     "name": "Host",
-    "version": "0.2.25",
+    "version": "0.2.26",
     "kind": "native-service",
     "accent": "green",
     "adapter": "host",
@@ -162,8 +163,8 @@ globalThis.CyruneComponentRegistry = (() => {
       "settings-history"
     ],
     "protocols": {
-      "host-native": 2,
-      "arcade-service": 1,
+      "host-native": 3,
+      "arcade-service": 2,
       "component-settings": 2,
       "arcade-catalogue": 1,
       "arcade-scummvm": 1,
@@ -172,6 +173,7 @@ globalThis.CyruneComponentRegistry = (() => {
     },
     "schemas": {
       "hostConfig": 1,
+      "gameBindings": 5,
       "nexusSettings": 2,
       "statusSnapshot": 2
     }
@@ -179,7 +181,7 @@ globalThis.CyruneComponentRegistry = (() => {
   {
     "id": "nexus",
     "name": "Nexus",
-    "version": "0.3.0",
+    "version": "0.3.1",
     "kind": "page",
     "accent": "pink",
     "adapter": "nexus",

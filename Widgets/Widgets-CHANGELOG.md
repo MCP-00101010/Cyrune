@@ -4,6 +4,11 @@ Historical entries below are preserved from Portal releases whose release notes 
 
 ---
 
+## [0.2.18] — 2026-09-09
+
+- SDK 4 removes per-widget legacy cache APIs and promotes retained browser cache/view entries at startup. Widget state conversions run once per declared state version; current cache reads and disposal have one path.
+- Validation: 304 component tests; coordinated migration/packaging/tooling checks, syntax, versions, infrastructure and Relay lint passed. Isolated Firefox Portal/Arcade acceptance passed.
+
 ## [0.2.17] — 2026-09-04
 
 ### Added

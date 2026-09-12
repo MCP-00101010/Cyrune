@@ -1,4 +1,4 @@
-const ARCADE_VERSION = '0.2.57';
+const ARCADE_VERSION = '0.2.58';
 
 const state = {
   games: [],
@@ -492,12 +492,10 @@ async function api(path, options = {}) {
     if (String(options.method || 'GET').toUpperCase() === 'GET') target.searchParams.set('collection_id', collectionId);
     else if (!('collection_id' in body)) body.collection_id = collectionId;
   }
-  if (target.pathname === '/api/games' && target.searchParams.get('shape') === 'summary') {
-    target.searchParams.set('compact', 'true');
+  if (target.pathname === '/api/games') {
     if (state.summaryRevision && collectionId === state.summaryCollection) target.searchParams.set('since', state.summaryRevision);
   }
   const summaryBase = target.searchParams.has('since') ? [...state.games] : [];
-  if (target.pathname === "/api/scrape-preview") body.background = true;
   const response = await requestArcadeRpc({
     method: String(options.method || "GET").toUpperCase(),
     path: target.pathname,
@@ -559,7 +557,9 @@ async function init() {
       await waitForJob(job.job_id);
     }
   }
-  const gamesPayload = await api("/api/games?view=all&shape=summary&groupVersions=true");
+  const context = await api("/api/collection-context");
+  state.activeCollection = {id:context.collection_id};
+  const gamesPayload = await api("/api/games?view=all");
   acceptSummaryPayload(gamesPayload);
   applyFilters();
 
@@ -711,7 +711,7 @@ async function reloadGames() {
   const selectedId = state.selected?.id || "";
   const generation = state.collectionViewGeneration || 0;
   const requestGeneration = state.reloadGeneration = (state.reloadGeneration || 0) + 1;
-  const payload = await api("/api/games?view=all&shape=summary&groupVersions=true");
+  const payload = await api("/api/games?view=all");
   if (generation !== (state.collectionViewGeneration || 0) || requestGeneration !== state.reloadGeneration) return;
   acceptSummaryPayload(payload);
   const validIds = new Set(state.games.map((game) => game.id));
@@ -1271,7 +1271,7 @@ async function selectCollection(collectionId) {
       setBusyProgress(null);
       state.selected = null; state.selectedIds.clear();
       const [collections, games] = await Promise.all([
-        api('/api/collections'), api('/api/games?view=all&shape=summary&groupVersions=true', {collectionId:selected.id})
+        api('/api/collections'), api('/api/games?view=all', {collectionId:selected.id})
       ]);
       acceptSummaryPayload(games);
       state.filtered = [];
