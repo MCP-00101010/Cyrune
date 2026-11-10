@@ -445,12 +445,6 @@ WIDGET_REGISTRY['rssReader'] = {
     }
 
     el.className = `widget-rss-reader is-${_normalizeRssLayout(widget.config?.layout)}`;
-    if (widget.title) {
-      const heading = document.createElement('div');
-      heading.className = 'widget-rss-heading';
-      heading.textContent = widget.title;
-      el.appendChild(heading);
-    }
     if (!feeds.length) {
       const placeholder = document.createElement('div');
       placeholder.className = 'widget-rss-empty';
@@ -754,7 +748,7 @@ WIDGET_REGISTRY['rssReader'] = {
         <span>Article images</span>
         <label class="settings-toggle"><input type="checkbox" data-cfg="showImages" ${c.showImages !== false ? 'checked' : ''}/><span class="toggle-track"></span></label>
       </div>
-      <div class="settings-help">The All tab merges every feed chronologically and collapses duplicate links. Feeds that block direct browser access are requested through extension 1.0.21.</div>`;
+      `;
 
     const list = container.querySelector('.rss-settings-feed-list');
     const addButton = container.querySelector('.rss-settings-add-feed');

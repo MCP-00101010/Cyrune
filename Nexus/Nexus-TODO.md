@@ -1,5 +1,7 @@
 # Cyrune Nexus TODO
 
+- Monitor 0.3.2: document refreshes across settings/status changes, offline preview fallback and Project architecture links.
+
 - Monitor 0.3.1: coordinated data cutover, current protocol negotiation and first-reload browser upgrades. See `docs/architecture/suite-data-cutover.md` at repository root.
 
 This file owns project-status aggregation, shared Cyrune settings, Nexus presentation/cache state, sanitized validation receipts, and future shared theme/tag management.

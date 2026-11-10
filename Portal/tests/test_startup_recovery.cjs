@@ -132,3 +132,19 @@ test('a failed initial storage read retries quietly while Relay stays connected'
   assert.equal(h.reloads.length, 1);
   assert.equal(h.reloads[0].notice, '');
 });
+
+test('read-only guidance identifies unselected storage, selected Host failure and incompatible peers', () => {
+  let bridgeError = 'Choose Portal storage in the Cyrune Relay popup';
+  const context = vm.createContext({
+    bridge: { getDiagnostics: () => ({ bridgeError }) },
+    PORTAL_UI_TEXT: { readOnlyIncompatible: 'Update components', readOnlyCached: 'Reconnect Relay' }
+  });
+  vm.runInContext(app.slice(app.indexOf('function getPortalReadOnlyMessage()'), app.indexOf('function getPortalCachedSnapshot()')), context);
+  assert.match(context.getPortalReadOnlyMessage(), /choose Portal storage.*Cyrune Relay popup/);
+  bridgeError = 'Cyrune Host storage is unavailable';
+  assert.match(context.getPortalReadOnlyMessage(), /reconnect Cyrune Host.*configured Portal database/);
+  bridgeError = 'Cyrune Host protocol is incompatible';
+  assert.equal(context.getPortalReadOnlyMessage(), 'Update components');
+  bridgeError = '';
+  assert.equal(context.getPortalReadOnlyMessage(), 'Reconnect Relay');
+});

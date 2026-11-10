@@ -153,6 +153,7 @@ class CollectionService:
                 "auto_metadata": bool(item.get("auto_metadata", False)),
                 "default_emulator": str(item.get("default_emulator", "") or ""),
                 "platform_id": collection_platform(item),
+                "kind": str(item.get('kind', '')),
                 "incoming_count": file_count_in_tree(root / "incoming", {".tap", ".tzx"}) if writable else 0,
                 "trash_count": file_count_in_tree(root / "_Deleted", {".tap", ".tzx"}) if writable else 0,
                 "active": item.get("id") == active.get("id"),

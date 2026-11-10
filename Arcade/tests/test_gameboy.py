@@ -115,7 +115,7 @@ def test_scrape_and_inactive_shortcut_keep_cartridge_identity(tmp_path, monkeypa
     root, _, collection, runtime, config = fixture(tmp_path)
     server = load_server()
     for name, value in {'DATA':runtime, 'CONFIG_FILE':runtime/'config.json', 'STATE_FILE':runtime/'state.json',
-                        'COLLECTION':root, 'METADATA_FILE':root/'collection-metadata.json'}.items():
+                        'DESASTERON_COLLECTION':root}.items():
         monkeypatch.setattr(server, name, value)
     monkeypatch.setattr(server, 'active_collection', lambda: collection)
     monkeypatch.setattr(server, 'load_config', lambda: config)
@@ -129,7 +129,7 @@ def test_scrape_and_inactive_shortcut_keep_cartridge_identity(tmp_path, monkeypa
     assert (updated.title, updated.description) == ('Correct game', 'Description')
     assert (updated.system, updated.platform, updated.path, updated.tags, updated.default_emulator) == (
         before.system, before.platform, before.path, before.tags, before.default_emulator)
-    monkeypatch.setattr(server, 'COLLECTION', tmp_path/'inactive')
+    monkeypatch.setattr(server, 'DESASTERON_COLLECTION', tmp_path/'inactive')
     entry = server.catalogue_game_entry('game-boy', game.id)
     plan = server.resolve_catalogue_launch_plan(entry.base['catalogueId'])
     assert plan['media'] == before.path

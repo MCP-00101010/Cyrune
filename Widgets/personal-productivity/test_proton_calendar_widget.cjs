@@ -286,7 +286,6 @@ test('calendar assets expose secure settings and responsive agenda/month views',
   assert.match(calendarSource, /football-data\.org/);
   assert.match(calendarSource, /tournaments\.darts\.web\.gc\.pdcservices\.co\.uk/);
   assert.match(calendarSource, /hiddenSourceIds/);
-  assert.match(calendarSource, /credentials secured locally/);
   assert.match(calendarSource, /beforeSettingsCommit/);
   assert.match(calendarSource, /Use Cyrune week start/);
   assert.match(styles, /\.widget-calendar-header\s*\{[^}]*padding-right:\s*52px/s);

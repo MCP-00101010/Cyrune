@@ -32,11 +32,11 @@ const WIDGET_BUILTIN_MANIFEST = Object.freeze({
     responsive: { minWidth: 240, preferredWidth: 420 }
   },
   weather: {
-    capabilities: { network: { domains: ['api.open-meteo.com', 'air-quality-api.open-meteo.com', 'geocoding-api.open-meteo.com'] }, timers: true, localCache: { quotaBytes: 256 * 1024 } },
+    capabilities: { network: { domains: ['api.open-meteo.com', 'air-quality-api.open-meteo.com', 'geocoding-api.open-meteo.com', 'api.postcodes.io'] }, timers: true, localCache: { quotaBytes: 256 * 1024 } },
     responsive: { minWidth: 260, preferredWidth: 460, compactBelow: 340 }
   },
   weatherMap: {
-    capabilities: { network: { domains: ['api.open-meteo.com', 'geocoding-api.open-meteo.com', 'tiles.openfreemap.org'] }, timers: true, localCache: { quotaBytes: 512 * 1024 } },
+    capabilities: { network: { domains: ['api.open-meteo.com', 'geocoding-api.open-meteo.com', 'api.postcodes.io', 'tiles.openfreemap.org'] }, timers: true, localCache: { quotaBytes: 512 * 1024 } },
     responsive: { minWidth: 300, preferredWidth: 620, preferredHeight: 420 }
   },
   issTracker: {
@@ -44,7 +44,7 @@ const WIDGET_BUILTIN_MANIFEST = Object.freeze({
     responsive: { minWidth: 300, preferredWidth: 620, preferredHeight: 440 }
   },
   astronomy: {
-    capabilities: { network: { domains: ['geocoding-api.open-meteo.com'], optional: true }, localCache: { quotaBytes: 128 * 1024 } },
+    capabilities: { network: { domains: ['geocoding-api.open-meteo.com', 'api.postcodes.io'], optional: true }, localCache: { quotaBytes: 128 * 1024 } },
     responsive: { minWidth: 280, preferredWidth: 520 }
   },
   rssReader: {
@@ -78,7 +78,7 @@ const WIDGET_BUILTIN_MANIFEST = Object.freeze({
     responsive: { minWidth: 220, preferredWidth: 520, compactBelow: 320 }
   },
   focusSession: {
-    capabilities: { timers: true, localCache: { quotaBytes: 128 * 1024 }, notifications: { optional: true } },
+    capabilities: { extensionRelay: { optional: true }, timers: true, localCache: { quotaBytes: 128 * 1024 }, notifications: { optional: true } },
     responsive: { minWidth: 180, preferredWidth: 360, compactBelow: 250 }
   },
   footballTracker: {
@@ -87,7 +87,7 @@ const WIDGET_BUILTIN_MANIFEST = Object.freeze({
   },
   globalHazards: {
     capabilities: {
-      network: { domains: ['eonet.gsfc.nasa.gov', 'earthquake.usgs.gov', 'www.gdacs.org', 'ssd-api.jpl.nasa.gov', 'services.swpc.noaa.gov', 'geocoding-api.open-meteo.com', 'tiles.openfreemap.org'] },
+      network: { domains: ['eonet.gsfc.nasa.gov', 'earthquake.usgs.gov', 'www.gdacs.org', 'ssd-api.jpl.nasa.gov', 'services.swpc.noaa.gov', 'geocoding-api.open-meteo.com', 'api.postcodes.io', 'tiles.openfreemap.org'] },
       extensionRelay: { optional: true }, timers: true, localCache: { quotaBytes: 4 * 1024 * 1024 }, notifications: { optional: true }
     },
     responsive: { minWidth: 300, preferredWidth: 760, preferredHeight: 520, compactBelow: 480 }
@@ -788,11 +788,28 @@ function _widgetSdkNetworkRequest(input, options, timeoutMs, executor) {
       resolve,
       reject,
       run: async () => {
+        let timer;
+        let abortRequest;
         try {
-          const response = await executor(input, { ...options, signal: controller?.signal || parentSignal, __widgetSdkManaged: true }, timeoutMs);
-          const maxBytes = Math.max(1024, Number(options.maxResponseBytes) || WIDGET_SDK_MAX_RESPONSE_BYTES);
-          return await WidgetResponseBuffer.bound(response, maxBytes, controller);
+          const signal = controller?.signal || parentSignal;
+          const aborted = new Promise((resolve, rejectAbort) => {
+            abortRequest = () => rejectAbort(signal?.reason || new DOMException('Request aborted', 'AbortError'));
+            if (signal?.aborted) abortRequest();
+            else signal?.addEventListener('abort', abortRequest, { once: true });
+          });
+          timer = setTimeout(() => controller?.abort(new DOMException('Request timed out', 'TimeoutError')),
+            Math.max(1, Number(timeoutMs) || 15000));
+          const work = (async () => {
+            if (signal?.aborted) throw signal.reason;
+            const response = await executor(input, { ...options, signal, __widgetSdkManaged: true }, timeoutMs);
+            if (signal?.aborted) throw signal.reason;
+            const maxBytes = Math.max(1024, Number(options.maxResponseBytes) || WIDGET_SDK_MAX_RESPONSE_BYTES);
+            return WidgetResponseBuffer.bound(response, maxBytes, controller);
+          })();
+          return await Promise.race([work, aborted]);
         } finally {
+          clearTimeout(timer);
+          (controller?.signal || parentSignal)?.removeEventListener?.('abort', abortRequest);
           if (requestKey && _widgetSdkNetworkState.get(requestKey) === state) _widgetSdkNetworkState.delete(requestKey);
           parentSignal?.removeEventListener?.('abort', abortFromParent);
         }
@@ -917,6 +934,20 @@ const WidgetSDK = Object.freeze({
   cache: Object.freeze({ get: _widgetSdkCacheGet, set: _widgetSdkCacheSet, remove: _widgetSdkCacheRemove }),
   assets: Object.freeze({ metadata: _widgetSdkAssetMetadata, list: _widgetSdkAssetList, get: _widgetSdkAssetGet, set: _widgetSdkAssetSet, remove: _widgetSdkAssetRemove, clear: _widgetSdkAssetClear }),
   network: Object.freeze({ request: _widgetSdkNetworkRequest, assertDomain: _widgetSdkAssertNetworkDomain }),
+  productivity: Object.freeze({
+    async request(widgetType, service, action, args = {}, expectedRevision) {
+      _widgetSdkAssertDeclaredCapability(widgetType, 'extensionRelay');
+      if (!['focusSession', 'browserActivity'].includes(widgetType) || !['focus', 'activity'].includes(service)
+          || widgetType === 'browserActivity' && service === 'focus' && action !== 'state'
+          || widgetType === 'focusSession' && service === 'activity' && !['report', 'state'].includes(action)) throw new Error('This widget cannot use that productivity operation.');
+      return _widgetSdkExtensionInvoke(widgetType, 'productivityRequest', { schemaVersion: 1, service, action, args,
+        ...(expectedRevision === undefined ? {} : { expectedRevision }), requestId: `widget-${Date.now()}-${Math.random().toString(36).slice(2)}` });
+    },
+    subscribe(listener) {
+      window.addEventListener('cyrune-productivity-changed', listener);
+      return () => window.removeEventListener('cyrune-productivity-changed', listener);
+    }
+  }),
   extensionRelay: Object.freeze({ invoke: _widgetSdkExtensionInvoke, supports: _widgetSdkExtensionSupports }),
   nativeHost: Object.freeze({ invoke: _widgetSdkNativeInvoke, supports: _widgetSdkNativeSupports }),
   credentials: Object.freeze({ status: _widgetSdkCredentialStatus, get: _widgetSdkCredentialGet, set: _widgetSdkCredentialSet, remove: _widgetSdkCredentialRemove }),

@@ -4,6 +4,134 @@ Historical entries below are preserved from Portal releases whose release notes 
 
 ---
 
+## [0.2.81] — 2026-10-26
+
+- Apply Portal's approved compact workspace style: continuous navigation/detail rails, a flat library surface, blue-grey default colours and compact controls. Keep committed Portal themes, text scaling and virtual row sizing.
+- Rebuild Settings with left-hand categories, a scrolling content pane and Save/Close in its header. Move optional explanations into tooltips, retain drafts, discard review, nested editors and visible errors, and support keyboard category navigation.
+- Remove the redundant sidebar Settings gear; the version remains the entry point.
+- Validation: coordinated gate passed 1,549 tests plus 3 Host subtests, including 574 Arcade and 115 Relay tests, syntax, infrastructure/versions, Ruff and clean web-ext lint. Isolated Firefox renders cover desktop, narrow and light layouts; browser checks passed for settings draft preservation, explicit save, discard review and keyboard navigation. Final connected-session acceptance remains open.
+
+## [0.2.80] — 2026-10-22
+
+- Add browser-local named views for each platform, including search, inclusion/exclusion filters, attention/view/POK filters, sorting and column layout. Support save, explicit update, rename, delete and restore without changing collections, emulator selection or launch defaults. Bound stored views and retain the last saved value after failed storage writes.
+- Validation: all 574 Arcade tests and the coordinated gate passed. Focused tests cover view persistence, storage-write failures, bounds, per-platform sort restoration and browser-local dialog lifecycle. Isolated Firefox 158.0.1 verified save/apply/reload with retained sort and selected-view identity at 1280px and 600px widths; no emulator was launched.
+
+## [0.2.79] — 2026-10-22
+
+- Apply the Favourites view to the whole title family, matching the grouped row/menu star. A starred alternative no longer falsely marks an unstarred saved default as excluded by Favourites. Preserve the grouped star when edition filters hide its starred member, while retaining warnings for genuine system/language exclusions. Persisted favourite flags and saved launch defaults are unchanged by filtering.
+- Validation: all 573 Arcade tests passed. The regression reproduced the false warning before the fix; isolated Firefox verified consistent Favourites, real system-filter warnings and removing a hidden starred edition, with native writes stubbed. Saved defaults and per-edition flags remain unchanged by filtering. Syntax, version/registry and whitespace checks passed.
+
+## [0.2.78] — 2026-10-22
+
+- Preserve dual-compatible Spectrum releases as one combined system badge (48K/128K or 16K/48K). Splitting their compatibility label previously outlined two badges for one saved default and made a dedicated hardware badge include the combined release. Badge actions now retain distinct exact-version membership without changing saved defaults or native launch policy.
+- Validation: all 573 Arcade tests passed. Regression reproduced two default outlines before the fix and one afterward; isolated Firefox verified combined-only and combined-plus-dedicated rows, distinct exact launch targets and existing system actions with native effects stubbed. Syntax, version/registry and whitespace checks passed.
+
+## [0.2.77] — 2026-10-22
+
+- Outline the saved default in the System column and add single-click exact-version launch plus a system-specific Launch/Make default context menu. Reuse native family/revision checks and the existing approved shared-default route. Multiple editions on one system open a scoped chooser when that system has no saved default; missing defaults are not highlighted, and excluded editions stay hidden. Preserve emulator-running choices and prevent row double-click from launching a second version.
+- Stack Open with and other direct context-menu commands vertically. Keep system controls inside the existing virtual row height.
+- Validation: all 573 Arcade tests passed, including exact-target/profile resolution, stale-revision/collection rejection, badge event isolation and scoped edition choice. Isolated Firefox verified DOS/Windows and Spectrum 48K/128K actions, shared-default highlighting, vertical Open with entries, dark/light themes and virtual row geometry at 100% and 200% scale. Native launches/default writes were stubbed. Syntax, version/registry and whitespace checks passed.
+
+## [0.2.76] — 2026-10-22
+
+- Keep platform and emulator insertion previews mounted while the drop position is unchanged. Remove the restarting fade animation so moving between slots stays consistently translucent. Preserve a drag-over position received before the initial animation frame.
+- Validation: all 573 Arcade tests passed, including repeated-event regressions for both tile lists. Isolated Firefox verified zero preview mutations for 60 stationary drag-over events per list, stable opacity between slots, normal and wrapped grids, and existing drop/cancel, keyboard and persistence behavior. JavaScript syntax, version/registry and whitespace checks passed.
+
+## [0.2.75] — 2026-10-22
+
+- Reorder platform tiles and each platform's emulator shortcuts by dragging. Match Portal's full-tile drag image, hidden source and translucent insertion preview; preserve ordinary click/context-menu actions. Save bounded ID-only order in browser-local UI preferences, independently of collection and launch defaults. Provide Alt+Arrow keyboard movement and reduced-motion presentation.
+- Validation: all 573 Arcade tests passed, with clean JavaScript syntax, component version/registry and whitespace checks. Isolated Firefox verified the rendered insertion preview, drop/cancel and last-tile no-op behavior, keyboard movement, reload persistence, independent platform orders and no emulator launch from dropping.
+
+## [0.2.74] — 2026-10-22
+
+- Add metadata-only exact-entry location for shortcut repair without requiring launchable media. Explain Portal repair mode and label its explicit completion action Repair Portal Shortcut.
+- Validation: 572 Arcade tests and the coordinated gate passed (1,446 tests plus 3 Host subtests). Coverage includes metadata-only location with missing media; isolated Firefox verified repair guidance and explicit confirmation.
+
+## [0.2.73] — 2026-10-22
+
+- Recover the main Spectrum index from its checksum-verified retained current-format copy after finding it replaced by the exact malformed-data test fixture. Retain the damaged original; all 12,926 main-library media references are present.
+- Reject malformed existing collection indexes with recovery guidance instead of silently loading an empty library. Isolate test runtime defaults and block test filesystem mutations outside temporary storage, protecting live libraries even when a fixture follows a production default.
+- Validation: all 571 Arcade tests and the coordinated 1,442-test gate plus 3 Host subtests pass. The guard blocked an additional cached-module fixture from reaching live storage; that fixture is now isolated. The actual loader reads the recovered 12,933-record index and its checksum remained unchanged after the full run.
+
+## [0.2.72] — 2026-10-21
+
+- Isolate unreadable Spectrum/Game Boy collection indexes so they cannot take healthy collections and Portal game shortcuts offline. Leave rejected source data and launch approvals untouched; retry the source when its index changes.
+- Validation: all 570 Arcade tests and the coordinated 1,437-test gate plus 3 Host subtests pass, with clean syntax, scoped lint, packaging, versions and Relay lint. The regression verifies healthy binding resolution, unchanged rejected data and repaired-source recovery. Live status checks were read-only; no game was launched.
+
+## [0.2.71] — 2026-10-21
+
+- Track unsaved settings per section/library, preserve drafts across tabs, save only the visible scope and offer explicit discard/keep editing. Share dialog focus entry/return, Tab containment, Escape/backdrop handling and busy dismissal across editors and scraper workflows.
+- Add accessible Open with and Selected items submenus, scoped bulk review actions, Settings gear, platform/emulator menus and header column controls. Mark saved defaults excluded by filters while preserving exact default launch identity.
+- Scale text, controls and virtual rows together; make filters/details reachable at narrow or scaled widths without overwriting panel choices. Respect committed Portal typography, give high contrast precedence over inline themes, derive primary foreground from accent contrast and replace fixed status/filter colours with tokens.
+- Validation: the full coordinated gate passed (1,435 tests plus 3 Host subtests), including 569 Arcade tests and clean syntax, scoped lint, packaging, infrastructure, versions and Relay lint. Final visual polish passed all 208 Portal tests and 19 focused frontend/theme tests. Isolated Firefox verified dark/light/custom palettes, high-contrast theme updates, 100/150/200% scale, exact virtual-row sizes, keyboard/focus/busy dismissal, scoped settings drafts, storage states and context menus.
+
+## [0.2.70] — 2026-10-21
+
+- Group game menus by launch, locate, metadata, organization and deletion; add the default launch action, remove unavailable Portal transfer actions from Incoming/Bin, and keep long menus scrollable. Open menus without waiting for native details and ignore stale selection reads. Add keyboard navigation to game and sort menus.
+- Validation: 569 component tests; the full coordinated gate passed (1,430 tests plus 3 Host subtests) with clean lint, syntax, packaging, versions and contracts. Isolated Firefox dark/light, short/narrow-window, keyboard/submenu and settings Cancel checks passed. Final tag-colour presentation preservation was rechecked with Portal and recursive-menu tests.
+
+## [0.2.69] — 2026-10-21
+
+- Bound unfinished background jobs before thread creation, reuse the request library, and skip hashing/rebuilding unchanged summary responses while preserving exact revisions and nested edits. Remove superseded emulator filtering and unused imports.
+- Validation: 568 component tests; full coordinated gate passed (1,426 tests plus 3 Host subtests), including migration, packaging, tooling, JavaScript syntax, infrastructure/registry, versions, scoped Ruff F checks and Relay lint (zero errors, warnings or notices).
+
+## [0.2.68] — 2026-10-21
+
+- Deepen native catalogue lookup, version annotation and launch-plan resolution so callers no longer initialize searches or inspect private indexes. Centralize active collection state, cache invalidation, settings/rebuild transitions and selection rollback in the collection lifecycle.
+- Validation: 566 Arcade tests, 232 Host tests and 25 joined migration workflows passed as part of the full coordinated gate. Coverage includes exact lookup, missing defaults, cached selection, failure rollback, stale policy and queued rebuild root changes.
+
+## [0.2.67] — 2026-09-13
+
+- Display disk-content versions once in the linked name, removing repeated versions from Game/Documentation labels. Recognize versions already at the end of a name and keep distinct versions in separate rows.
+- Validation: all 558 Arcade tests pass, including version deduplication and distinct-version grouping. The real Proflight catalogue entry renders as Proflight 1.2 with Game, Documentation labels; registry and JavaScript syntax checks pass.
+
+## [0.2.66] — 2026-09-13
+
+- Group matching disk-content titles into one row with inline Game, Documentation, Walkthrough and other labels. Preserve separate game targets and edition/part requirements; keep stored catalogue records intact. Deduplicate titles in the Contents column, sorting and image chooser.
+- Validation: all 558 Arcade tests pass, including grouping, unique title summaries and preserved target/edition details. Isolated Firefox verifies the real R-Type/H.A.T.E. disk renders two inline rows and two unique summary titles without horizontal overflow.
+
+## [0.2.65] — 2026-09-13
+
+- Make disk-content links use the shared theme's bookmark/link colour and underline preference, including visited links. Hover and keyboard focus underline links, with a matching focus outline.
+- Validation: all 558 Arcade tests pass. Isolated Firefox verifies crimson/green theme changes, underline preferences, accent fallback and themed keyboard focus; registry and JavaScript syntax checks pass.
+
+## [0.2.64] — 2026-09-13
+
+- Put compilation disk contents in a standard details card, retaining software labels and expandable disk files. Remove the details-pane boot-image button, filename row, source/match information and instructional text; image selection remains in Properties and the context menu.
+- Validation: all 558 Arcade tests pass. Isolated Firefox verifies the standard card border at a 374px pane width without horizontal overflow, removal of redundant details, and expandable supporting files.
+
+## [0.2.63] — 2026-09-13
+
+- Use the original SuperGAU CD descriptions as preferred software-title metadata, with image/file-content evidence, explicit source-conflict notes and collapsed supporting file lists. Add a compilation-only Contents column beside Title; online updates retain accepted CD records.
+- Add a staged, recoverable native CD importer for missing game/demo images and verified Take Off clip-art disk reconstructions. Keep existing images, identities and launch defaults; report unavailable or unsupported source media. Correct mismatched catalogue descriptions only with unique file-content evidence.
+- Local import: added 40 game disks, 134 demos and 144 labelled Take Off reconstructions; published CD descriptions for all 1,927 SuperGAU images. GAU 268 has no separate archive on this CD repack. Verified all 4,343 pre-existing image hashes, existing index records, other groups' catalogue entries and 37 runtime settings files were unchanged. Fresh native loading returns 4,661 images, with 4,400 catalogued across all groups.
+- Validation: all 558 Arcade tests and the coordinated validator pass (`-SkipWebExtLint`, Relay unchanged), including the saved-column migration regression. Isolated Firefox verifies real CD software titles, collapsed supporting files and expansion without horizontal overflow. Sanitized Nexus validation receipt updated.
+
+## [0.2.62] — 2026-09-13
+
+- Add AtariUpToDate's numbered Floppyshop Utility catalogue to reviewed contents matching, with source links and exact series/part/revision checks.
+- Add searchable SuperGAU User/Speak/Utility file and folder names from read-only FAT12 directory scans. Label these as disk-file indexes, require separate apply opt-in, support local-only previews and retain accepted curated matches. Skip empty or malformed images and disclose any 200-entry display/search limit.
+- Validation: all 550 Arcade tests and coordinated component/integration, syntax, infrastructure, manifest and version checks pass; Relay lint was skipped because Relay is unchanged. Isolated Firefox verifies local-only preparation, separate file-index opt-in, 50-row scrolling and apply/reload. Native loading verifies 688 additions: Floppyshop 4372's seven utilities and 687 SuperGAU file indexes. Existing 3,360 entries, collection index and configuration are unchanged; the catalogue backup is verified. Totals: 3,361 menu-label references, 687 file indexes and 295 unmatched images. No emulator was started.
+
+## [0.2.61] — 2026-09-13
+
+- Add a reviewed compilation catalogue using Atari Legend's licensed metadata export and the 8bitchip / Bruno title-to-menu list. Search by contained game, utility or document title; show source attribution, reference menu artwork and contents for each boot image.
+- Match image hashes first, then explicit menu series/number/part/revision mappings. Label filename-based references as unverified, leave ambiguous and unmatched images unchanged, and never derive launch keys or merge boot targets from catalogue contents.
+- Keep accepted entries offline in a separate native catalogue with atomic publication, previous-file backup and stale-preview/image checks. Updates respect optional-network settings, download metadata only and require preview/apply. Ordinary game scraping remains disabled for compilations.
+- Validation: all 539 Arcade tests and the coordinated component/integration, syntax, infrastructure, manifest and version checks pass; Relay lint was skipped because Relay is unchanged. Isolated Firefox startup, contents search/details, preview, explicit label opt-in, apply/reload and the 50-image review layout passed with synthetic responses. Native live loading verified 3,360 accepted menu-label references (3,359 with contents), 2,841 distinct searchable titles and 1,021 artwork references; 983 images remain unmatched. No emulator was started.
+
+## [0.2.60] — 2026-09-13
+
+- Add a separate Atari ST Compilations collection with numbered menu families, group/series/condition filters and explicit boot-image selection. Preserve parts, revisions, alternate dumps and filename damage labels; boot only the selected image rather than inferring drive B from suffixes. Saved defaults and existing Atari emulator/profile choices remain authoritative.
+- Add previewable, recoverable setup and additive rebuilding for abbreviated and TOSEC compilation filenames. Retain images in place and protect compilation metadata from ordinary game scraping. Online contents/artwork enrichment remains follow-up work.
+- Validation: all 530 Arcade tests pass, including discovery, confinement, registration interruption/retry, rebuild identity, preferred/saved boot selection, native launch arguments, metadata isolation and browser-filter regressions. Registered and loaded 4,343 images in 3,428 compilation families with no unrecognized filenames; checked native launch plans for all 13 groups without starting an emulator. Interactive browser verification was unavailable.
+- Coordinated component, migration, packaging and tooling suites passed, together with syntax, manifest, infrastructure and version checks; the sanitized Nexus receipt was written. Relay lint was skipped because Relay is unchanged.
+
+## [0.2.59] — 2026-09-13
+
+- Add Fuse as a built-in ZX Spectrum emulator at the installed Sinclair/Fuse location, using validated generic argument-array launches for TAP/TZX/PZX, Z80/SNA/SZX and DSK/TRD/SCL media. Existing settings expose its application shortcut, game launch selection and collection default.
+- Validation: all 522 Arcade tests passed. Installed executable and local registration verified; non-launching checks cover Spectrum-only shortcut filtering, application startup arguments, all nine media extensions, paths containing spaces and incompatible-format rejection. The existing ZX preflight stops because the active collection has no 48K game; no live emulator was started.
+
 ## [0.2.58] — 2026-09-09
 
 - Collection indexes now store stable metadata-group IDs under index schema 2 and explicit adapters. Current scoped summary/job APIs replace old client and service shims; native scrape classification is required. Exact versions, launch properties and ScummVM metadata ownership are preserved.

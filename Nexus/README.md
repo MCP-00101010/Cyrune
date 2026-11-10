@@ -22,6 +22,9 @@ Authoritative settings are stored in `%LOCALAPPDATA%\Cyrune\Nexus\settings.json`
 
 ## Structure
 
+- [Widget sources, third-party tools and libraries](docs/widget-sources.md)
+- [Widget tidy review and suggested follow-ups](docs/widget-tidy-review.md)
+
 ```text
 Nexus/
   index.html                 direct-file application entry point

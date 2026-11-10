@@ -74,3 +74,22 @@ Fixed six concrete issue groups:
 Regression tests use synthetic sources and mocked process execution. Browser acceptance uses isolated Firefox profiles and synthetic registrations; no live emulator matrix is run. This pass does not replace future stress testing of multiple Arcade tabs changing the same active collection simultaneously or crash-recovery testing of native writes.
 
 Validation: 1,102 coordinated tests plus 11 Host subtests passed, with clean Ruff, whitespace, registry/version and Relay lint checks. Both isolated Firefox 155.0.1 workflows passed. The optional live-data Spectrum preflight stopped because the active collection had no 48K game; no collection was switched and no live emulator was launched.
+
+## Audit remediation — 2026-10-21
+
+Background maintenance admits at most four unfinished jobs (and no more than the
+configured history bound), rejecting further work before thread creation. Finished
+history remains bounded. The games endpoint reuses its library for the request.
+Unchanged summary responses compare exact rows before rebuilding and hashing;
+nested presentation edits, removals and exact-entry revision changes still produce
+deltas. Snapshots own their nested input data.
+
+With the same synthetic rows and five warm repetitions, median unchanged-response
+builder time fell from 34.71 ms to 1.31 ms at 10,000 rows and from 108.79 ms to
+5.37 ms at 30,000 rows. These measure the response builder alone; they are not
+end-to-end request or live-library acceptance measurements.
+
+Validation: all 568 Arcade tests and the coordinated 1,426-test gate plus 3 Host
+subtests passed. The scoped runtime Ruff F gate is clean. Interactive large-library
+refresh latency and repeated-job admission guidance remain monitoring items in
+`Arcade-TODO.md`.

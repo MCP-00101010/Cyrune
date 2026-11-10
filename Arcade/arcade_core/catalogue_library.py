@@ -44,6 +44,16 @@ class LibraryCatalogue(CatalogueLifecycle):
         self._source_cache = {}
         self.version_defaults = VersionDefaults(self.runtime)
 
+    def resolve_plan(self, catalogue_id, entry_revision=None, **selection):
+        """Native launch policy; Host retains independent approval and execution."""
+        from arcade_core.catalogue_launch import resolve_plan
+        try:
+            return resolve_plan(self, catalogue_id, entry_revision, **selection)
+        except CatalogueError:
+            raise
+        except Exception:
+            raise CatalogueError('configuration-required') from None
+
     def observe_plan(self, plan):
         if self._validated_targets is not None:
             if plan.get('adapterId') in {'steem', 'hatari'}:
@@ -214,7 +224,9 @@ class LibraryCatalogue(CatalogueLifecycle):
                 else:
                     adapter = SpectrumSource(collection_id, root, None, browse=True)
                 rows = adapter._rows()
-            except (OSError, PathConfinementError):
+            except (CatalogueError, OSError, PathConfinementError):
+                # One unreadable index must not disable bindings in other
+                # collections. Keep its files untouched for explicit repair.
                 continue
             previous = prepared.get(collection_id)
             if previous and previous["root"] != str(root):

@@ -1,5 +1,10 @@
 # Cyrune Nexus Changelog
 
+## [0.3.2] — 2026-10-21
+
+- Evict document previews using snapshot revisions, bound in-memory retention to 32 documents / 2 million characters, and prevent old in-flight loads from replacing newer offline copies. Remove the retired migration checklist panel while retaining component TODOs and project architecture.
+- Validation: 30 component tests; full coordinated gate passed (1,426 tests plus 3 Host subtests), including migration, packaging, tooling, JavaScript syntax, infrastructure/registry, versions, scoped Ruff F checks and Relay lint (zero errors, warnings or notices).
+
 ## [0.3.1] — 2026-09-09
 
 - Component settings clients require profile schema 2. Browser preview promotion is verified once; authoritative settings remain schema 2. Registry advertises the coordinated current contracts.

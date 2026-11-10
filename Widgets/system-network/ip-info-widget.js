@@ -366,12 +366,6 @@ WIDGET_REGISTRY['ipInfo'] = {
     });
 
     el.className = 'widget-ip-info';
-    if (widget.title) {
-      const heading = document.createElement('div');
-      heading.className = 'widget-ip-info-heading';
-      heading.textContent = widget.title;
-      el.appendChild(heading);
-    }
 
     if (_claimIpInfoSessionRefresh(runtime)) {
       _ensureIpInfoData(widget, { force: true, runSpeed: true });
@@ -513,28 +507,7 @@ WIDGET_REGISTRY['ipInfo'] = {
       status.textContent += ` · Jitter ${_formatIpInfoSpeedMetric(currentSpeed.jitterMs, 'ms')}`;
     }
     status.title = `${_ipInfoCheckedLabel(cache.fetchedAt)}${currentSpeed ? ` · Speed tested ${_ipInfoCompactAge(currentSpeed.fetchedAt)}` : ''}`;
-    const sources = document.createElement('span');
-    sources.className = 'widget-ip-info-footer-sources widget-interactive-surface';
-    const source = document.createElement('a');
-    source.href = data.source === 'ipify' ? 'https://www.ipify.org/' : 'https://ipwhois.io/';
-    source.target = '_blank';
-    source.rel = 'noreferrer noopener';
-    source.textContent = data.source === 'ipify' ? 'ipify' : 'ipwho.is';
-    source.addEventListener('mousedown', event => event.stopPropagation());
-    sources.appendChild(source);
-    if (widget.config?.speedTest !== false) {
-      const separator = document.createElement('span');
-      separator.textContent = '·';
-      const cloudflare = document.createElement('a');
-      cloudflare.href = 'https://speed.cloudflare.com/';
-      cloudflare.target = '_blank';
-      cloudflare.rel = 'noreferrer noopener';
-      cloudflare.textContent = 'CF';
-      cloudflare.title = 'Cloudflare Speed Test';
-      cloudflare.addEventListener('mousedown', event => event.stopPropagation());
-      sources.append(separator, cloudflare);
-    }
-    footer.append(status, sources);
+    footer.appendChild(status);
     el.appendChild(footer);
   },
 
@@ -550,8 +523,8 @@ WIDGET_REGISTRY['ipInfo'] = {
       <div class="settings-row"><span>Approximate city</span><label class="settings-toggle"><input type="checkbox" data-cfg="showCity" ${c.showCity !== false ? 'checked' : ''}/><span class="toggle-track"></span></label></div>
       <div class="settings-row"><span>Network provider</span><label class="settings-toggle"><input type="checkbox" data-cfg="showProvider" ${c.showProvider !== false ? 'checked' : ''}/><span class="toggle-track"></span></label></div>
       <div class="settings-row"><span>IPv4 / IPv6 type</span><label class="settings-toggle"><input type="checkbox" data-cfg="showIpType" ${c.showIpType !== false ? 'checked' : ''}/><span class="toggle-track"></span></label></div>
-      <div class="settings-row"><span>Cloudflare connection speed test</span><label class="settings-toggle"><input type="checkbox" data-cfg="speedTest" ${c.speedTest !== false ? 'checked' : ''}/><span class="toggle-track"></span></label></div>
-      <div class="settings-help">The widget checks the browser's public exit address on Hub load and at the selected interval. IP geolocation is approximate. Data is requested from ipwho.is and cached only in this browser.</div>
-      <div class="settings-help">The bounded Cloudflare test runs on Hub load, after a detected IP change, or when this widget is manually reloaded—not on the IP refresh interval when the address is unchanged. Each run transfers up to about 32 MB. Completed results stay in this browser and Cloudflare result reporting is disabled.</div>`;
+      <div class="settings-row"><span title="Transfers up to about 32 MB per run">Connection speed test</span><label class="settings-toggle"><input type="checkbox" data-cfg="speedTest" ${c.speedTest !== false ? 'checked' : ''}/><span class="toggle-track"></span></label></div>
+
+      `;
   }
 };

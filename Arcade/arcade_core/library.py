@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 import threading
 from typing import Callable
 
@@ -13,7 +13,8 @@ GAME_SUMMARY_FIELDS = (
     "tosec_tags", "flags", "tags", "hardware", "default_emulator", "emulator_profile", "has_poks", "pok_count",
     "favourite", "is_ulaplus", "import_status", "import_match_count", "import_system_match_count", "import_matches",
     "version", "video", "media_type", "media_label",
-    "platform_options", "series",
+    "platform_options", "series", "compilation_group", "compilation_condition", "compilation_part",
+    "compilation_titles", "compilation_catalogue_status",
 )
 
 
@@ -38,6 +39,12 @@ class Game:
     year: str = ""
     publisher: str = ""
     series: str = ""
+    compilation_group: str = ""
+    compilation_condition: str = ""
+    compilation_part: str = ""
+    compilation_titles: tuple[str, ...] = ()
+    compilation_catalogue_status: str = ""
+    compilation_catalogue: dict = field(default_factory=dict)
     version: str = ""
     demo: str = ""
     video: str = ""

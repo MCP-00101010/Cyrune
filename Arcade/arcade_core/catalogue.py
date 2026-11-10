@@ -18,7 +18,6 @@ import unicodedata
 
 from arcade_core.catalogue_identity import CatalogueError, encoded, valid_id
 from arcade_core.catalogue_spectrum import SpectrumSource, _text
-from arcade_core.paths import ConfinedRoot
 from arcade_core.import_scummvm import PLATFORMS
 from arcade_core.game_versions import entry_family_id, version_label
 
@@ -60,7 +59,8 @@ class CatalogueService:
             self._entries, self._by_id = (), {}
             entries = [entry for source in self._sources for entry in source.snapshot()]
             entries.sort(key=lambda e: (_normalized(e.base["title"]), e.base["platformId"],
-                                        e.base["hardwareLabel"], e.base["editionLabel"], e.base["catalogueId"]))
+                                        e.base["hardwareLabel"], getattr(e, 'preference', ()),
+                                        e.base["editionLabel"], e.base["catalogueId"]))
             by_id = {}
             revision = hmac.new(self._key, digestmod=hashlib.sha256)
             for entry in entries:
@@ -98,7 +98,7 @@ class CatalogueService:
         default_id = saved["catalogueId"] if saved else members[0].base["catalogueId"]
         return group, members, default_id, saved
 
-    def versions(self, catalogue_id):
+    def versions(self, catalogue_id, *, native=False):
         if self._before_read:
             self._before_read()
         with self._lock:
@@ -115,6 +115,17 @@ class CatalogueService:
                              "label": label + (f" · Copy {seen[label]}" if counts[label] > 1 else ""),
                              "platformLabel": entry.base["platformLabel"], "languages": list(entry.detail["languages"]),
                              "countries": list(entry.detail["countries"]), "isDefault": entry.base["catalogueId"] == default_id})
+                if native:
+                    # Native Arcade projection only: never add these fields to
+                    # the portable Host/Portal version-list transport.
+                    rows[-1].update(gameId=entry.legacy_id, collectionId=entry.collection_id)
+                    if entry.base['targetKind'] == 'disk-set':
+                        source = next(source for source in self._sources if source.collection_id == entry.collection_id)
+                        from pathlib import Path
+                        rows[-1]['imageFiles'] = [Path(path).name for path in source.rows[entry.legacy_id]['disks']]
+                    elif entry.base['targetKind'] == 'media-file':
+                        from pathlib import Path
+                        rows[-1]['imageFiles'] = [Path(entry.relative_path).name]
             result = {"groupId": group, "title": members[0].base["title"], "defaultId": default_id, "versions": rows}
             if len(encoded(result)) > 512 * 1024:
                 raise CatalogueError("review-required")
@@ -123,6 +134,71 @@ class CatalogueService:
     def _ready(self):
         if not self._revision:
             raise CatalogueError("unavailable")
+
+    def game_entry(self, collection_id, game_id, *, target_kind=None):
+        """Native exact lookup, independent of picker visibility and pagination."""
+        if self._before_read:
+            self._before_read()
+        with self._lock:
+            self._ready()
+            entry = next((row for row in self._entries
+                          if row.collection_id == collection_id and row.legacy_id == game_id), None)
+            if entry is None:
+                raise CatalogueError('entry-missing')
+            if target_kind is not None and entry.base['targetKind'] != target_kind:
+                raise CatalogueError('unsupported-target')
+            return deepcopy(entry)
+
+    def locate(self, catalogue_id):
+        """Native navigation identity only; no media checks or launch authority."""
+        if not valid_id(catalogue_id):
+            raise CatalogueError('invalid-request')
+        if self._before_read:
+            self._before_read()
+        with self._lock:
+            self._ready()
+            entry = self._by_id.get(catalogue_id)
+            if entry is None:
+                raise CatalogueError('entry-missing')
+            return {'collectionId': entry.collection_id, 'gameId': entry.legacy_id}
+
+    def annotate_games(self, collection_id, games):
+        """Apply family presentation without exposing indexes or choosing missing defaults."""
+        if self._before_read:
+            self._before_read()
+        with self._lock:
+            self._ready()
+            indexed = {row.legacy_id: row for row in self._entries if row.collection_id == collection_id}
+            defaults = self.version_defaults()
+            for game in games:
+                entry = indexed.get(game['id'])
+                if entry is None or game.get('view') in {'incoming', 'trash'}:
+                    continue
+                group = self._entry_families[entry.base['catalogueId']]
+                members = self._families[group]
+                default_id = defaults.get(group, {}).get('catalogueId', members[0].base['catalogueId'])
+                default = next((row for row in members if row.base['catalogueId'] == default_id), None)
+                game.update(version_group=group, version_count=len(members),
+                            default_version=default.legacy_id if default else '',
+                            catalogue_id=entry.base['catalogueId'], entry_revision=entry.base['entryRevision'])
+            return games
+
+    def launch_context(self, catalogue_id, entry_revision=None):
+        """Checked native-only inputs for the catalogue's launch implementation."""
+        if not valid_id(catalogue_id):
+            raise CatalogueError('invalid-request')
+        if self._before_read:
+            self._before_read()
+        with self._lock:
+            self._ready()
+            entry = self._by_id.get(catalogue_id)
+            if entry is None:
+                raise CatalogueError('entry-missing')
+            if entry_revision is not None and entry_revision != entry.base['entryRevision']:
+                raise CatalogueError('entry-changed')
+            source = next(row for row in self._sources if row.collection_id == entry.collection_id)
+            target = source.resolve_native(entry)
+            return deepcopy({**entry.base, **entry.detail}), target, deepcopy(entry), source
 
     def _cursor(self, offset: int, query_hash: bytes) -> str:
         body = _CURSOR.pack(self._generation, int(self._clock()) + 300, offset,

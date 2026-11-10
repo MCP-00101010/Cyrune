@@ -15,6 +15,7 @@ from arcade_core.atari_overrides import AtariOverrides
 @dataclass(frozen=True)
 class AtariEntry(SpectrumEntry):
     family_title: str = ''
+    preference: tuple = ()
 
 
 class AtariSource:
@@ -47,9 +48,11 @@ class AtariSource:
                     'sourceId': self.source_id, 'entryRevision': '', 'platformId': 'atari-st',
                     'platformLabel': 'Atari ST', 'targetKind': 'disk-set', 'availability': 'available', 'artworkRef': '',
                     **{key: info[key] for key in BASE_TEXT}}
+            from arcade_core.compilations import preference
             result.append(AtariEntry(base, {k: info[k] for k in (*DETAIL_TEXT, *DETAIL_LISTS)}, legacy,
                 self.collection_id, row['file'], (), (self.collection.get('default_emulator', ''), ''),
-                _metadata_digest({'edition': row, 'overrides': values} if values else row), artwork=self.artwork_target(row), family_title=row['title']))
+                _metadata_digest({'edition': row, 'overrides': values} if values else row), artwork=self.artwork_target(row),
+                family_title=row['title'], preference=preference(row)))
         return result
 
     def resolve_native(self, entry):

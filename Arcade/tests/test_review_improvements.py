@@ -69,6 +69,24 @@ def test_compact_summaries_round_trip_and_delta_one_edit():
     assert not snapshots.response('two', rows, delta['revision'])['delta']
 
 
+def test_summary_fast_path_keeps_exact_revisions_nested_edits_and_removals():
+    snapshots = SummarySnapshots()
+    rows = [{'id': 'one', 'title': 'Game', 'tags': ['old'], 'entry_revision': 'first'},
+            {'id': 'two', 'title': 'Other', 'tags': [], 'entry_revision': 'first'}]
+    first = snapshots.response('test', rows)
+    first['defaults'].clear()  # Response ownership must not corrupt cached defaults.
+    same = snapshots.response('test', rows, first['revision'])
+    assert same['unchanged'] and same['defaults'] == {'tags': []}
+    rows[0]['tags'].append('new')
+    edited = snapshots.response('test', rows, same['revision'])
+    assert not edited['unchanged'] and edited['games'][0]['tags'] == ['old', 'new']
+    rows[0]['entry_revision'] = 'second'
+    revision_only = snapshots.response('test', rows, edited['revision'])
+    assert revision_only['games'] == [] and revision_only['entry_revisions'] == {'one': 'second'}
+    removed = snapshots.response('test', rows[:1], revision_only['revision'])
+    assert removed['removed'] == ['two'] and not removed['unchanged']
+
+
 def test_scraper_jobs_do_not_block_reads_cache_successes_or_cross_collections():
     jobs = ScrapeJobs(); release = threading.Event(); entered = threading.Event(); calls=[]
     def work():

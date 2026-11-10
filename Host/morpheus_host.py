@@ -892,10 +892,11 @@ def write_file_if_unchanged(path, content, expected_version=None, expected_hash=
         incoming_hash = hash_text(content)
         version_matches = current_info['version'] == expected_version
         creating_new = expected_version is None and not current_info['exists']
-        baseline_content_unchanged = bool(
-            expected_hash and current_info.get('contentHash') == expected_hash
-        )
-        if not version_matches and not creating_new and not baseline_content_unchanged:
+        # Same-size atomic replacements can share a filesystem timestamp.
+        # When supplied, the content hash is stronger than the stat revision.
+        baseline_matches = (current_info.get('contentHash') == expected_hash
+                            if expected_hash else version_matches)
+        if not baseline_matches and not creating_new:
             if current_info.get('contentHash') == incoming_hash:
                 return {
                     'conflict': False,
@@ -1532,7 +1533,7 @@ NEXUS_DOCUMENTS = {
     'relay': {'todo': ('Relay', 'Relay-TODO.md'), 'changelog': ('Relay', 'Relay-CHANGELOG.md')},
     'host': {'todo': ('Host', 'Host-TODO.md'), 'changelog': ('Host', 'Host-CHANGELOG.md')},
     'nexus': {'todo': ('Nexus', 'Nexus-TODO.md'), 'changelog': ('Nexus', 'Nexus-CHANGELOG.md')},
-    'project': {'todo': ('CYRUNE-MONOREPO-TODO.md',), 'project': ('PROJECT.md',), 'changelog': ('CHANGELOG.md',)}
+    'project': {'project': ('PROJECT.md',), 'changelog': ('CHANGELOG.md',)}
 }
 
 
@@ -2730,7 +2731,7 @@ def create_emugui_game_binding(game_id, emulator_id='', profile_id='', game_key=
             raise ValueError('Select the emulator for this profile')
         plan = module.resolve_catalogue_launch_plan(entry.base['catalogueId'], selection=selection)
     key = get_catalogue_bindings().approve_version(plan, game_key=game_key, selection=selection)
-    return {'gameKey': key, 'state': 'ready', **plan['public'], 'tags': [],
+    return {'gameKey': key, 'catalogueId': plan['catalogueId'], 'state': 'ready', **plan['public'], 'tags': [],
             'thumbnailCache': _catalogue_thumbnail(module, plan['catalogueId'])}
 
 
@@ -2818,13 +2819,14 @@ def _saved_game_default(game_key):
 def emugui_game_status(game_key, include_thumbnail=False):
     try:
         plan = get_catalogue_bindings().resolve(game_key)
+        reference = plan['catalogueId']
         module = _load_emugui_module()
         group, members, _default, _saved = module.get_catalogue_service().family(plan['catalogueId'])
         saved_key = _saved_game_default(game_key)
         if saved_key:
             plan = get_catalogue_bindings().resolve(saved_key)
         detail = _load_emugui_module().get_catalogue_service().detail({'catalogueId': plan['catalogueId']})['entry']
-        record = {'gameKey': game_key, 'state': 'ready', **plan['public'], 'tags': [], 'thumbnailCache': '',
+        record = {'gameKey': game_key, 'catalogueId': reference, 'state': 'ready', **plan['public'], 'tags': [], 'thumbnailCache': '',
                   'languages': _game_status_languages(detail.get('languages'))}
         if include_thumbnail:
             record['thumbnailCache'] = _catalogue_thumbnail(module, plan['catalogueId'])
@@ -2850,10 +2852,24 @@ def emugui_game_status(game_key, include_thumbnail=False):
                 'error': _catalogue_binding_module().error_code(error)}
 
 
-def emugui_game_link(game_key, rebind=False):
+def emugui_game_link(game_key, rebind=False, catalogue_id=''):
+    if not isinstance(game_key, str) or not GAME_KEY_PATTERN.fullmatch(game_key):
+        raise ValueError('Invalid game key')
+    if not isinstance(catalogue_id, str) or catalogue_id and not re.fullmatch(r'[A-Za-z0-9_-]{1,80}', catalogue_id):
+        raise ValueError('Invalid game reference')
     store = get_catalogue_bindings()
     stored = store.load()['bindings'].get(game_key, {})
-    if rebind and stored.get('mode') == 'unresolved':
+    if rebind and (stored.get('catalogueId') or catalogue_id):
+        # A public reference selects a review target; it never approves launch.
+        collection, entry = '', {}
+        try:
+            target = _load_emugui_module().get_catalogue_service().locate(stored.get('catalogueId') or catalogue_id)
+            collection, entry = target['collectionId'], {'gameId': target['gameId']}
+        except Exception:
+            pass  # Keep explicit repair reachable when the source is missing.
+    elif rebind and not stored:
+        collection, entry = '', {}
+    elif rebind and stored.get('mode') == 'unresolved':
         entry = stored['previous']
         collection = entry.get('libraryId', '')
         if not all(isinstance(value, str) and EMUGUI_ID_PATTERN.fullmatch(value) for value in (collection, entry.get('gameId'))):
@@ -4326,7 +4342,7 @@ def handle(msg):
 
     elif msg_type == 'OPEN_GAME_IN_EMUGUI':
         try:
-            reply_ok(url=emugui_game_link(msg.get('gameKey', ''), msg.get('rebind') is True))
+            reply_ok(url=emugui_game_link(msg.get('gameKey', ''), msg.get('rebind') is True, msg.get('catalogueId', '')))
         except Exception as e:
             reply_err(str(e))
 

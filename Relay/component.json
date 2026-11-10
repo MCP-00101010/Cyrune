@@ -2,14 +2,52 @@
   "schemaVersion": 1,
   "id": "relay",
   "name": "Relay",
-  "version": "1.1.13",
+  "version": "1.6.6",
   "kind": "extension",
   "entrypoint": null,
   "icon": "icons/icon-96.svg",
   "summary": "Authenticated browser bridge, exact client roles and durable routing.",
-  "documents": { "todo": "Relay-TODO.md", "changelog": "Relay-CHANGELOG.md" },
-  "capabilities": ["browser-sessions", "durable-intake", "exact-page-auth", "native-transport", "notifications", "portal-authority"],
-  "protocols": { "portal-relay": 2, "arcade-relay": 2, "nexus-relay": 2, "host-native": 3, "component-settings": 2, "arcade-catalogue": 1, "arcade-scummvm": 1, "arcade-atari-st": 1, "arcade-gameboy": 1 },
-  "schemas": { "manifest": 2 },
-  "nexus": { "accent": "blue", "adapter": "relay" }
+  "documents": {
+    "todo": "Relay-TODO.md",
+    "changelog": "Relay-CHANGELOG.md"
+  },
+  "capabilities": [
+    "browser-activity",
+    "browser-sessions",
+    "domain-controls",
+    "durable-intake",
+    "exact-page-auth",
+    "focus-timer",
+    "native-transport",
+    "notifications",
+    "portal-authority",
+    "site-allowances",
+    "site-blocking",
+    "tab-timer-overview",
+    "tab-unloading",
+    "temporary-timer-overrides"
+  ],
+  "protocols": {
+    "portal-relay": 2,
+    "arcade-relay": 2,
+    "nexus-relay": 2,
+    "host-native": 3,
+    "component-settings": 2,
+    "arcade-catalogue": 1,
+    "arcade-scummvm": 1,
+    "arcade-atari-st": 1,
+    "arcade-gameboy": 1
+  },
+  "schemas": {
+    "manifest": 2,
+    "productivity": 4,
+    "domainRules": 1,
+    "refreshDomains": 2,
+    "unloadDomains": 1,
+    "siteAllowances": 1
+  },
+  "nexus": {
+    "accent": "blue",
+    "adapter": "relay"
+  }
 }

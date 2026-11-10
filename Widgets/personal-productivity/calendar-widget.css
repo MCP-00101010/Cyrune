@@ -391,14 +391,6 @@
   margin-left: auto;
 }
 
-.widget-calendar-attributions {
-  margin-left: auto;
-}
-
-.widget-calendar-attributions a {
-  margin-left: 0;
-}
-
 .calendar-settings-source-section {
   display: flex;
   flex-direction: column;

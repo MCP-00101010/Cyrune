@@ -6,7 +6,7 @@ const vm = require('node:vm');
 const test = require('node:test');
 const crypto = require('node:crypto').webcrypto;
 const source = fs.readFileSync(path.join(__dirname, '../web/portal-delivery.js'), 'utf8');
-const context = vm.createContext({ArcadePlatforms:globalThis.ArcadePlatforms, crypto });
+const context = vm.createContext({ArcadeDialogs: {mount(overlay) { ctx.document.body.appendChild(overlay); }},ArcadePlatforms:globalThis.ArcadePlatforms, crypto });
 vm.runInContext(source, context);
 const create = context.ArcadePortalDelivery.createBatch;
 const entries = () => [
@@ -103,7 +103,7 @@ test('the Arcade action captures each pin and the collection default instead of 
       querySelector(selector) { if (!children.has(selector)) children.set(selector, element()); return children.get(selector); } };
   };
   document.createElement = element;
-  const ctx = vm.createContext({ArcadePlatforms:globalThis.ArcadePlatforms, document, crypto, portalDeliveryDraft: null, webHubHandoff: {},
+  const ctx = vm.createContext({ArcadeDialogs: {mount(overlay) { ctx.document.body.appendChild(overlay); }},ArcadePlatforms:globalThis.ArcadePlatforms, document, crypto, portalDeliveryDraft: null, webHubHandoff: {},
     state: { activeCollection: { id: 'spectrum', default_emulator: 'collection-emulator' },
       emulatorProfiles: [{ id: 'auto-128', emulator_id: 'collection-emulator', rule: { systems: ['128K'] } }] },
     els: { emulator: { value: 'focused-row-emulator' } }, gameTags: () => [],

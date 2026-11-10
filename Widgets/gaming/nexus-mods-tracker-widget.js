@@ -626,16 +626,6 @@ WIDGET_REGISTRY['nexusModsTracker'] = {
       el.appendChild(list);
     }
 
-    const footer = document.createElement('div');
-    footer.className = 'nexus-mods-footer';
-    footer.append('Read-only data from ');
-    const provider = document.createElement('a');
-    provider.href = 'https://www.nexusmods.com/';
-    provider.target = '_blank';
-    provider.rel = 'noreferrer noopener';
-    provider.textContent = 'Nexus Mods';
-    footer.append(provider);
-    el.appendChild(footer);
   },
 
   renderSettings(widget, container) {
@@ -658,13 +648,13 @@ WIDGET_REGISTRY['nexusModsTracker'] = {
         <div class="settings-row"><span>Mods displayed</span><select class="settings-select" data-cfg="itemsPerGame">
           ${[5, 10].map(value => `<option value="${value}" ${config.itemsPerGame === value ? 'selected' : ''}>${value}</option>`).join('')}
         </select></div>
-        <div class="settings-help">Sets how many mod cards are visible at once. Scroll the feed to browse up to ${NEXUS_MODS_FEED_LIMIT} results.</div>
+
         <div class="settings-row"><span>Automatic refresh</span><select class="settings-select" data-cfg="refreshMinutes">
           ${[[60, 'Hourly'], [180, 'Every 3 hours'], [360, 'Every 6 hours'], [720, 'Every 12 hours']].map(([value, label]) => `<option value="${value}" ${config.refreshMinutes === value ? 'selected' : ''}>${label}</option>`).join('')}
         </select></div>
         <div class="settings-row"><span>Show summaries</span><label class="settings-toggle"><input type="checkbox" data-cfg="showSummaries" ${config.showSummaries ? 'checked' : ''}/><span class="toggle-track"></span></label></div>
         <div class="settings-row"><span>Show adult-tagged mods</span><label class="settings-toggle"><input type="checkbox" data-cfg="showAdult" ${config.showAdult ? 'checked' : ''}/><span class="toggle-track"></span></label></div>
-        <div class="settings-help">This tracker only reads compact mod metadata and opens Nexus Mods pages. It never downloads, installs, tracks, endorses, or changes provider data.</div>
+
       </div>`;
 
     const input = container.querySelector('.nexus-mods-game-query');

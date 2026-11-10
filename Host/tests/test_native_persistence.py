@@ -18,6 +18,20 @@ SPEC.loader.exec_module(HOST)
 
 
 class NativePersistenceTests(unittest.TestCase):
+    def test_matching_stat_revision_cannot_override_a_changed_content_hash(self):
+        with TemporaryDirectory(dir=TEST_TEMP_ROOT) as directory:
+            path = Path(directory) / 'hub.json'
+            path.write_text('{"value":0}', encoding='utf-8')
+            baseline = HOST.get_file_info(path, include_hash=True)
+            stamp = path.stat().st_mtime_ns
+            HOST.atomic_write_text(path, '{"value":1}')
+            os.utime(path, ns=(stamp, stamp))
+            self.assertEqual(HOST.get_file_info(path)['version'], baseline['version'])
+            result = HOST.write_file_if_unchanged(path, '{"value":2}',
+                expected_version=baseline['version'], expected_hash=baseline['contentHash'])
+            self.assertTrue(result['conflict'])
+            self.assertEqual(path.read_text(encoding='utf-8'), '{"value":1}')
+
     def test_nexus_settings_are_atomic_revisioned_and_conflict_safe(self):
         with TemporaryDirectory(dir=TEST_TEMP_ROOT) as directory:
             root = Path(directory) / 'Nexus'
@@ -180,6 +194,9 @@ class NativePersistenceTests(unittest.TestCase):
         self.assertIn('# Cyrune Portal TODO', document['markdown'])
         with self.assertRaisesRegex(ValueError, 'Unsupported Nexus component document'):
             HOST.read_nexus_document('../Portal', 'todo')
+        self.assertIn('#', HOST.read_nexus_document('project', 'project')['markdown'])
+        with self.assertRaisesRegex(ValueError, 'Unsupported Nexus component document'):
+            HOST.read_nexus_document('project', 'todo')
 
     def test_nexus_todo_opens_only_an_allowlisted_file_in_vscode(self):
         with patch.object(HOST, '_find_vscode_executable', return_value='C:\\Program Files\\Microsoft VS Code\\Code.exe'), \
@@ -267,7 +284,7 @@ class NativePersistenceTests(unittest.TestCase):
             self.assertEqual(snapshot['data']['arcade']['schema'], {'valid': True, 'version': None})
             self.assertEqual(snapshot['data']['nexus']['health']['code'], 'nexus-settings-defaults')
             self.assertEqual(snapshot['services']['host']['health']['code'], 'host-healthy')
-            self.assertEqual(snapshot['services']['host']['version'], '0.2.26')
+            self.assertEqual(snapshot['services']['host']['version'], HOST.HOST_VERSION)
             self.assertEqual(snapshot['services']['host']['protocols']['host-native'], 3)
             self.assertTrue(all(component['version'] != 'Unversioned' for component in snapshot['components']))
             self.assertTrue(all('protocols' in component for component in snapshot['components']))
@@ -279,7 +296,8 @@ class NativePersistenceTests(unittest.TestCase):
             self.assertNotIn('activeCollection', snapshot['data']['arcade']['service'])
 
     def test_host_version_protocols_and_nexus_dispatch_are_manifest_backed(self):
-        self.assertEqual(HOST.HOST_VERSION, '0.2.26')
+        manifest = json.loads((HOST_PATH.parent / 'component.json').read_text(encoding='utf-8'))
+        self.assertEqual(HOST.HOST_VERSION, manifest['version'])
         self.assertEqual(HOST.HOST_PROTOCOLS['host-native'], 3)
         self.assertIn('NEXUS_GET_STATUS', HOST.NEXUS_MESSAGE_TYPES)
         self.assertFalse(HOST.handle_nexus_message('READ_CONFIG', {}))

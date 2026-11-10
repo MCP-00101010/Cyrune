@@ -213,7 +213,8 @@ test('RSS UI exposes combined, starred and feed tabs with local read state', () 
   assert.match(rssSource, /Mark shown read/);
   assert.match(rssSource, /rss-settings-add-feed/);
   assert.match(rssSource, /settingsPanelWidth: 'wide'/);
-  assert.match(rssSource, /heading\.textContent = widget\.title/);
+  const hostSource = fs.readFileSync(path.join(root, '../Widgets/core/widgets.js'), 'utf8');
+  assert.match(hostSource, /heading\.textContent = title/);
   const framework = fs.readFileSync(path.join(root, '..', 'Widgets', 'core', 'widgets.js'), 'utf8');
   assert.match(framework, /panel\.classList\.toggle\('widget-settings-panel--wide', def\.settingsPanelWidth === 'wide'\)/);
   assert.match(styles, /\.widget-rss-tabs\s*\{[^}]*overflow-x:\s*auto/s);

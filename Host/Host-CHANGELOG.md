@@ -4,6 +4,21 @@ Historical entries below are preserved from Portal releases whose release notes 
 
 ---
 
+## [0.2.29] — 2026-10-22
+
+- Include the stable public catalogue ID in game delivery and presentation. Use it to preselect the exact game during explicit missing/changed-shortcut repair; navigation never restores or grants launch authority. Preserve manual selection when no retained reference resolves.
+- Validation: 235 Host tests plus 3 subtests and the coordinated gate passed (1,446 tests plus 3 Host subtests). Native-pipe coverage verifies exact-game repair navigation without granting authority. Starflight's existing shortcut was repaired with a verified backup and its original key preserved; all 33 current Portal game shortcuts resolve as ready without launching emulators.
+
+## [0.2.28] — 2026-10-22
+
+- Allow explicit Arcade repair of a missing game approval under the existing Portal shortcut key. Open Arcade selection when the old target is unavailable; revalidate the chosen native plan, key and binding quota, and persist the chosen emulator/profile. Ordinary launch never recreates a missing approval.
+- Validation: all 235 Host tests plus 3 subtests and the coordinated 1,442-test gate pass. Synthetic regressions cover missing-approval repair, persisted emulator selection after reopening storage, invalid keys, quota limits and revoked ordinary launch. No live emulator was started.
+
+## [0.2.27] — 2026-10-21
+
+- Remove the retired root migration TODO from the Nexus document allowlist. Give supplied baseline hashes precedence over timestamp/size matches so concurrent same-size writes cannot overwrite changed content.
+- Validation: 233 component tests plus 3 Host subtests; full coordinated gate passed (1,426 tests plus 3 Host subtests), including migration, packaging, tooling, JavaScript syntax, infrastructure/registry, versions, scoped Ruff F checks and Relay lint (zero errors, warnings or notices).
+
 ## [0.2.26] — 2026-09-09
 
 - Binding schema 5 consolidates all game approvals while preserving opaque keys and explicit launch selections. Verified transactions retain originals and unresolved targets. Canonical Arcade service/configuration and Host protocol 3 replace duplicate legacy paths; delivery uses exact catalogue artwork.

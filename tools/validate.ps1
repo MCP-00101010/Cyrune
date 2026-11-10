@@ -92,6 +92,9 @@ try {
     Write-Host '== Relay manifest JSON: valid ==' -ForegroundColor Green
     Invoke-Checked 'Infrastructure contracts and registry' { python tools/validate_infrastructure.py --repo $repoRoot }
     Invoke-Checked 'Independent component versions' { python tools/validate_versions.py --repo $repoRoot }
+    Invoke-Checked 'Python unused imports and undefined names' {
+        python -m ruff check --no-cache --select F Arcade/arcade_core Arcade/arcade_service.py Host/morpheus_host.py infrastructure tools
+    }
 
     if (-not $SkipWebExtLint -and (Test-SuiteSelected 'Relay')) {
         Invoke-Checked 'Relay web-ext lint' { npx --yes web-ext lint --source-dir (Join-Path $repoRoot 'Relay') }

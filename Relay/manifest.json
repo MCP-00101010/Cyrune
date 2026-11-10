@@ -1,9 +1,8 @@
 {
   "manifest_version": 2,
   "name": "Cyrune Relay",
-  "version": "1.1.13",
+  "version": "1.6.6",
   "description": "Connect Firefox to Cyrune Portal, Arcade, Nexus, and Host.",
-
   "browser_specific_settings": {
     "gecko": {
       "id": "morpheus-webhub@local",
@@ -15,14 +14,15 @@
       "strict_min_version": "142.0"
     }
   },
-
   "permissions": [
     "tabs",
     "activeTab",
     "bookmarks",
     "menus",
     "storage",
+    "clipboardWrite",
     "alarms",
+    "idle",
     "notifications",
     "sessions",
     "nativeMessaging",
@@ -30,22 +30,46 @@
     "https://*/*",
     "http://*/*",
     "http://localhost/*",
-    "http://127.0.0.1/*"
+    "http://127.0.0.1/*",
+    "webRequest",
+    "webRequestBlocking"
   ],
-
   "background": {
-    "scripts": ["background.js"],
+    "scripts": [
+      "background.js"
+    ],
     "persistent": true
   },
-
   "content_scripts": [
     {
-      "matches": ["file:///*", "http://localhost/*", "http://127.0.0.1/*"],
-      "js": ["content.js"],
+      "matches": [
+        "file:///*",
+        "http://localhost/*",
+        "http://127.0.0.1/*"
+      ],
+      "js": [
+        "content.js"
+      ],
       "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "http://*/*",
+        "https://*/*"
+      ],
+      "exclude_matches": [
+        "http://localhost/*",
+        "https://localhost/*",
+        "http://127.0.0.1/*",
+        "https://127.0.0.1/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_start",
+      "all_frames": true
     }
   ],
-
   "browser_action": {
     "default_popup": "popup/popup.html",
     "default_icon": {
@@ -54,7 +78,10 @@
     },
     "default_title": "Cyrune Relay"
   },
-
+  "page_action": {
+    "default_title": "Timer & Activity Tracker",
+    "default_popup": "popup/popup.html?view=refresh"
+  },
   "commands": {
     "open-command-palette": {
       "suggested_key": {
@@ -63,9 +90,13 @@
       "description": "Open the Cyrune Portal command palette"
     }
   },
-
   "icons": {
     "48": "icons/icon-48.svg",
     "96": "icons/icon-96.svg"
-  }
+  },
+  "web_accessible_resources": [
+    "popup/popup.html",
+    "popup/popup.css",
+    "popup/popup.js"
+  ]
 }

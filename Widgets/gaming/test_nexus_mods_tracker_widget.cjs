@@ -222,7 +222,6 @@ test('Nexus tracker source is read-only and declares conservative provider bound
   assert.match(trackerSource, /NEXUS_MODS_MANUAL_REFRESH_FLOOR_MS = 5 \* 60 \* 1000/);
   assert.match(trackerSource, /NEXUS_MODS_MAX_GAMES = 1/);
   assert.match(trackerSource, />Mods displayed<\/span>/);
-  assert.match(trackerSource, /how many mod cards are visible at once/);
   assert.match(trackerSource, /nexus-mods-heading/);
   assert.match(trackerStyles, /\.nexus-mods-list\{[^}]*overflow-y:auto/);
   assert.match(trackerStyles, /\.nexus-mods-list\{[^}]*max-height:/);

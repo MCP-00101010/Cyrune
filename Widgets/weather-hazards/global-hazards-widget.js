@@ -101,6 +101,7 @@ function _globalHazardNormalizeView(widget, value) {
     activeTypes: savedTypes,
     selectedId: String(value.selectedId || '').slice(0, 160),
     camera,
+    watchLocationSignature: typeof value.watchLocationSignature === 'string' ? value.watchLocationSignature.slice(0, 64) : null,
     attributionExpanded: typeof value.attributionExpanded === 'boolean' ? value.attributionExpanded : undefined,
     listScrollTop: Math.max(0, Math.min(100000, Number(value.listScrollTop) || 0))
   };
@@ -128,21 +129,32 @@ function _globalHazardPersistRuntime(widget, runtime) {
   return _globalHazardWriteView(widget, {
     activeTypes: [...runtime.activeTypes], selectedId: runtime.selectedId,
     camera: runtime.camera, attributionExpanded: runtime.attributionExpanded,
+    watchLocationSignature: runtime.watchLocationSignature,
     listScrollTop: runtime.listScrollTop
   });
 }
 
 function _globalHazardRuntimeState(widget) {
+  const watch = _globalHazardWatchLocation(widget);
+  const watchLocationSignature = watch ? watch.coordinates.map(value => value.toFixed(5)).join(':') : '';
+  const locationCamera = watch ? { longitude: watch.coordinates[0], latitude: watch.coordinates[1], zoom: 5 } : null;
   let runtime = _globalHazardRuntime.get(widget.id);
   if (!runtime) {
     const config = _globalHazardConfig(widget); const view = _globalHazardReadView(widget);
     runtime = {
       status: 'idle', error: '', loading: null,
       selectedId: view?.selectedId || '', activeTypes: new Set(view?.activeTypes ?? config.categories),
-      camera: view?.camera || null, attributionExpanded: view?.attributionExpanded,
+      camera: view?.watchLocationSignature != null && view.watchLocationSignature !== watchLocationSignature
+        ? locationCamera : (view?.camera || locationCamera),
+      watchLocationSignature, attributionExpanded: view?.attributionExpanded,
       listScrollTop: view?.listScrollTop || 0
     };
     _globalHazardRuntime.set(widget.id, runtime);
+  } else if (runtime.watchLocationSignature !== watchLocationSignature) {
+    runtime.watchLocationSignature = watchLocationSignature;
+    runtime.camera = locationCamera;
+    runtime.selectedId = '';
+    _globalHazardPersistRuntime(widget, runtime);
   }
   return runtime;
 }
@@ -485,6 +497,12 @@ function _globalHazardTrackCollection(events) {
 }
 
 function _globalHazardCaptureMapView(instance) {
+  const capturedLocationSignature = instance?.watchLocationSignature ?? instance?.runtime?.watchLocationSignature;
+  if (capturedLocationSignature != null) {
+    const watch = _globalHazardWatchLocation(instance.widget);
+    const signature = watch ? watch.coordinates.map(value => value.toFixed(5)).join(':') : '';
+    if (capturedLocationSignature !== signature) return null;
+  }
   const map = instance?.map;
   if (!map?.getCenter || !map?.getZoom) return null;
   try {
@@ -658,10 +676,6 @@ function _globalHazardRender(widget, element, context) {
     WidgetSDK.runtime.requestFrame(`${widget.id}:global-hazards-list-view`, () => _globalHazardWriteView(widget, { listScrollTop: runtime.listScrollTop }));
   }, { passive: true });
 
-  const attribution = document.createElement('div'); attribution.className = 'global-hazards-attribution'; attribution.append('Data: ');
-  const sourceLabels = ['EONET', 'USGS', 'GDACS', 'JPL', ...(config.spaceWeather ? ['NOAA'] : [])];
-  sourceLabels.forEach((source, index) => { if (index) attribution.append(' · '); const link = document.createElement('a'); link.href = GLOBAL_HAZARD_SOURCE_URLS[source]; link.target = '_blank'; link.rel = 'noopener noreferrer'; link.textContent = source; attribution.appendChild(link); });
-  element.appendChild(attribution);
   if (typeof maplibregl === 'undefined') { status.classList.remove('hidden'); status.classList.add('is-error'); status.textContent = 'MapLibre failed to load.'; return; }
 
   const widgetCard = element.closest('.widget-card'); const disableDrag = () => { if (widgetCard) widgetCard.draggable = false; }; const restoreDrag = () => { if (widgetCard) widgetCard.draggable = true; };
@@ -678,7 +692,7 @@ function _globalHazardRender(widget, element, context) {
     map.touchZoomRotate.disableRotation(); map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
     map.addControl(_createWidgetMapStyleControl(widget, context, _globalHazardMapStyle), 'top-right');
   } catch (error) { status.classList.remove('hidden'); status.classList.add('is-error'); status.textContent = error?.message || 'Unable to initialise the hazard map.'; return; }
-  const instance = { widgetId: widget.id, widget, runtime, map, resizeObserver: null, widgetCard, attributionButton: null }; _globalHazardInstances.set(widget.id, instance);
+  const instance = { widgetId: widget.id, widget, runtime, watchLocationSignature: runtime.watchLocationSignature, map, resizeObserver: null, widgetCard, attributionButton: null }; _globalHazardInstances.set(widget.id, instance);
   if (typeof ResizeObserver === 'function') { instance.resizeObserver = new ResizeObserver(() => map.resize()); instance.resizeObserver.observe(mapShell); }
   map.on('moveend', () => { if (_globalHazardInstances.get(widget.id) === instance) _globalHazardCaptureMapView(instance); });
   map.on('load', () => {
@@ -732,13 +746,14 @@ function _globalHazardRenderSettings(widget, container) {
     <div class="settings-row"><span>Alert radius</span><input class="settings-number-input" type="number" min="25" max="5000" step="25" data-cfg="watchRadiusKm" value="${config.watchRadiusKm}"/><span class="settings-unit">km</span></div>
     <div class="settings-row"><span>Notification severity</span><select class="settings-select" data-cfg="notificationSeverity">${['moderate', 'high', 'critical'].map(value => `<option value="${value}" ${config.notificationSeverity === value ? 'selected' : ''}>${value[0].toUpperCase() + value.slice(1)}+</option>`).join('')}</select></div>
     <div class="settings-row"><span>Regional notifications</span><label class="settings-toggle"><input type="checkbox" data-cfg="notifications" ${config.notifications ? 'checked' : ''}/><span class="toggle-track"></span></label></div>
-    <div class="settings-help">Notifications are checked on the widget's refresh schedule while the Hub is running. They use the first configured Weather location when enabled, otherwise the custom coordinates above.</div>`;
+    `;
   const typeInputs = [...container.querySelectorAll('[data-hazard-type]')];
   typeInputs.forEach(input => input.addEventListener('change', () => { widget.config.categories = typeInputs.filter(item => item.checked).map(item => item.dataset.hazardType); }));
   const searchInput = container.querySelector('.global-hazards-location-search'); const searchButton = container.querySelector('.global-hazards-location-search-btn'); const results = container.querySelector('.global-hazards-location-results');
   const latitude = container.querySelector('[data-cfg="latitude"]'); const longitude = container.querySelector('[data-cfg="longitude"]');
   if (typeof _bindOpenMeteoLocationSearch === 'function') _bindOpenMeteoLocationSearch({
     input: searchInput, button: searchButton, results, widgetType: 'globalHazards',
+    signal: _wstgAbort?.signal,
     onSelect(location, label) { searchInput.value = label; widget.config.locationName = label; latitude.value = String(location.latitude); longitude.value = String(location.longitude); latitude.dispatchEvent(new Event('change', { bubbles: true })); longitude.dispatchEvent(new Event('change', { bubbles: true })); }
   });
 }
@@ -758,7 +773,7 @@ WIDGET_REGISTRY['globalHazards'] = {
     locationName: { type: 'string' }, latitude: { type: 'any' }, longitude: { type: 'any' }, watchRadiusKm: { type: 'number' }, notificationSeverity: { type: 'string', enum: ['moderate', 'high', 'critical'] }, notifications: { type: 'boolean' }, spaceWeather: { type: 'boolean' }, categorySchema: { type: 'number' }
   }, additionalProperties: false },
   capabilities: {
-    network: { domains: ['eonet.gsfc.nasa.gov', 'earthquake.usgs.gov', 'www.gdacs.org', 'ssd-api.jpl.nasa.gov', 'services.swpc.noaa.gov', 'geocoding-api.open-meteo.com', 'tiles.openfreemap.org'] },
+    network: { domains: ['eonet.gsfc.nasa.gov', 'earthquake.usgs.gov', 'www.gdacs.org', 'ssd-api.jpl.nasa.gov', 'services.swpc.noaa.gov', 'geocoding-api.open-meteo.com', 'api.postcodes.io', 'tiles.openfreemap.org'] },
     extensionRelay: { optional: true }, timers: true, localCache: { quotaBytes: 4 * 1024 * 1024 }, notifications: { optional: true }
   },
   responsive: { minWidth: 300, preferredWidth: 760, preferredHeight: 520, compactBelow: 480 },

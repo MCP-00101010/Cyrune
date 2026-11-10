@@ -105,7 +105,7 @@ function _gitWorkspaceRenderSettings(widget, container) {
   container.innerHTML = `<div class="git-workspace-settings-list"></div><button type="button" class="secondary-btn git-workspace-add">Approve repository folder</button>
     <div class="settings-row"><span>Refresh interval</span><select class="settings-select" data-cfg="refreshSeconds">${[[30,'30 seconds'],[60,'1 minute'],[300,'5 minutes'],[900,'15 minutes']].map(([value,label]) => `<option value="${value}" ${widget.config.refreshSeconds === value ? 'selected' : ''}>${label}</option>`).join('')}</select></div>
     <div class="settings-row"><span>Show last commit</span><label class="settings-toggle"><input type="checkbox" data-cfg="showLastCommit" ${widget.config.showLastCommit ? 'checked' : ''}/><span class="toggle-track"></span></label></div>
-    <div class="settings-help">Folder paths are kept by the native host behind opaque approval handles. Git operations are fixed read-only commands; no shell text can be supplied.</div><div class="git-workspace-settings-status settings-muted"></div>`;
+    <div class="git-workspace-settings-status settings-muted"></div>`;
   const list = container.querySelector('.git-workspace-settings-list'); const status = container.querySelector('.git-workspace-settings-status');
   const renderRows = () => {
     list.innerHTML = '';

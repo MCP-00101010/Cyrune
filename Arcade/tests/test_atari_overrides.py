@@ -40,7 +40,7 @@ def test_scrape_saves_presentation_only_and_survives_reload(setup, artwork):
         'system':'Falcon', 'file':'outside.st', 'languages':['fr'], 'emulator_profile':'forged'},
         'remote_assets':{'loading_screen':artwork}})
     assert result['ok'], result
-    server.LIBRARY = None
+    server.get_collection_lifecycle().invalidate()
     updated = server.get_library().get_game(game.id)
     assert updated.title == 'Updated Adventure' and updated.publisher == 'New Publisher'
     assert updated.description == 'New description' and updated.genre == 'Adventure'
@@ -113,12 +113,12 @@ def test_target_changes_and_other_collections_do_not_adopt_overrides(setup):
     row = next(row for row in metadata['games'] if row['id'] == game.id)
     row['languages'] = ['fr']
     (root/'collection-metadata.json').write_text(json.dumps(metadata))
-    server.LIBRARY = None
+    server.get_collection_lifecycle().invalidate()
     assert server.get_library().get_game(game.id).publisher == 'Override', 'A valid sibling still supplies folder metadata'
     for row in metadata['games']:
         row['languages'] = ['it']
     (root/'collection-metadata.json').write_text(json.dumps(metadata))
-    server.LIBRARY = None
+    server.get_collection_lifecycle().invalidate()
     assert server.get_library().get_game(game.id).publisher != 'Override', 'Stale overrides cannot donate metadata'
 
 

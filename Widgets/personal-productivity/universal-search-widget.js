@@ -148,6 +148,15 @@ function _universalSearchPresetMatches(provider, input) {
 
 function _universalSearchUrl(provider, query) { return provider ? provider.template.replace('{query}', encodeURIComponent(String(query || ''))) : ''; }
 
+// Pure provider gateway shared with Portal Search; no widget cache or authority.
+globalThis.CyruneSearchProviders = Object.freeze({
+  providers: () => UNIVERSAL_SEARCH_PROVIDER_PRESETS.map(provider => ({...provider})),
+  parse: (input, config = {}) => _universalSearchParse({config:JSON.parse(JSON.stringify(config))}, input),
+  choices: (input, config = {}) => _universalSearchProviderChoices({config:JSON.parse(JSON.stringify(config))}, input),
+  url: _universalSearchUrl,
+  directUrl: _universalSearchDirectUrl
+});
+
 function _universalSearchRecents(widget) {
   const value = WidgetSDK.cache.get('universalSearch', widget.id, UNIVERSAL_SEARCH_RECENTS_KEY);
   return Array.isArray(value) ? value.filter(item => typeof item === 'string').slice(0, 20) : [];
@@ -234,7 +243,7 @@ function _universalSearchRenderSettings(widget, container) {
     <div class="settings-row"><span>Open searches in a new tab</span><label class="settings-toggle"><input type="checkbox" data-cfg="openInNewTab" ${widget.config.openInNewTab ? 'checked' : ''}/><span class="toggle-track"></span></label></div>
     <div class="settings-row"><span>Remember recent searches locally</span><label class="settings-toggle"><input type="checkbox" data-cfg="rememberSearches" ${widget.config.rememberSearches ? 'checked' : ''}/><span class="toggle-track"></span></label></div>
     <button type="button" class="secondary-btn universal-search-clear-recents">Clear recent searches</button>
-    <div class="settings-help">Templates must be HTTPS and contain exactly one {query} placeholder. Aliases are unique; reserved command words are ignored. Recent searches stay in this browser.</div>
+
     <div class="universal-search-provider-editor hidden" role="dialog" aria-modal="true" aria-labelledby="universalSearchProviderEditorTitle">
       <div class="universal-search-provider-editor-card">
         <div class="universal-search-provider-editor-header"><strong id="universalSearchProviderEditorTitle">Add search provider</strong><button type="button" class="icon-btn universal-search-provider-cancel" aria-label="Close">×</button></div>

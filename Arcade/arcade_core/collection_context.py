@@ -4,7 +4,7 @@ READ_ROUTES = frozenset('/api/' + name for name in (
     'games', 'game', 'game-versions', 'poks', 'recent',
 ))
 WRITE_ROUTES = frozenset('/api/' + name for name in (
-    'scrape-targets', 'scrape-preview', 'apply-scrape', 'metadata-care', 'update-metadata',
+    'scrape-targets', 'scrape-preview', 'apply-scrape', 'metadata-care', 'update-metadata', 'compilation-catalogue',
     'favourite', 'favourites-bulk', 'game-version-default', 'launch', 'open-pok', 'open-explorer',
     'rename', 'metadata-preview', 'metadata-undo', 'delete', 'delete-bulk', 'import-incoming',
     'import-incoming-bulk', 'restore-trash', 'purge-trash', 'move-language', 'rebuild',

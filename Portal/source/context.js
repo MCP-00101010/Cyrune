@@ -1,12 +1,119 @@
+function _gameRepairMenuActions(item) {
+  const status = getGameStatus(item);
+  const repairStates = ['unbound', 'changed', 'library-missing', 'game-missing', 'emulator-missing', 'profile-missing', 'incompatible'];
+  const repairErrors = ['binding-forgotten', 'review-required', 'entry-changed', 'entry-missing', 'source-unavailable', 'media-missing', 'configuration-required', 'unsupported-target'];
+  return repairStates.includes(status.state) || repairErrors.includes(status.error)
+    ? [{ label: 'Repair shortcut…', action: 'repairGame' }] : [];
+}
+
 // --- Context menu ---
+let _contextMenuReturnFocus = null;
+
+function _itemDeleteConfirmationKey(item) {
+  return ({folder:'confirmDeleteFolder', bookmark:'confirmDeleteBookmark', game:'confirmDeleteGame', application:'confirmDeleteApplication'})[item?.type] || 'confirmDeleteTitleDivider';
+}
+
+function _contextActionIsReadOnly(action) {
+  return /^(openNew|openAll|launch|reveal|locate|openInBoard|openGameInArcade)/.test(action || '');
+}
+
+function _portalSelectionIsWritable() {
+  if (typeof portalReadOnlyMode !== 'undefined' && portalReadOnlyMode) return false;
+  if (!selectedItemIds.size) return false;
+  if (selectionContext === 'import-manager') return [...selectedItemIds].every(id => !!findImportManagerItemPath(id)?.item);
+  if (selectionContext !== 'board') return false;
+  return [...selectedItemIds].every(itemId => {
+    const resolved = resolvePortalItemContext({area:'board-item', boardId:getActiveBoard()?.id, itemId});
+    return resolved && !resolved.locked;
+  });
+}
+
+function _refreshContextSource(context = contextTarget, { allowLocked = false } = {}) {
+  if (!allowLocked && typeof portalReadOnlyMode !== 'undefined' && portalReadOnlyMode) return null;
+  if (context?.area === 'essential' && !context.itemId && !context.item) {
+    return Number.isInteger(context.slot) && context.slot >= 0 && !state.essentials[context.slot] ? context : null;
+  }
+  if (context?.area === 'speed-dial') {
+    const board = getBoardForContext(context);
+    return board && (allowLocked || !board.locked) ? {...context,boardId:board.id} : null;
+  }
+  if (!['board-item', 'speed-dial-item', 'essential'].includes(context?.area)) return context;
+  const current = resolvePortalItemContext(context);
+  if (!current || (!allowLocked && current.locked)) return null;
+  return current;
+}
+
+function _contextMenuTask(action) {
+  if (action.group) return action.group;
+  const id = action.action || '';
+  if (/^(delete|remove)/.test(id)) return 'remove';
+  if (/^(lock|unlock)/.test(id)) return 'protect';
+  if (/^(launch|openNew|openAll|openSet)/.test(id)) return 'open';
+  if (/^(reveal|locate|openInBoard|openGameInArcade)/.test(id)) return 'locate';
+  if (/^(move|send|duplicate)/.test(id)) return 'organize';
+  if (/^(refresh|repair|rebind|forget)/.test(id)) return 'tools';
+  return 'edit';
+}
+
+function _orderedContextMenuActions(actions) {
+  const groups = ['open', 'locate', 'edit', 'organize', 'tools', 'protect', 'remove'];
+  const order = ['openNewTab', 'openNewWindow', 'launchGame', 'launchGameVersion', 'launchApplication',
+    'openGameInArcade', 'revealGame', 'revealApplication', 'duplicateBookmark', 'duplicateApplication',
+    'duplicateGame', 'refreshFavicon', 'repairGame', 'rebindApplication', 'forgetApplication'];
+  return actions.map((action, index) => ({ ...action, index, group: _contextMenuTask(action) }))
+    .sort((a, b) => groups.indexOf(a.group) - groups.indexOf(b.group)
+      || (order.includes(a.action) ? order.indexOf(a.action) : order.length)
+        - (order.includes(b.action) ? order.indexOf(b.action) : order.length)
+      || a.index - b.index);
+}
+
+function _appendContextMenuActions(menu, actions, depth = 0) {
+  let previous = '';
+  for (const action of _orderedContextMenuActions(actions)) {
+    if (previous && previous !== action.group) {
+      const divider = document.createElement('div');
+      divider.className = 'context-separator';
+      divider.setAttribute('role', 'separator');
+      menu.appendChild(divider);
+    }
+    _appendContextMenuAction(menu, action, depth);
+    previous = action.group;
+  }
+}
+
+function _contextMenuKeydown(event) {
+  const menu = event.currentTarget;
+  const buttons = [...menu.querySelectorAll('button:not(:disabled)')];
+  const index = buttons.indexOf(document.activeElement);
+  if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
+    event.preventDefault(); event.stopPropagation();
+    const next = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1
+      : (index + (event.key === 'ArrowDown' ? 1 : -1) + buttons.length) % buttons.length;
+    buttons[next]?.focus();
+  } else if (event.key === 'Escape' || event.key === 'Tab') {
+    if (event.key === 'Escape') event.preventDefault();
+    event.stopPropagation(); hideContextMenu({ restoreFocus: event.key === 'Escape' });
+  } else if (event.key === 'ArrowRight' && document.activeElement?.classList.contains('has-submenu')) {
+    event.preventDefault(); event.stopPropagation(); document.activeElement.click();
+  } else if (event.key === 'ArrowLeft' && menu.classList.contains('context-submenu')) {
+    event.preventDefault(); event.stopPropagation();
+    const trigger = menu._trigger;
+    _clearSubmenusFromDepth(Number(menu.dataset.menuDepth));
+    trigger?.focus();
+  }
+}
 
 function _clearSubmenus() {
-  document.querySelectorAll('.context-submenu').forEach(s => s.remove());
+  document.querySelectorAll('.context-submenu').forEach(s => {
+    s._trigger?.setAttribute('aria-expanded', 'false'); s.remove();
+  });
 }
 
 function _clearSubmenusFromDepth(depth) {
   document.querySelectorAll('.context-submenu').forEach(submenu => {
-    if (Number(submenu.dataset.menuDepth || 1) >= depth) submenu.remove();
+    if (Number(submenu.dataset.menuDepth || 1) >= depth) {
+      submenu._trigger?.setAttribute('aria-expanded', 'false'); submenu.remove();
+    }
   });
 }
 
@@ -27,26 +134,47 @@ function _positionContextSubmenu(submenu, button) {
 
 function _appendContextMenuAction(menu, action, depth = 0) {
   const button = document.createElement('button');
+  button.type = 'button';
+  button.setAttribute('role', 'menuitem');
   button.textContent = action.label;
+  if (action.color) {
+    const dot = document.createElement('span');
+    dot.className = 'context-colour-dot';
+    dot.style.backgroundColor = action.color;
+    dot.setAttribute('aria-hidden', 'true');
+    button.prepend(dot);
+  }
+  button.disabled = action.disabled === true || (!action.action && !action.run && !action.submenu?.length);
+  if (action.group === 'remove' || /^forget/.test(action.action || '')) button.classList.add('danger');
   if (action.submenu?.length) {
     button.classList.add('has-submenu');
     const arrow = document.createElement('span');
     arrow.className = 'submenu-arrow';
     arrow.textContent = '›';
     button.appendChild(arrow);
-    button.addEventListener('mouseenter', () => {
+    button.setAttribute('aria-haspopup', 'menu');
+    button.setAttribute('aria-expanded', 'false');
+    const open = (focus = false) => {
       _clearSubmenusFromDepth(depth + 1);
       const submenu = document.createElement('div');
       submenu.className = 'context-menu context-submenu';
       submenu.dataset.menuDepth = String(depth + 1);
-      action.submenu.forEach(subAction => _appendContextMenuAction(submenu, subAction, depth + 1));
+      submenu.setAttribute('role', 'menu');
+      submenu._trigger = button;
+      submenu.addEventListener('keydown', _contextMenuKeydown);
+      _appendContextMenuActions(submenu, action.submenu, depth + 1);
       document.body.appendChild(submenu);
       _positionContextSubmenu(submenu, button);
-    });
+      button.setAttribute('aria-expanded', 'true');
+      if (focus) submenu.querySelector('button:not(:disabled)')?.focus();
+    };
+    button.addEventListener('mouseenter', () => open());
+    button.addEventListener('click', event => { event.stopPropagation(); open(true); });
   } else {
     button.addEventListener('mouseenter', () => _clearSubmenusFromDepth(depth + 1));
     button.addEventListener('click', () => {
       try {
+        if (_contextMenuReturnFocus?.isConnected) _contextMenuReturnFocus.focus({preventScroll:true});
         if (typeof action.run === 'function') action.run();
         else handleContextMenuAction(action.action);
       }
@@ -58,22 +186,62 @@ function _appendContextMenuAction(menu, action, depth = 0) {
 }
 
 function showContextMenu(x, y, actions) {
+  _clearSubmenus();
   const menu = elements.contextMenu;
+  const current = _refreshContextSource(contextTarget, { allowLocked: true });
+  if (contextTarget && !current) return;
+  contextTarget = current;
+  if (current?.locked) actions = actions.filter(action => _contextActionIsReadOnly(action.action)
+    || (action.action === 'unlockItem' && current.item.locked));
+  if (typeof selectedItemIds !== 'undefined' && selectedItemIds.size > 1 && selectedItemIds.has(current?.itemId)
+      && ((current.area === 'import-manager-item' && selectionContext === 'import-manager')
+        || (current.area === 'board-item' && selectionContext === 'board' && current.boardId === getActiveBoard()?.id))) {
+    const capturedIds = [...selectedItemIds], capturedBoard = getActiveBoard()?.id;
+    const selectedAction = id => () => {
+      if (capturedBoard !== getActiveBoard()?.id || capturedIds.length !== selectedItemIds.size
+        || !capturedIds.every(id => selectedItemIds.has(id)) || !_portalSelectionIsWritable()) {
+        showNotice('Selection changed, is locked or is no longer available. Select the items again.'); return;
+      }
+      document.getElementById(id)?.click();
+    };
+    actions = [...actions, {label:`Selected items (${capturedIds.length})`, group:'organize', submenu:[
+      {label:'Add tags…', group:'edit', run:selectedAction('bulkTagBtn'), disabled:!_portalSelectionIsWritable()},
+      {label:'Move to tab inbox…', group:'organize', run:selectedAction('bulkMoveBtn'), disabled:!_portalSelectionIsWritable()},
+      {label:'Delete selected…', group:'remove', run:selectedAction('bulkDeleteBtn'), disabled:!_portalSelectionIsWritable()}
+    ]}];
+  }
+  if (!document.activeElement?.closest?.('.context-menu')) _contextMenuReturnFocus = document.activeElement;
   menu.innerHTML = '';
-  actions.forEach(action => _appendContextMenuAction(menu, action));
+  // Opening a bookmark should be available from every placement, including a
+  // locked item. Opening does not change the portable record.
+  if (contextTarget?.item?.type === 'bookmark' && contextTarget.item.url) {
+    actions = [...actions];
+    for (const [id, label] of [['openNewTab', 'Open in new tab'], ['openNewWindow', 'Open in new window']]) {
+      if (!actions.some(action => action.action === id)) actions.push({ label, action: id });
+    }
+  }
+  menu.setAttribute('role', 'menu');
+  menu.onkeydown = _contextMenuKeydown;
+  menu.onscroll = _clearSubmenus;
+  _appendContextMenuActions(menu, actions);
   menu.style.left = '0';
   menu.style.top = '0';
   menu.classList.remove('hidden');
   const menuW = menu.offsetWidth;
   const menuH = menu.offsetHeight;
-  menu.style.left = `${Math.min(x, window.innerWidth - menuW - 4)}px`;
-  menu.style.top  = `${Math.min(y, window.innerHeight - menuH - 4)}px`;
+  menu.style.left = `${Math.max(4, Math.min(x, window.innerWidth - menuW - 4))}px`;
+  menu.style.top  = `${Math.max(4, Math.min(y, window.innerHeight - menuH - 4))}px`;
+  menu.querySelector('button:not(:disabled)')?.focus({ preventScroll: true });
 }
 
-function hideContextMenu() {
+function hideContextMenu(options = {}) {
   _clearSubmenus();
+  if (typeof hideTagChipMenu === 'function') hideTagChipMenu();
+  if (typeof hideTagSortMenu === 'function') hideTagSortMenu();
   elements.contextMenu.classList.add('hidden');
   elements.contextMenu.innerHTML = '';
+  if (options.restoreFocus && _contextMenuReturnFocus?.isConnected) _contextMenuReturnFocus.focus({ preventScroll: true });
+  _contextMenuReturnFocus = null;
 }
 
 function _sortedInboxTargetOptions(boards, options = {}) {
@@ -267,10 +435,13 @@ function _showMoveToBoardModal(context = contextTarget, title = 'Move to Tab Inb
 
 function handleContextMenuAction(action) {
   if (!contextTarget) return;
+  const current = _refreshContextSource(contextTarget, { allowLocked: _contextActionIsReadOnly(action) || action === 'unlockItem' });
+  if (!current) { showNotice('The source is locked or no longer available.'); return; }
+  contextTarget = current;
 
   switch (action) {
     case 'openNewTab':
-      if (contextTarget.item?.url) openHubBookmark(contextTarget.item);
+      if (contextTarget.item?.url) openHubBookmark(contextTarget.item, '_blank');
       break;
     case 'openNewWindow':
       if (contextTarget.item?.url) openHubBookmark(contextTarget.item, '_blank', 'noreferrer noopener,noopener,width=1280,height=800');
@@ -365,18 +536,19 @@ function handleContextMenuAction(action) {
       break;
     case 'deleteItem': {
       const type = contextTarget.item?.type;
-      const key = type === 'folder' ? 'confirmDeleteFolder' : type === 'bookmark' ? 'confirmDeleteBookmark' : 'confirmDeleteTitleDivider';
+      const key = _itemDeleteConfirmationKey(contextTarget.item);
       const name = contextTarget.item?.title;
       const label = type === 'folder'
         ? `Delete folder "${name}" and all its contents?`
         : name ? `Delete "${name}"?` : 'Delete this item?';
       const captured = { ...contextTarget };
-      const capturedItem = cloneData(contextTarget.item);
-      const capturedBoardId = getActiveBoard()?.id;
+      const capturedBoardId = captured.boardId;
       confirmDelete(key, label, () => {
+        const current = _refreshContextSource(captured);
+        if (!current) return;
         pushUndoSnapshot();
-        disposeWidgetsInValue(capturedItem);
-        pushToTrash(capturedItem, { area: 'board-item', boardId: capturedBoardId, columnId: captured.columnId, parentId: captured.parentId });
+        disposeWidgetsInValue(current.item);
+        pushToTrash(cloneData(current.item), { area: 'board-item', boardId: capturedBoardId, tabId: current.tabId, columnId: current.columnId, parentId: current.parentId });
         deleteBoardTarget(captured);
         renderAll();
         saveState();
@@ -621,12 +793,14 @@ function handleContextMenuAction(action) {
     case 'deleteSpeedDial': {
       const sdItem = contextTarget.item;
       const sdId = contextTarget.itemId;
-      const capturedSdItem = cloneData(sdItem);
-      const capturedSdBoardId = getActiveBoard()?.id;
-      confirmDelete('confirmDeleteBookmark', `Delete "${sdItem?.title}"?`, () => {
+      const capturedSdContext = { ...contextTarget };
+      const capturedSdBoardId = capturedSdContext.boardId;
+      confirmDelete(_itemDeleteConfirmationKey(sdItem), `Delete "${sdItem?.title}"?`, () => {
+        const current = _refreshContextSource(capturedSdContext);
+        if (!current) return;
         pushUndoSnapshot();
-        pushToTrash(capturedSdItem, { area: 'speed-dial', boardId: capturedSdBoardId, slot: contextTarget.slot });
-        const board = getActiveBoard();
+        pushToTrash(cloneData(current.item), { area: 'speed-dial', boardId: capturedSdBoardId, slot: current.slot });
+        const board = getBoardForContext(capturedSdContext);
         removeSpeedDialItemById(board, sdId);
         renderAll();
         saveState();
@@ -687,11 +861,8 @@ function handleContextMenuAction(action) {
     case 'revealGame':
       void revealGameShortcut(contextTarget.item);
       break;
-    case 'rebindGame':
+    case 'repairGame':
       void openGameShortcutInArcade(contextTarget.item, { rebind: true });
-      break;
-    case 'forgetGame':
-      void forgetGameShortcut(contextTarget.item);
       break;
     case 'duplicateGame':
       duplicateGameShortcut(contextTarget);
@@ -720,13 +891,13 @@ function handleContextMenuAction(action) {
         }
         return bookmarks;
       };
-      collectBookmarks(resolveFolderChildren(contextTarget.item, getBoardForContext(contextTarget))).forEach(bookmark => openHubBookmark(bookmark));
+      collectBookmarks(resolveFolderChildren(contextTarget.item, getBoardForContext(contextTarget))).forEach(bookmark => openHubBookmark(bookmark, '_blank'));
       break;
     }
     case 'refreshFavicon': {
       const area = contextTarget.area;
       if (area === 'speed-dial-item') {
-        const board = getActiveBoard();
+        const board = getBoardForContext(contextTarget);
         const sdItem = board?.speedDial.find(i => i?.id === contextTarget.itemId);
         if (sdItem) {
           sdItem.faviconCache = '';
@@ -760,7 +931,7 @@ function handleContextMenuAction(action) {
       }
       const area = contextTarget.area;
       if (area === 'speed-dial-item') {
-        const board = getActiveBoard();
+        const board = getBoardForContext(contextTarget);
         const sdIdx = findSpeedDialSlot(board, contextTarget.itemId);
         if (sdIdx !== -1) {
           pushUndoSnapshot();
@@ -793,13 +964,15 @@ function handleContextMenuAction(action) {
       break;
     }
     case 'deleteEssential': {
-      const essSlot = contextTarget.slot;
       const essName = contextTarget.item?.title;
       const capturedEssItem = cloneData(contextTarget.item);
-      confirmDelete('confirmDeleteBookmark', `Remove "${essName}"?`, () => {
+      const capturedEssContext = {...contextTarget};
+      confirmDelete(_itemDeleteConfirmationKey(capturedEssItem), `Remove "${essName}"?`, () => {
+        const current = _refreshContextSource(capturedEssContext);
+        if (!current) return;
         pushUndoSnapshot();
-        pushToTrash(capturedEssItem, { area: 'essential', slot: essSlot });
-        removeEssential(essSlot);
+        pushToTrash(cloneData(current.item), { area: 'essential', slot: current.slot });
+        removeEssential(current.slot);
         renderEssentials();
         saveState();
         updateTrashBadge();
@@ -846,14 +1019,16 @@ function handleContextMenuAction(action) {
         const type = action.slice('addWidget:'.length);
         const widget = _newWidgetState(type);
         const columnId = contextTarget.columnId;
+        const boardId = contextTarget.boardId || getActiveBoard()?.id;
         openWidgetSettings(widget, null, {
           isNew: true,
           deferUndo: true,
           widgetContext: 'column',
           onDone: () => {
             pushUndoSnapshot();
-            const board = getActiveBoard();
-            const col = board?.columns.find(c => c.id === columnId);
+            const board = state.boards.find(b => b.id === boardId);
+            const tab = findBoardTabByColumnId(board, columnId);
+            const col = tab?.columns.find(c => c.id === columnId);
             if (col) col.items.push(widget);
             renderAll();
           }
@@ -876,6 +1051,7 @@ function handleContextMenuAction(action) {
         state.activeBoardId = boardId;
         const targetBoard = state.boards.find(b => b.id === boardId);
         const highlightId = contextTarget?.item?.id || null;
+        state.activeTabId = contextTarget.tabId || findBoardTabContainingItem(targetBoard, highlightId)?.id || targetBoard?.tabs?.[0]?.id || null;
         if (targetBoard && highlightId) {
           unfoldBoardItemAncestors(targetBoard, highlightId);
         }
@@ -896,7 +1072,7 @@ function handleContextMenuAction(action) {
         const targetBoard = state.boards.find(b => b.id === targetBoardId);
         const targetTab = targetBoard ? findBoardTabById(targetBoard, targetTabId) : null;
         const targetInbox = targetBoard && targetTab ? getBoardInbox(targetBoard, targetTab) : null;
-        if (targetBoard && targetTab && targetInbox && !targetBoard.locked && contextTarget?.item) {
+        if (targetBoard && targetTab && targetInbox && !targetBoard.locked && !targetTab.locked && contextTarget?.item) {
           pushUndoSnapshot();
           const capturedItem = cloneData(contextTarget.item);
           if (!capturedItem.tags) capturedItem.tags = [];
@@ -966,7 +1142,7 @@ function handleContextMenuAction(action) {
 function handleBoardContextMenu(event, item, columnId, parentFolder, depth, effectiveLocked = false, inheritedLock = false) {
   if (getActiveBoard()?.locked) return;
   const inDynamicFolder = item.type === 'bookmark' && isDynamicFolder(parentFolder);
-  contextTarget = { area: 'board-item', itemId: item.id, columnId, parentId: parentFolder ? parentFolder.id : null, item, depth, inDynamicFolder };
+  contextTarget = { area: 'board-item', boardId: getActiveBoard()?.id, itemId: item.id, columnId, parentId: parentFolder ? parentFolder.id : null, item, depth, inDynamicFolder };
 
   const options = [];
 
@@ -1002,7 +1178,7 @@ function handleBoardContextMenu(event, item, columnId, parentFolder, depth, effe
     }
   } else if (item.type === 'bookmark') {
     options.push({ label: 'Edit bookmark', action: 'editBookmark' });
-    options.push({ label: 'Add to Set...', action: '', submenu: _buildAddToSetSubmenu() });
+    options.push({ label: 'Add to Set...', action: '', group: 'organize', submenu: _buildAddToSetSubmenu() });
     if (!inDynamicFolder) options.push({ label: 'Duplicate', action: 'duplicateBookmark' });
     options.push({ label: 'Refresh favicon', action: 'refreshFavicon' });
     if (canMoveToBoard) options.push({ label: 'Move to tab inbox', action: 'moveToBoard' });
@@ -1021,9 +1197,8 @@ function handleBoardContextMenu(event, item, columnId, parentFolder, depth, effe
     options.push({ label: 'Launch Version…', action: 'launchGameVersion' });
     options.push({ label: 'Open in Cyrune Arcade', action: 'openGameInArcade' });
     options.push({ label: 'Reveal game file', action: 'revealGame' });
-    options.push({ label: 'Rebind in Cyrune Arcade…', action: 'rebindGame' });
+    options.push(..._gameRepairMenuActions(item));
     options.push({ label: 'Edit game shortcut', action: 'editGame' });
-    if (getGameStatus(item).state !== 'unbound') options.push({ label: 'Forget device binding', action: 'forgetGame' });
     options.push({ label: 'Duplicate', action: 'duplicateGame' });
     if (canMoveToBoard) options.push({ label: 'Move to tab inbox', action: 'moveToBoard' });
     options.push({ label: 'Delete game shortcut', action: 'deleteItem' });
@@ -1063,37 +1238,23 @@ function handleNavContextMenu(event, item, parent, depth = 0) {
   } else if (item.type === 'widget') {
     options.push({ label: 'Widget settings', action: 'editWidget' });
     const sendTo = _buildWidgetInboxSubmenu(item.id);
-    if (sendTo.length) options.push({ label: 'Send to', submenu: sendTo });
+    if (sendTo.length) options.push({ label: 'Send to', submenu: sendTo, group: 'organize' });
     options.push({ label: 'Delete widget', action: 'deleteNavItem' });
   }
 
   showContextMenu(event.clientX, event.clientY, options);
 }
 
-function handleFolderTabContextMenu(event, navItem, folder) {
-  contextTarget = { area: 'folder-tab', navItemId: navItem.id, boardId: navItem.boardId, folderId: folder.id };
-  const board = state.boards.find(b => b.id === navItem.boardId);
-  const options = board?.locked
-    ? [{ label: 'Unlock board', action: 'unlockBoardFromFolderTab' }]
-    : [
-        { label: 'Edit board', action: 'editBoardFromFolderTab' },
-        { label: 'Remove from folder', action: 'removeFromFolder' },
-        { label: 'Delete board', action: 'deleteBoardFromFolder' }
-      ];
-  showContextMenu(event.clientX, event.clientY, options);
-}
-
 function handleEssentialContextMenu(event, slot, item) {
-  contextTarget = { area: 'essential', slot, item };
+  contextTarget = { area: 'essential', slot, itemId: item?.id, item };
   const gameOptions = item?.type === 'game'
     ? [
         { label: 'Launch game', action: 'launchGame' },
         { label: 'Launch Version…', action: 'launchGameVersion' },
         { label: 'Open in Cyrune Arcade', action: 'openGameInArcade' },
         { label: 'Reveal game file', action: 'revealGame' },
-        { label: 'Rebind in Cyrune Arcade…', action: 'rebindGame' },
+        ..._gameRepairMenuActions(item),
         { label: 'Edit game shortcut', action: 'editGame' },
-        ...(getGameStatus(item).state === 'ready' ? [{ label: 'Forget device binding', action: 'forgetGame' }] : []),
         { label: 'Duplicate', action: 'duplicateGame' },
         { label: 'Move to tab inbox', action: 'moveToBoard' },
         { label: 'Delete game', action: 'deleteEssential' }
@@ -1112,7 +1273,7 @@ function handleEssentialContextMenu(event, slot, item) {
       ]
     : item ? [
         { label: 'Edit bookmark',    action: 'editEssential' },
-        { label: 'Add to Set...',    action: '', submenu: _buildAddToSetSubmenu() },
+        { label: 'Add to Set...',    action: '', group: 'organize', submenu: _buildAddToSetSubmenu() },
         { label: 'Duplicate',        action: 'duplicateBookmark' },
         { label: 'Refresh favicon',  action: 'refreshFavicon' },
         { label: 'Move to tab inbox', action: 'moveToBoard' },
@@ -1136,9 +1297,10 @@ function handleEssentialsActivityContextMenu(event, entry) {
   ]);
 }
 
-function handleSpeedDialContextMenu(event, item, slot = findSpeedDialSlot(getActiveBoard(), item.id)) {
-  if (getActiveBoard()?.locked) return;
-  contextTarget = { area: 'speed-dial-item', itemId: item.id, slot, item };
+function handleSpeedDialContextMenu(event, item, slot, boardId = getActiveBoard()?.id) {
+  const board = state.boards.find(board => board.id === boardId);
+  if (!board) return;
+  contextTarget = { area: 'speed-dial-item', boardId, itemId: item.id, slot: slot ?? findSpeedDialSlot(board, item.id), item };
   const boards = state.boards.filter(b => !b.locked);
   const canMove = boards.some(board => (board.tabs || []).length > 0);
   const options = item.type === 'game'
@@ -1147,9 +1309,8 @@ function handleSpeedDialContextMenu(event, item, slot = findSpeedDialSlot(getAct
         { label: 'Launch Version…', action: 'launchGameVersion' },
         { label: 'Open in Cyrune Arcade', action: 'openGameInArcade' },
         { label: 'Reveal game file', action: 'revealGame' },
-        { label: 'Rebind in Cyrune Arcade…', action: 'rebindGame' },
+        ..._gameRepairMenuActions(item),
         { label: 'Edit game shortcut', action: 'editGame' },
-        ...(getGameStatus(item).state === 'ready' ? [{ label: 'Forget device binding', action: 'forgetGame' }] : []),
         { label: 'Duplicate', action: 'duplicateGame' }
       ]
     : item.type === 'application'
@@ -1163,11 +1324,12 @@ function handleSpeedDialContextMenu(event, item, slot = findSpeedDialSlot(getAct
       ]
     : [
         { label: 'Edit bookmark',   action: 'editSpeedDial' },
-        { label: 'Add to Set...',   action: '', submenu: _buildAddToSetSubmenu() },
+        { label: 'Add to Set...',   action: '', group: 'organize', submenu: _buildAddToSetSubmenu() },
         { label: 'Duplicate',       action: 'duplicateBookmark' },
         { label: 'Refresh favicon', action: 'refreshFavicon' }
       ];
   if (canMove) options.push({ label: 'Move to tab inbox', action: 'moveToBoard' });
+  if (boardId !== getActiveBoard()?.id) options.push({label:'Show in board', action:`openInBoard:${boardId}`});
   const deleteLabel = item.type === 'application' ? 'Delete application' : item.type === 'game' ? 'Delete game' : 'Delete bookmark';
   options.push({ label: deleteLabel, action: 'deleteSpeedDial' });
   showContextMenu(event.clientX, event.clientY, options);
@@ -1207,7 +1369,7 @@ function handleSearchResultContextMenu(event, item, meta) {
     return;
   }
   if (meta.area === 'speed-dial-item') {
-    handleSpeedDialContextMenu(event, item);
+    handleSpeedDialContextMenu(event, item, meta.slot, meta.boardId);
     return;
   }
   if (meta.area === 'set') {
@@ -1236,7 +1398,7 @@ function handleSearchResultContextMenu(event, item, meta) {
     return;
   }
 
-  contextTarget = { area: 'board-item', itemId: item.id, columnId: meta.columnId || null, parentId: null, boardId: meta.boardId, item, depth: 1 };
+  contextTarget = { ...meta, area: 'board-item', itemId: item.id, item };
 
   const options = [];
   if (item.type === 'application') {
@@ -1252,9 +1414,8 @@ function handleSearchResultContextMenu(event, item, meta) {
     options.push({ label: 'Launch Version…', action: 'launchGameVersion' });
     options.push({ label: 'Open in Cyrune Arcade', action: 'openGameInArcade' });
     options.push({ label: 'Reveal game file', action: 'revealGame' });
-    options.push({ label: 'Rebind in Cyrune Arcade…', action: 'rebindGame' });
+    options.push(..._gameRepairMenuActions(item));
     options.push({ label: 'Edit game shortcut', action: 'editGame' });
-    if (getGameStatus(item).state !== 'unbound') options.push({ label: 'Forget device binding', action: 'forgetGame' });
     options.push({ label: 'Show in board', action: `openInBoard:${meta.boardId}` });
     options.push({ label: 'Delete game shortcut', action: 'deleteItem' });
   } else if (item.type === 'bookmark') {
@@ -1263,7 +1424,7 @@ function handleSearchResultContextMenu(event, item, meta) {
       options.push({ label: 'Open in new window', action: 'openNewWindow' });
     }
     options.push({ label: 'Edit bookmark',   action: 'editBookmark' });
-    options.push({ label: 'Add to Set...',   action: '', submenu: _buildAddToSetSubmenu() });
+    options.push({ label: 'Add to Set...',   action: '', group: 'organize', submenu: _buildAddToSetSubmenu() });
     options.push({ label: 'Duplicate',        action: 'duplicateBookmark' });
     options.push({ label: 'Refresh favicon',  action: 'refreshFavicon' });
     const allBoards = state.boards.filter(b => !b.locked);
@@ -1279,7 +1440,7 @@ function handleSearchResultContextMenu(event, item, meta) {
   } else if (item.type === 'widget') {
     options.push({ label: 'Widget settings', action: 'editWidget' });
     const sendTo = _buildWidgetInboxSubmenu(item.id);
-    if (sendTo.length) options.push({ label: 'Send to', submenu: sendTo });
+    if (sendTo.length) options.push({ label: 'Send to', submenu: sendTo, group: 'organize' });
     options.push({ label: 'Show in board', action: `openInBoard:${meta.boardId}` });
     options.push({ label: 'Delete widget', action: 'deleteItem' });
   }

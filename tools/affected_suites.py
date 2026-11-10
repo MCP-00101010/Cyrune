@@ -18,7 +18,7 @@ def affected_suites(paths: list[str]) -> list[str]:
         path = str(raw or "").replace("\\", "/").lstrip("./")
         if not path:
             continue
-        if (path.startswith("infrastructure/") or path == "AGENTS.md"
+        if (path.startswith("infrastructure/") or path in {"AGENTS.md", "requirements-dev.txt"}
                 or path.startswith("docs/architecture/") or path.endswith("/component.json")):
             return list(SUITES)
         component = path.split("/", 1)[0]
@@ -29,9 +29,13 @@ def affected_suites(paths: list[str]) -> list[str]:
             if component == "Arcade":
                 selected.update({"Relay", "Host"})
             if component == "Relay":
-                selected.update({"Host", "Packaging"})
+                selected.update({"Portal", "Arcade", "Host", "Nexus", "Migration", "Packaging"})
             if component == "Host":
-                selected.add("Relay")
+                selected.update({"Portal", "Arcade", "Relay", "Nexus", "Migration"})
+            if component == "Arcade" and not path.startswith(("Arcade/web/", "Arcade/tests/")):
+                selected.update({"Portal", "Migration"})
+            if component == "Portal" and path.startswith(("Portal/source/state", "Portal/source/app.js", "Portal/source/bridge.js", "Portal/source/external-deliveries.js")):
+                selected.update({"Relay", "Host", "Migration"})
             if component == "Nexus":
                 selected.update({"Relay", "Host"})
         elif path.startswith("tests/migration/"):
@@ -40,6 +44,10 @@ def affected_suites(paths: list[str]) -> list[str]:
             selected.add("Packaging")
         elif path.startswith("tests/tooling/") or path.startswith("tools/"):
             selected.add("Tooling")
+            if path == "tools/relay_package.py":
+                selected.update({"Relay", "Packaging"})
+            elif path.startswith(("tools/validate", "tools/build_component_registry", "tools/affected_suites")):
+                return list(SUITES)
     return [suite for suite in SUITES if suite in selected]
 
 

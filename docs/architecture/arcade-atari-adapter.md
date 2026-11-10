@@ -1,5 +1,41 @@
 # Atari ST disk-set adapter
 
+## Compilation collections — Arcade 0.2.60 (2026-09-13)
+
+The existing `atari-st-disks-v1` adapter also accepts collections marked `kind: atari-compilations-v1`. Their current schema-2 index carries `collectionKind: atari-compilations-v1` and an additive `compilation` descriptor per row: bounded group, series, number, part and filename-condition strings. There is no legacy compilation migration baseline; registration creates a new collection, backs up native configuration and publishes its validated index before the configuration. A retry accepts an identical index; differing existing data requires review. Rebuild appends newly recognized images under the existing locked, backed-up index writer.
+
+Each physical image has one stable exact row with a one-member disk set. Numbered menu titles group boot choices for parts, revisions and alternate dumps; no sibling image is implicitly mounted in drive B. The existing version/default mechanism selects a boot image without redefining its launch authority. Filename condition and alternate-dump preference determine initial family ordering only; explicit saved defaults always win. `Unverified` is not a claim of integrity. Marked damaged images remain visible and individually selectable.
+
+Arcade summaries add bounded `compilation_group`, `compilation_condition` and `compilation_part` presentation strings and reuse `series`. Collection summaries expose the native kind marker. Ordinary game scrape preview/apply and metadata editing reject compilation collections.
+
+Host receives exactly the existing single-disk STEem/Hatari plan, with unchanged profile, signature/hash, path-confinement and approval checks. Portal receives existing title/edition/tag presentation and opaque identities, with no new fields, commands, capability or authority. This is Arcade-owned discovery and presentation, not a new transport adapter.
+
+### Reviewed compilation catalogue — Arcade 0.2.61
+
+Arcade reads [Atari Legend's licensed database export](https://www.atarilegend.com/data/database-dumps/) and the [8bitchip / Bruno reference list](https://atari.8bitchip.info/MenuDG.html). The importer parses allowlisted tables and literal INSERT values as data; it never executes downloaded SQL. HTTPS origins, redirects, compressed/expanded sizes, rows, contents and image references are bounded. Network downloads check the native optional-network policy. No disk images or bulk artwork archives are downloaded. Atari Legend attribution and CC BY-NC-SA 4.0 links remain attached to accepted records; the secondary source retains its own attribution and historical date.
+
+Matching first compares SHA-512 image hashes, then reviewed series aliases plus exact number/part/revision labels. Hash matches and unverified menu-label references remain distinct. Ambiguous or missing matches do not replace existing entries, and contents positions never grant keyboard or launch authority. Per-image contents, document/utility categories, source links and reference screenshots appear in details; bounded title arrays and match status join Arcade's compact summaries for local search and boot-choice presentation. Portal's catalogue and launch identities are unchanged.
+
+The collection-scoped Arcade-only `POST /api/compilation-catalogue` route supports `prepare`, `preview` and `apply`. Preparation runs as an existing bounded background job. A 30-minute token binds the preview to its exact collection index, original saved catalogue and image fingerprints; review pages contain at most 50 images. Application requires the token and a separate explicit `include_labels` choice. Changed indexes, saved data or selected images invalidate application. Accepted schema-1 data lives under native `compilation-catalogues/`, scoped by collection ID and resolved root, with atomic replacement and a recoverable `.previous.json` backup. There is no older catalogue migration baseline. Source index rows, files, launch defaults and user metadata remain separate; a changed image fingerprint suppresses its stale catalogue reference when the library reloads. Reads use the accepted local snapshot and do not fetch providers.
+
+### Utility and disk-file sources — Arcade 0.2.62
+
+The same preview/apply route adds AtariUpToDate Floppyshop Utility pages (up to 50 pages, 2 MiB each), parsed as numbered utility cards and program titles without importing descriptions or download links. This series never aliases Floppyshop Compilation or Falcon numbering. Schema-1 catalogue records additionally accept `fs:NNNN` provider IDs and fixed HTTPS source links. Existing 0.2.61 records remain valid; upgrade Arcade’s native service before reading newly accepted sources. Publication retains the previous-file backup.
+
+SuperGAU User, Speak and Utility raw ST images with no catalogue candidate may propose `files` entries from a bounded FAT12 directory walk. Geometry, chains, recursion, names and image size are validated; no program is executed or file extracted. Contents are original in-image paths labelled File/Folder, not identified titles. The display/search list is limited to 200 names (program files and shallow paths first); `file_count` discloses truncation. A `files:<SHA-512>` ID ties provenance to the scanned bytes; ordinary image fingerprints and stale-apply checks still apply. File indexes have no external URL, artwork or licence claim and cannot overwrite accepted hash/label matches.
+
+`prepare` accepts explicit `local_only: true` to skip all network access; `apply` additionally requires `include_files: true` to accept file indexes. This remains an Arcade-owned service operation inside the existing collection/role boundary. Portal presentation, bindings, launch plans and transport schemas do not change.
+
+### SuperGAU CD contents and native import — Arcade 0.2.63
+
+The native-only `tools/import_supergau_cd.py` stages and previews the original Volume 1 descriptions and missing media. `--apply` publishes complete new files without overwriting existing paths, uses the additive backed-up index writer, rechecks selected image fingerprints and atomically publishes the catalogue with a previous snapshot. Runtime import manifests record staged, publishing and complete states; interrupted imports can be rerun. No new browser filesystem, process or launch capability is added.
+
+Schema-1 catalogue records additionally allow `sg:<series>_<number>` IDs, fixed CD provenance, source-file SHA-256, original description lines, notes and bounded supporting file names. A new `content` status distinguishes file-checksum matches and verified loose-file reconstructions from exact `hash` image matches and `label` references. The native service must be updated before loading these entries; existing records remain valid without migration. Accepted CD entries survive online and local-file previews while their image fingerprints remain current. Matching original CD metadata never changes an image's index identity, filename, part grouping or saved launch choice.
+
+Archive input, expansion, MSA tracks, FAT12 chains, directory depth and file counts are bounded. ZIP CRCs and LZH member sizes/CRCs are validated; only the explicitly configured installed 7-Zip helper streams LZH bytes, without extracting files or executing CD software. The Take Off archives contain loose clip-art files; reconstructed raw images retain their verified bytes and use non-executable boot sectors. A single named archive wrapper is removed for the six original LZH clip-art disks. Other unsupported paths/formats or checksum failures require review. These reconstructions are explicitly labelled and do not claim to be original physical dumps.
+
+## Individual game disk sets
+
 Introduced 2026-09-07 by Arcade 0.2.29, Host 0.2.16, Relay 1.1.10 and Portal 0.12.18.
 
 Arcade owns `atari-st-disks-v1`, a read-only collection of already sorted disk images. `Arcade/tools/configure_atari.py` previews discovery; `--apply` adds the collection and fixed STEem emulator with a configuration backup. Images and emulator preferences remain intact. Existing differing metadata requires review. Configuration and generated `collection-metadata.json` stay outside the checkout.

@@ -31,7 +31,7 @@ def test_fill_missing_protected_fields_and_scrape_undo_survive_reload(request, f
     source = (game.path, game.system, game.platform, game.default_emulator, game.emulator_profile)
     assert post(server, '/api/metadata-care', {'game_id': game.id,
         'changes': {'publisher': 'My correction', 'description': ''}, 'protected_fields': ['description']})['ok']
-    server.LIBRARY = None
+    server.get_collection_lifecycle().invalidate()
     info = post(server, '/api/metadata-care', {'game_id': game.id})
     assert set(info['protected_fields']) == {'publisher', 'description'}
     before = deepcopy(server.metadata_care().read())
@@ -40,7 +40,7 @@ def test_fill_missing_protected_fields_and_scrape_undo_survive_reload(request, f
         'candidate': {'title': 'Different title', 'publisher': 'Provider', 'description': 'Unwanted', 'developer': 'New developer'},
         'remote_assets': {'loading_screen': 'scraper-artwork/screenscraper/42/42/box-2D/wor'}})
     assert result['ok'], result
-    server.LIBRARY = None
+    server.get_collection_lifecycle().invalidate()
     updated = server.get_library().get_game(game.id)
     assert updated.title == original_title and updated.publisher == 'My correction' and updated.description == ''
     assert updated.loading_screen == 'scraper-artwork/screenscraper/42/42/box-2D/wor'
@@ -72,7 +72,7 @@ def test_batch_undo_restores_all_scummvm_versions_and_preserves_unrelated_entrie
     for index, game in enumerate(games):
         assert post(server, '/api/apply-scrape', {'game_id': game.id, 'undo_group': 'batch-one',
             'candidate': {'publisher': f'Publisher {index}'}})['ok']
-    server.LIBRARY = None
+    server.get_collection_lifecycle().invalidate()
     assert post(server, '/api/metadata-care', {'action': 'undo'})['restored_count'] == len(games)
     assert server.metadata_care().read() == original
 
@@ -95,7 +95,7 @@ def test_cleanup_flags_follow_failed_search_apply_undo_and_reload(spectrum_setup
     assert next(row for row in rows if row['id'] == 'jetpac')['cleanup']['review']
     assert post(server, '/api/apply-scrape', {'game_id': 'jetpac', 'candidate': {'description': 'Complete'},
         'remote_assets': {'loading_screen': 'scraper-artwork/screenscraper/76/42/box-2D/wor'}})['ok']
-    server.LIBRARY = None
+    server.get_collection_lifecycle().invalidate()
     rows = server.dispatch_arcade_api('GET', '/api/games', {'collection_id': server.active_collection()['id'], 'shape': 'summary'})['games']
     row = next(row for row in rows if row['id'] == 'jetpac')
     assert row['cleanup'] == {'artwork': False, 'description': False, 'review': False}

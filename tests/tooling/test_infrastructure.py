@@ -27,7 +27,11 @@ def test_component_contract_changes_select_every_suite():
 def test_component_ownership_expands_only_across_known_boundaries():
     assert AFFECTED.affected_suites(["Widgets/weather/source.js"]) == ["Portal", "Widgets"]
     assert AFFECTED.affected_suites(["Arcade/web/app.js"]) == ["Arcade", "Relay", "Host"]
-    assert AFFECTED.affected_suites(["Relay/background.js"]) == ["Relay", "Host", "Packaging"]
+    assert AFFECTED.affected_suites(["Relay/background.js"]) == ["Portal", "Arcade", "Relay", "Host", "Nexus", "Migration", "Packaging"]
+    assert {"Portal", "Migration", "Nexus", "Arcade"} <= set(AFFECTED.affected_suites(["Host/morpheus_host.py"]))
+    assert {"Tooling", "Packaging"} <= set(AFFECTED.affected_suites(["tools/relay_package.py"]))
+    assert AFFECTED.affected_suites(["tools/validate.ps1"]) == list(AFFECTED.SUITES)
+    assert AFFECTED.affected_suites(["requirements-dev.txt"]) == list(AFFECTED.SUITES)
 
 
 def test_migration_runner_previews_applies_and_reuses_receipt(tmp_path):

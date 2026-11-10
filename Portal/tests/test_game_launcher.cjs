@@ -41,7 +41,6 @@ test('title icons follow the exact default, stay transient and refresh after a l
 
 test('game shortcuts launch through opaque bindings and retain no native paths', async () => {
   let launched = '';
-  let forgotten = '';
   let opened = null;
   let revealed = '';
   const notices = [];
@@ -56,8 +55,7 @@ test('game shortcuts launch through opaque bindings and retain no native paths',
       getGameStatus: async gameKey => ({ gameKey, state: 'ready', title: 'Jetpac', thumbnailCache: '' }),
       launchGame: async gameKey => { launched = gameKey; return true; },
       openGameInArcade: async (gameKey, options) => { opened = { gameKey, options }; return true; },
-      revealGame: async gameKey => { revealed = gameKey; return true; },
-      forgetGame: async gameKey => { forgotten = gameKey; return true; }
+      revealGame: async gameKey => { revealed = gameKey; return true; }
     },
     saveState: async () => ({ ok: true }),
     renderBoard: () => {},
@@ -75,14 +73,12 @@ test('game shortcuts launch through opaque bindings and retain no native paths',
   assert.equal(await context.launchGameShortcut(item), true);
   assert.equal(launched, item.gameKey);
   assert.equal(await context.openGameShortcutInArcade(item, { rebind: true }), true);
-  assert.deepEqual(JSON.parse(JSON.stringify(opened)), { gameKey: item.gameKey, options: { rebind: true } });
+  assert.deepEqual(JSON.parse(JSON.stringify(opened)), { gameKey: item.gameKey, options: { rebind: true, catalogueId: '' } });
   assert.equal(await context.revealGameShortcut(item), true);
   assert.equal(revealed, item.gameKey);
-  assert.equal(await context.forgetGameShortcut(item), true);
-  assert.equal(forgotten, item.gameKey);
-  assert.equal(context.getGameStatus(item).state, 'unbound');
+  assert.equal(context.getGameStatus(item).state, 'ready');
   assert.equal(/path|command|argument/i.test(JSON.stringify(item)), false);
-  assert.match(notices.at(-1), /no longer bound/i);
+  assert.equal(context.forgetGameShortcut, undefined);
 });
 
 test('game system descriptors cover current and planned emulator families', () => {
@@ -132,7 +128,7 @@ test('game status refresh backfills portable system identity', async () => {
   assert.equal(saves, 1);
 });
 
-test('an Arcade rebind refreshes every matching Portal card without changing its opaque key', async () => {
+test('an Arcade repair refreshes every matching Portal card without changing its opaque key', async () => {
   const first = { id: 'game-1', type: 'game', title: 'Jetpac', gameKey: 'game_abcdefghijklmnop' };
   const second = { id: 'game-2', type: 'game', title: 'Jetpac copy', gameKey: 'game_abcdefghijklmnop' };
   const state = { boards: [{ id: 'board-1', tabs: [{ id: 'tab-1', columns: [{ id: 'column-1', items: [first, second] }], inbox: { id: 'inbox-1', items: [] } }] }] };
@@ -162,7 +158,7 @@ test('an Arcade rebind refreshes every matching Portal card without changing its
   assert.equal(first.profileName, 'Spectrum 128K');
   assert.equal(second.profileName, 'Spectrum 128K');
   assert.equal(first.gameKey, 'game_abcdefghijklmnop');
-  assert.match(notices.at(-1), /rebound/i);
+  assert.match(notices.at(-1), /repaired/i);
 });
 
 test('game state migration strips native launch material', () => {

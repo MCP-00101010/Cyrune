@@ -93,7 +93,7 @@ def test_webhub_deep_link_selects_a_game_and_supports_in_place_rebinding():
     assert 'params.get("game")' in source
     assert 'params.get("hubRebind")' in source
     assert "await selectGame(webHubHandoff.gameId)" in source
-    assert "Update Portal Shortcut" in source
+    assert "Repair Portal Shortcut" in source
 
 
 def test_file_page_uses_only_the_extension_rpc_transport():
@@ -122,7 +122,8 @@ def test_arcade_launch_uses_the_shared_emulator_and_profile_binding():
     start = source.index("async function launchGame")
     end = source.index("\nfunction ", start + 20)
     launch = source[start:end]
-    assert "resolveLaunchBinding(state.selected, emulator)" in launch
+    assert "game = state.selected" in launch
+    assert "resolveLaunchBinding(game, emulator)" in launch
     assert "emulator: binding.emulatorId" in launch
     assert "profile_id: binding.profileId" in launch
     assert "state.profiles" not in source

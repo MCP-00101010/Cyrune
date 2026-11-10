@@ -196,14 +196,14 @@ def test_scraped_metadata_keeps_existing_portal_approval_launchable(scummvm, mon
     before_ini = env.scummvm_config.read_bytes()
     env.arcade.activate_collection("scummvm")
     env.arcade.update_state(lambda state: state.update(active_collection_id="scummvm"))
-    env.arcade.LIBRARY = None
+    env.arcade.get_collection_lifecycle().invalidate()
     result = env.arcade.dispatch_arcade_api("POST", "/api/apply-scrape", {}, {"collection_id":env.arcade.active_collection()["id"],
         "game_id": before_plan["gameId"], "candidate": {"title": "Scraped Monkey Island", "publisher": "LucasArts",
             "description": "Saved metadata", "platform": "PC", "scraper_source": "thegamesdb", "scraper_id": "42"}})
     assert result["ok"]
-    env.arcade.activate_collection("fixture")
-    env.arcade.update_state(lambda state: state.update(active_collection_id="fixture"))
-    env.arcade.LIBRARY = None
+    env.arcade.activate_collection("spectrum")
+    env.arcade.update_state(lambda state: state.update(active_collection_id="spectrum"))
+    env.arcade.get_collection_lifecycle().invalidate()
     after_plan = env.store.resolve(key)
     for field in ("target", "targetDigest", "media", "config", "executable", "arguments", "sourceId", "catalogueId"):
         assert after_plan[field] == before_plan[field]

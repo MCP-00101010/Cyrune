@@ -23,8 +23,23 @@ The intact legacy WebHub and EmuGUI checkouts are archived as read-only recovery
 
 Run the complete existing baseline from the repository root:
 
+Use Python 3.14 and Node.js with npm. Create the Python environment outside the
+checkout, activate it, and install the pinned validation dependencies once:
+
+```powershell
+py -3.14 -m venv "$env:LOCALAPPDATA\Cyrune\Development\venv"
+& "$env:LOCALAPPDATA\Cyrune\Development\venv\Scripts\Activate.ps1"
+python -m pip install -r requirements-dev.txt
+```
+
+With that environment active:
+
 ```powershell
 .\tools\validate.ps1
 ```
 
 Use `-SkipWebExtLint` only when working offline or when validating code that cannot affect Relay packaging.
+
+`-ChangedOnly` includes dependent client, transport, migration and packaging suites.
+The complete validator also checks Python unused imports and undefined names with
+Ruff; test fixtures are outside that runtime-code lint scope.

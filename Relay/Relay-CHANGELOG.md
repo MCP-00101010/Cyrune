@@ -4,6 +4,129 @@ Historical entries below are preserved from Portal releases whose release notes 
 
 ---
 
+## Development setup documentation — 2026-11-10
+
+- Document the installed Firefox temporary-extension autoload setup, exact restore contents, Bitdefender coexistence, profile/path selection, diagnostics and rollback. Link the guide from the Relay README; no Relay runtime or version change.
+- Validation: restore snippets checked against the installed AutoConfig files and JavaScript syntax checked. The setup was verified with Relay 1.6.6 on installed Firefox 160.0 in an isolated profile; the user confirmed normal-profile startup.
+
+## [1.6.6] — 2026-10-26
+
+- Put the daily Limit and Warn controls on one compact row, retaining their labels, units and existing autosave behaviour.
+- Validation: 119 Relay tests, 14 packaging tests and 30 Nexus tests passed, with infrastructure/version checks and clean web-ext lint. Isolated Firefox render review covers 400px and 320px widths. Rebuilt the verified eight-file unsigned package.
+
+## [1.6.5] — 2026-10-26
+
+- Replace the combined tab override with one Pause this tab selector inside each Reload and Unload card: No pause, 30 minutes, 1 hour or Until closed. Keep independent in-memory deadlines and rearm only the affected timer; saved domain rules remain unchanged. The overview retains its explicit bulk actions and shows each paused service.
+- Move the domain into the shared popup header. Give distraction flags and daily allowance, warning and block-at-limit controls a separate, always-expanded Activity card.
+- Validation: coordinated gate passed 1,553 tests plus 3 Host subtests, including 119 Relay tests, packaging, syntax, infrastructure/versions, Ruff and clean web-ext lint. Focused checks cover independent pause deadlines, scoped resume/rearm, stale domains and selector restoration/requests. Isolated Firefox desktop/narrow renders confirm the shared domain header and expanded distraction controls. Rebuilt and verified the exact eight-file unsigned package; installed-extension acceptance remains open.
+
+## [1.6.4] — 2026-10-26
+
+- Apply Portal's compact category-rail style to the main popup and Timer & Activity Tracker. Group existing controls into Send to Portal / Focus & activity / Browser tools and Timers / Activity / Blocking without changing authority, messages or stored preferences.
+- Use one scrolling content pane, compact flat sections, matching blue-grey colours and light appearance, keyboard category navigation and tooltips for optional explanations. Retain recovery guidance and errors. Refresh the tab-timers overview and blocked-page presentation with the same tokens.
+- Validation: coordinated gate passed 1,549 tests plus 3 Host subtests, including 115 Relay tests, 14 packaging tests, syntax, infrastructure/versions, Ruff and web-ext lint with no errors, warnings or notices. Isolated Firefox renders cover all six popup categories, narrow and light layouts. Built and verified the exact eight-file unsigned 1.6.4 archive. Final installed-extension acceptance remains open.
+
+## [1.6.3] — 2026-10-25
+
+- Replace default website categories with the requested twenty names, without descriptions; retain alphabetical choices and Uncategorized last.
+- Migrate supported productivity state schemas 1–3 to schema 4. Rename clear former categories, preserve ambiguous Work/Productivity/Personal/Shopping and custom assignments for manual review, and retain the original category map in categoryMigration.backup. Commit before adopting migrated state; failures retain the original.
+- Validation: coordinated gate passed 1,544 tests plus 3 Host subtests, including 113 Relay tests, packaging, syntax, versions/infrastructure, Ruff and clean web-ext lint. Firefox 158.0.1 verified actual schema-3 IndexedDB migration and retained backup, the new clock-dropdown names, preserved Work and persistent new-category selection in disposable data. Final Nexus metadata checks passed after declaring productivity schema 4.
+
+
+## [1.6.2] — 2026-10-23
+
+- Show today's whole-domain tracked time at the top right of the Activity tracking card. Refresh every five seconds while open; hide when tracking is disabled or totals are unavailable. Retain the recorded total during tracking pauses, independently of allowance settings.
+- Validation: all 110 Relay tests and the coordinated gate passed (1,526 tests plus 3 Host subtests), including packaging, syntax, versions/infrastructure, Ruff and clean web-ext lint. Disposable Firefox 158.0.1 verified a real tracked minute without an allowance, top-right placement above category, retained totals during pauses and hiding when tracking is disabled. Regressions cover local-day rollover, whole-domain report filters, compact hour/minute formatting and popup polling cleanup.
+
+## [1.6.1] — 2026-10-23
+
+- Convert early allowance records without an enabled flag at load time, retaining the original in a single migration backup before operating on the current shape. Failed writes and unsupported records remain intact.
+- Confine allowance recovery errors to the allowance card. Category, distraction/exclusion, scheduled/focus blocking and navigation remain usable independently.
+- Validation: 108 Relay tests and the coordinated gate passed (1,524 tests plus 3 Host subtests), including packaging, syntax, versions/infrastructure, Ruff and clean web-ext lint. Disposable Firefox 158.0.1 verified conversion with retained backup, persisted category/blocking edits with unsupported allowance data, and recovery errors confined to the allowance card. Regressions cover failed conversion writes, preserved backups, independent scheduled blocking and unrelated navigation.
+
+## [1.6.0] — 2026-10-23
+
+- Add tab-specific Keep awake / Pause timers overrides for 30 minutes, one hour or until tab close. Preserve saved domain settings; expiry/resume grants fresh eligible timer intervals. Closing the tab, leaving its domain or restarting Relay clears overrides.
+- Add a separate compact Tab timers view with search, filters, paged status/protection rows and bounded bulk pause/keep-awake/resume actions. Keep browser metadata inside exact, top-level extension documents and retain the eight-file package.
+- Add opt-in per-domain daily allowances for flagged distracting sites, advance warnings and optional blocking at the limit. Sum subdomains before report truncation, reset on local day boundaries and retain rules/notification receipts in a new bounded browser-local schema-1 record. Existing records need no conversion. Paused/disabled/excluded activity does not accrue usage.
+- Retain stopped work-phase identity and partial duration for widget session review. Reporting accepts bounded domain filters without new page authority.
+- Validation: coordinated gate passed 1,519 tests plus 3 Host subtests, packaging, syntax, versions/infrastructure, Ruff and clean web-ext lint. Final focused Relay/Focus checks passed 111 tests. Disposable Firefox 158.0.1 verified temporary overrides, unchanged saved rules, overview bulk resume, real activity allowance blocking, phase-attributed review, header navigation and compact clock/board/sidebar layouts with aligned 6px spacing.
+
+## [1.5.2] — 2026-10-23
+
+- Pause periodic reloads while a tab is selected in any browser window. Switching away starts a full interval; returning cancels pending reloads without catch-up work. Other background tabs retain their deadlines, and selection during the final form probe cancels the pending reload.
+- Keep the popup controls and labels unchanged. Optional active-tab overrides and additional pause labels are deferred to future Relay/site settings.
+- Validation: coordinated gate passed 1,509 tests plus 3 Host subtests, including 94 Relay tests, packaging, syntax, versions/infrastructure, Ruff and clean web-ext lint. Disposable Firefox 158.0.1 verified no reload while selected, background execution after switching away, cancellation on return and a fresh full interval on subsequent deselection. Unit regressions cover selected tabs in multiple windows, independent background deadlines and activation during the final form probe.
+
+## [1.5.1] — 2026-10-23
+
+- Fix shared form protection falsely suppressing reload and unload timers on app pages: ignore synthetic input events, untouched editor text and initialized sliders/selects. Protect trusted input/change events in all injected frames; late injection conservatively protects existing standard text/file drafts. Reload open pages after updating to replace their old handlers and clear old false-edit flags.
+- Add a sleep title marker before unloading, remove it if unloading is cancelled, and briefly show a reload marker after an automatic reload completes. Show live per-tab countdowns, last completion times and protection/access reasons in the clock popup. These transient records are cleared on tab close/restart and contain no URLs or form values.
+- Validation: coordinated gate passed 1,506 tests plus 3 Host subtests, including packaging, syntax, versions/infrastructure, Ruff and clean web-ext lint. Final Relay regressions passed 92 tests and clean lint after refusal/pending-status checks. Disposable Firefox 158.0.1 verified app-like background reload/discard despite synthetic input and editor markup, real audio/form protection, title markers, live status, reload suspension, restore on selection, and compact popup alignment. Reddit's authenticated personalized feed remains a user acceptance check; fixture success does not prove its ordering changes or its thumbnail updates.
+
+## [1.5.0] — 2026-10-23
+
+- Add an automatically saved Unload after card below the reload timer. Off by default, it remembers one interval per domain while timing each background tab independently. Firefox restores unloaded pages on selection; reload timers pause while unloaded.
+- Protect active, pinned, private, audible, muted and edited-form tabs. Check form state before discarding, including edits detected in embedded frames and forms already changed before injection. Missing content handlers prevent unloading. Restart gives tabs a fresh inactivity interval.
+- Validation: coordinated gate passed 1,503 tests plus 3 Host subtests, including packaging, syntax, versions/infrastructure, Ruff and clean web-ext lint. Final Relay checks passed all 88 tests and clean lint after extending protection to muted tabs. Disposable Firefox 158.0.1 verified the four-card layout and spacing, a real one-minute unload despite background reloads, audio/form protection, reload suspension, restore on selection and retained domain settings.
+
+## [1.4.1] — 2026-10-23
+
+- Place reload enable, interval and units on one row. Standardize checkbox/text and label/input gaps across Timer & Activity Tracker using one shared spacing token and reset native checkbox margins.
+- Validation: 110 Relay/Nexus tests and 14 packaging checks passed, plus version/infrastructure checks, Ruff and clean web-ext lint. Disposable Firefox 158.0.1 verified the shared reload row, aligned checkbox edges, consistent 6px label/control gaps and no field overflow.
+
+## [1.4.0] — 2026-10-23
+
+- Compact Timer & Activity Tracker: automatically persist valid edits, remove routine explanatory footers and Save/Forget buttons, and align daily blocking controls on one row.
+- Sort categories alphabetically with Uncategorized last; add Gaming and Productivity. Move Distracting to an independent domain flag, preserve previous assignments in a recoverable migration, and calculate budget/report totals from flags across categories.
+- Validation: coordinated gate passed 1,493 tests plus 3 Host subtests, including packaging, syntax, versions/infrastructure, Ruff and clean web-ext lint. Final targeted Relay/Widget tests passed after request-order regressions. Disposable Firefox 158.0.1 verified the compact controls, sorted category options, automatic category/flag/exclusion/timer saves across subdomains, automatic blocking changes and restart persistence.
+
+## [1.3.0] — 2026-10-23
+
+- Rename the address-bar clock to Timer & Activity Tracker with separate reload, activity and blocking cards. Apply reload intervals, categories and exclusions to whole domains and subdomains using the bundled Public Suffix List. Preserve old records in recoverable migrations; pause conflicting old page timers.
+- Add daily HH:MM and running-work-phase site rules. Block matching top-level requests before site loading and replace already-open matching tabs with an empty page showing the current rule. Keep clock controls available on the blocked page; breaks/paused timers allow access, and reopening remains manual.
+- Validation: coordinated gate passed 1,484 tests plus 3 Host subtests, with packaging, syntax, infrastructure, versions, Ruff and clean web-ext lint. Final service/widget regressions and timer guards passed. Disposable Firefox 158.0.1 verified the three-card popup, cross-subdomain choices/reloads, global settings Done/Cancel, open-tab focus enforcement, pre-request blocking, paused-focus access and daily-rule restart persistence.
+
+## [1.2.0] — 2026-10-23
+
+- Run one profile-wide Pomodoro timer and an opt-in hostname-only activity collector while Portal is closed. Add durable IndexedDB history, revision-checked commands, explicit legacy Focus adoption, phase notifications and essential popup controls.
+- Collect only the focused, active non-private HTTP(S) tab, with idle/lock/unfocused safeguards, exclusions, categories, retention, scoped deletion/export and optional daily Distracting-category reminders. Never collect page paths, queries, titles or contents.
+- Validation: coordinated gate passed (1,468 tests plus 3 Host subtests), including packaging, syntax, versions, infrastructure, Ruff and clean web-ext lint. The final affected-suite run passed 402 tests after additional regressions. Disposable Firefox 158.0.1 verified shared widget controls, Portal-closed phase alarms/notifications, hostname-only activity collection/export/deletion real extension-restart persistence, and compact board/sidebar layouts.
+
+## [1.1.19] — 2026-10-23
+
+- Move automatic refresh into a dedicated clock button on the right of Firefox's address bar. Its compact popup contains interval, Start/save, Pause and Forget controls; the clock turns green for active saved timers and its tooltip shows the interval or paused state.
+- Preserve saved URLs, intervals, alarms and edited-form safeguards. The main Relay toolbar popup no longer displays refresh controls; the clock popup accepts only state and refresh operations.
+- Validation: 53 Relay tests, 30 Nexus registry tests, 14 packaging checks, syntax/version/infrastructure checks and web-ext lint passed (zero errors, warnings or notices). Disposable Firefox 158.0.1 verified the native address-bar action, dedicated popup, saved timers across reopening/background restart, and Pause/Forget.
+
+## [1.1.18] — 2026-10-22
+
+- Add optional link-text/title/Markdown copying, selected/window tab copying and ordered, deduplicated selected-link collection. Open up to 20 selected links in background tabs or send up to 200 through Portal's existing acknowledged Import Manager queue.
+- Add independent selection/copy/paste restoration toggles with exact-host exceptions. Ordinary web scripts retain no Cyrune page bridge; clipboard access is write-only and user-triggered.
+- Remember automatic-refresh intervals and enabled/paused state for up to 256 exact HTTP(S) pages, including query strings and ignoring fragment anchors. Restore timers on reopening pages and Firefox startup; Pause retains the interval and Forget removes it. Edited forms (including frames), loading/discarded tabs, private tabs and unsupported pages are not automatically reloaded.
+- Validation: 52 Relay tests and native Firefox 158.0.1 checks passed, covering clipboard actions, deduplicated selected-link intake, saved refresh/reopen/background restart and edited-form suppression. Portal (219), Nexus (30), Arcade (574), and Host/integration/packaging/tooling (282 plus 3 subtests) passed; syntax, versions, infrastructure, Ruff and web-ext lint passed. The coordinated gate stopped at an unrelated existing football-widget assertion (one extra `IN_PLAY` fixture); remaining suites were completed separately, and no successful full-gate receipt was published.
+
+## [1.1.17] — 2026-10-22
+
+- Add an opt-in native right-click menu toggle and exact-host site exceptions in the Relay popup. Changes apply to open web tabs and cross-origin frames using the top-level site's choice; settings persist in browser-local extension storage.
+- Ordinary web pages receive only an isolated context-menu handler, with no Cyrune client bridge. Local clients and Firefox-protected pages remain outside the feature.
+- Validation: 42 Relay tests, 30 Nexus registry tests, 14 packaging tests, version/infrastructure checks and JavaScript syntax passed; web-ext lint reported zero errors, warnings or notices. Disposable Firefox 158.0.1 verified default-off behavior, native link/image/video actions, live toggles and top-level site exceptions in cross-origin frames.
+
+## [1.1.16] — 2026-10-22
+
+- Validate and forward a bounded public game reference for explicit Arcade repair navigation. Retire the Portal-originated forget-game route; keep native targets outside portable messages.
+- Validation: 38 Relay tests and the coordinated gate passed (1,446 tests plus 3 Host subtests), including malformed-reference rejection and native-pipe repair handoff. Web-ext lint reported zero errors, warnings or notices.
+
+## [1.1.15] — 2026-10-21
+
+- Remove unused native-path and file-URL helpers and their obsolete assertions; retain fixed-purpose native operations and theme-name validation.
+- Validation: 37 component tests; full coordinated gate passed (1,426 tests plus 3 Host subtests), including migration, packaging, tooling, JavaScript syntax, infrastructure/registry, versions, scoped Ruff F checks and Relay lint (zero errors, warnings or notices).
+
+## [1.1.14] — 2026-10-21
+
+- Keep selected Portal authority across Host outages and Relay restarts using a verified path-free marker. Unknown setups require verified configuration or an explicit popup choice; failed native operations never fall through to browser snapshots. Serialize selection changes with snapshot operations and reject queued saves from an obsolete selection.
+- Validation: 37 Relay tests and the full nine-suite coordinated gate passed; web-ext lint reported zero errors, warnings or notices. Regression coverage includes sticky authority, unknown/invalid selection, native failures, configuration changes and bounded FIFO recovery.
+
 ## [1.1.13] — 2026-09-09
 
 - Requires current Portal/Arcade protocols 2 and Host protocol 3. Legacy browser snapshots are promoted once with hash verification; current browser-owned persistence, conflict detection and recovery remain supported.

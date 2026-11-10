@@ -1,5 +1,21 @@
 # Cyrune Repository Changelog
 
+## 2026-10-21 — Audit remediation
+
+- Expand changed-only validation across client/transport/migration and packaging dependencies; add a scoped Python F lint gate and pinned external-environment setup. Component changelogs record startup delivery, network cancellation, bounded caching/jobs, summary performance and obsolete-code cleanup.
+- Validation: full coordinated gate passed: 1,426 tests plus 3 Host subtests; clean JavaScript syntax, manifest, infrastructure/registry, versions, scoped Ruff F checks, packaging and Relay lint. Sanitized Nexus validation receipt written.
+
+## 2026-10-21 — Architecture deepening
+
+- Coordinate Relay 1.1.14, Portal 0.12.24 and Arcade 0.2.68: durable storage authority, shared delivery persistence, catalogue-owned native lookup and collection lifecycle ownership. Host-facing transport and exact launch authority remain unchanged.
+- Record the explicit storage-selection trade-off in `docs/adr/0001-retain-portal-storage-authority.md`; the durable ownership rules remain in `docs/architecture/component-boundaries.md`.
+- Validation: 1,414 tests across all nine coordinated suites passed, plus three Host subtests; syntax, manifest, independent versions, infrastructure, packaging and web-ext lint passed. The standard sanitized Nexus validation receipt was written.
+
+## 2026-09-13 — Component version validation
+
+- Remove the packaging test's duplicate, hard-coded release numbers. Continue validating component manifests against source versions, displayed versions, the generated registry and changelogs through the existing version validator.
+- Validation: all 22 packaging and tooling tests passed.
+
 ## 2026-09-09 — coordinated current-format cutover
 
 - Implemented the suite compatibility review across all six components; current runtime contracts and supported import/recovery baselines are recorded in [suite-data-cutover.md](docs/architecture/suite-data-cutover.md).

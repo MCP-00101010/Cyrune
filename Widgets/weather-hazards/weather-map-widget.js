@@ -30,8 +30,19 @@ function _weatherMapStyleUrl(value) {
   return `https://tiles.openfreemap.org/styles/${_normalizeWeatherMapStyle(value)}`;
 }
 
-function _weatherMapBaseLocationSignature(widget) {
+function _weatherMapEffectiveConfig(widget) {
   const config = _weatherEffectiveConfig(widget);
+  if (config.useWeatherLocation !== false && config.inheritCyruneLocation !== true
+      && typeof _findWeatherWidgetLocation === 'function') {
+    const source = _findWeatherWidgetLocation(widget?.id || '', { weatherOnly: true });
+    if (source) return { ...config, latitude: source.latitude, longitude: source.longitude,
+      locationName: source.locationName, timezone: source.timezone || 'auto', weatherLocationSource: true };
+  }
+  return config;
+}
+
+function _weatherMapBaseLocationSignature(widget) {
+  const config = _weatherMapEffectiveConfig(widget);
   if (config.latitude === '' || config.latitude == null
       || config.longitude === '' || config.longitude == null) return '';
   const latitude = Number(config.latitude);
@@ -78,14 +89,15 @@ function _weatherMapCenter(widget) {
       && Number.isFinite(longitude) && longitude >= -180 && longitude <= 180) {
     return { latitude, longitude };
   }
-  const config = _weatherEffectiveConfig(widget);
+  const config = _weatherMapEffectiveConfig(widget);
   return { latitude: Number(config.latitude), longitude: Number(config.longitude) };
 }
 
 function _weatherMapLocationLabel(widget) {
-  return _readWeatherMapView(widget)?.forecastCenter?.label
-    || _weatherEffectiveConfig(widget).locationName
-    || 'Regional weather';
+  const config = _weatherMapEffectiveConfig(widget);
+  const center = _readWeatherMapView(widget)?.forecastCenter;
+  return _widgetLocationDisplayName(widget, 'weatherMap', center?.label
+    ? { ...center, locationName: center.label } : config, 'Regional weather');
 }
 
 function _persistWeatherMapRuntime(widget, runtime) {
@@ -99,7 +111,7 @@ function _persistWeatherMapRuntime(widget, runtime) {
 }
 
 function _weatherMapSignature(widget) {
-  const c = _weatherEffectiveConfig(widget);
+  const c = _weatherMapEffectiveConfig(widget);
   if (c.latitude === '' || c.latitude == null || c.longitude === '' || c.longitude == null) return '';
   const { latitude, longitude } = _weatherMapCenter(widget);
   if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) return '';
@@ -130,12 +142,14 @@ function _isWeatherMapCacheFresh(cache) {
 
 function _getWeatherMapRuntime(widget) {
   const signature = _weatherMapSignature(widget);
+  const baseLocationSignature = _weatherMapBaseLocationSignature(widget);
   let runtime = _weatherMapRuntime.get(widget.id);
-  if (!runtime || runtime.signature !== signature) {
+  if (!runtime || runtime.signature !== signature || runtime.baseLocationSignature !== baseLocationSignature) {
     const previous = runtime;
     const savedView = _readWeatherMapView(widget);
     runtime = {
       signature,
+      baseLocationSignature,
       status: 'idle',
       error: '',
       nextRetryAt: 0,
@@ -143,7 +157,7 @@ function _getWeatherMapRuntime(widget) {
         ? [..._weatherMapActiveLayers(previous)]
         : (Array.isArray(savedView?.activeLayers) ? [...savedView.activeLayers] : ['wind']),
       hourIndex: previous?.hourIndex ?? Math.max(0, Number.parseInt(savedView?.hourIndex, 10) || 0),
-      camera: previous?.camera || savedView?.camera || null,
+      camera: (previous?.baseLocationSignature === baseLocationSignature ? previous.camera : null) || savedView?.camera || null,
       attributionExpanded: previous?.attributionExpanded ?? savedView?.attributionExpanded ?? widget?.config?.attributionExpanded
     };
     _weatherMapRuntime.set(widget.id, runtime);
@@ -163,7 +177,8 @@ function _weatherMapActiveLayers(runtime) {
 function _destroyWeatherMap(widgetId, options = {}) {
   const instance = _weatherMapInstances.get(widgetId);
   if (!instance) return;
-  if (options.preserveView !== false) {
+  if (options.preserveView !== false && (!instance.runtime?.baseLocationSignature
+      || instance.runtime.baseLocationSignature === _weatherMapBaseLocationSignature(instance.widget))) {
     _captureWeatherMapCamera(instance);
     _captureWeatherMapAttribution(instance);
   }
@@ -180,11 +195,9 @@ function _destroyWeatherMap(widgetId, options = {}) {
   _weatherMapInstances.delete(widgetId);
 }
 
-function _destroyAllWeatherMaps() {
-  [..._weatherMapInstances.keys()].forEach(_destroyWeatherMap);
-}
-
 function _captureWeatherMapCamera(instance) {
+  if (instance?.runtime?.baseLocationSignature
+      && instance.runtime.baseLocationSignature !== _weatherMapBaseLocationSignature(instance.widget)) return null;
   const map = instance?.map;
   if (!map?.getCenter || !map?.getZoom) return null;
   try {
@@ -270,7 +283,7 @@ function _buildWeatherMapGrid(widget) {
 }
 
 function _weatherMapForecastUrl(widget) {
-  const units = _normalizeWeatherUnits(_weatherEffectiveConfig(widget).units);
+  const units = _normalizeWeatherUnits(_weatherMapEffectiveConfig(widget).units);
   const grid = _buildWeatherMapGrid(widget);
   const url = new URL('https://api.open-meteo.com/v1/forecast');
   url.searchParams.set('latitude', grid.points.map(point => point.latitude.toFixed(4)).join(','));
@@ -413,7 +426,7 @@ function _weatherMapLegend(layer, units) {
 }
 
 function _renderWeatherMapLegends(widget, instance, runtime) {
-  const units = _normalizeWeatherUnits(_weatherEffectiveConfig(widget).units);
+  const units = _normalizeWeatherUnits(_weatherMapEffectiveConfig(widget).units);
   const activeLayers = _weatherMapActiveLayers(runtime);
   const visibleLayers = activeLayers.filter(layer => layer !== 'wind');
   const signature = `${units}:${visibleLayers.join(',')}:${activeLayers.length}`;
@@ -498,7 +511,7 @@ function _syncWeatherMapRainAnimation(instance, runtime) {
 function _applyWeatherMapLayers(widget, instance, cache, runtime) {
   const map = instance?.map;
   if (!map?.isStyleLoaded()) return;
-  const units = _normalizeWeatherUnits(_weatherEffectiveConfig(widget).units);
+  const units = _normalizeWeatherUnits(_weatherMapEffectiveConfig(widget).units);
   const data = _weatherMapFeatureCollection(cache, runtime.hourIndex);
   const sourceId = `weather-map-grid-${widget.id}`;
   const activeLayers = _weatherMapActiveLayers(runtime);
@@ -590,6 +603,7 @@ WIDGET_REGISTRY['weatherMap'] = {
   description: 'Regional wind, rain, temperature and cloud forecasts on an interactive map',
   allowedIn: ['column'],
   defaultConfig: {
+    useWeatherLocation: true,
     locationName: '',
     latitude: '',
     longitude: '',
@@ -601,6 +615,12 @@ WIDGET_REGISTRY['weatherMap'] = {
     originZoom: 7
   },
   defaultData: {},
+  settingsSchema: { type: 'object', properties: {
+    useWeatherLocation: { type: 'boolean' },
+    locationName: { type: 'string' }, latitude: { type: 'any' }, longitude: { type: 'any' }, timezone: { type: 'string' },
+    units: { type: 'string', enum: ['metric', 'imperial'] }, inheritCyruneLocation: { type: 'boolean' },
+    inheritCyruneUnits: { type: 'boolean' }, mapStyle: { type: 'string', enum: ['dark', 'liberty'] }, originZoom: { type: 'number' }
+  }, additionalProperties: false },
   liveSettingsPreview: false,
 
   clearContextRuntime(widgetId, context) {
@@ -612,6 +632,7 @@ WIDGET_REGISTRY['weatherMap'] = {
   },
 
   dispose(widget) {
+    _clearWidgetLocationLabel(widget, 'weatherMap');
 
     _destroyWeatherMap(widget.id, { preserveView: false });
     _weatherMapRuntime.delete(widget.id);
@@ -624,10 +645,12 @@ WIDGET_REGISTRY['weatherMap'] = {
   onSettingsCommit(widget, previousConfig) {
     const previousOrigin = _weatherMapBaseLocationSignature({ config: previousConfig });
     const nextOrigin = _weatherMapBaseLocationSignature(widget);
-    if (previousOrigin === nextOrigin) return;
-    _destroyWeatherMap(widget.id, { preserveView: false });
-    _clearWeatherMapView(widget);
-    _weatherMapRuntime.delete(widget.id);
+    if (previousOrigin !== nextOrigin) {
+      _destroyWeatherMap(widget.id, { preserveView: false });
+      _clearWeatherMapView(widget);
+      _weatherMapRuntime.delete(widget.id);
+    }
+    _refreshWeatherLocationDependents(widget, previousConfig);
   },
 
   reloadLabel: 'Reset Weather Map to its origin',
@@ -641,7 +664,7 @@ WIDGET_REGISTRY['weatherMap'] = {
 
   render(widget, el, context) {
     _destroyWeatherMap(widget.id);
-    const c = _weatherEffectiveConfig(widget);
+    const c = _weatherMapEffectiveConfig(widget);
     const signature = _weatherMapSignature(widget);
 
     _setWidgetRefresher(widget.id, context, () => {
@@ -776,15 +799,6 @@ WIDGET_REGISTRY['weatherMap'] = {
     el.appendChild(legends);
     _renderWeatherMapLegends(widget, { legend: legends }, runtime);
 
-    const attribution = document.createElement('a');
-    attribution.className = 'widget-weather-attribution';
-    attribution.href = 'https://open-meteo.com/';
-    attribution.target = '_blank';
-    attribution.rel = 'noreferrer noopener';
-    attribution.textContent = 'Weather data by Open-Meteo.com';
-    attribution.addEventListener('mousedown', event => event.stopPropagation());
-    el.appendChild(attribution);
-
     if (typeof maplibregl === 'undefined') {
       status.classList.remove('hidden');
       status.classList.add('is-error');
@@ -900,7 +914,7 @@ WIDGET_REGISTRY['weatherMap'] = {
       runtime = _getWeatherMapRuntime(widget);
       runtime.camera = camera;
       instance.runtime = runtime;
-      location.textContent = c.locationName || 'Regional weather';
+      location.textContent = _weatherMapLocationLabel(widget);
       map.easeTo({ center: [camera.longitude, camera.latitude], zoom: camera.zoom, duration: 650 });
       const originCache = _readWeatherMapCache(widget);
       if (_isWeatherMapCacheFresh(originCache)) {
@@ -997,6 +1011,13 @@ WIDGET_REGISTRY['weatherMap'] = {
         return;
       }
 
+      if (instance.runtime.baseLocationSignature !== _weatherMapBaseLocationSignature(widget)) {
+        _destroyWeatherMap(widget.id, { preserveView: false });
+        el.innerHTML = '';
+        WIDGET_REGISTRY.weatherMap.render(widget, el, context);
+        return;
+      }
+
       runtime = _getWeatherMapRuntime(widget);
       instance.runtime = runtime;
       const refreshedCache = _readWeatherMapCache(widget);
@@ -1038,6 +1059,10 @@ WIDGET_REGISTRY['weatherMap'] = {
   renderSettings(widget, container) {
     const c = widget.config || {};
     container.innerHTML = `
+      <div class="settings-row">
+        <span>Use Weather location</span>
+        <label class="settings-toggle"><input type="checkbox" data-cfg="useWeatherLocation" ${c.useWeatherLocation !== false && c.inheritCyruneLocation !== true ? 'checked' : ''}/><span class="toggle-track"></span></label>
+      </div>
       <div class="settings-row settings-row--top">
         <span>Origin location</span>
         <div class="weather-location-picker">
@@ -1094,7 +1119,7 @@ WIDGET_REGISTRY['weatherMap'] = {
           <label class="board-fit-label"><input type="radio" name="weatherMapStyle" data-cfg="mapStyle" value="liberty" ${_normalizeWeatherMapStyle(c.mapStyle) === 'liberty' ? 'checked' : ''}/><span>Liberty</span></label>
         </div>
       </div>
-      <div class="settings-help">Drag the live map to change its browser-local current centre and zoom. Use the target button on the map or the widget reload icon to return to this origin. Rain is forecast precipitation, not live radar.</div>`;
+      `;
 
     const input = container.querySelector('.weather-map-location-search');
     const searchBtn = container.querySelector('.weather-map-location-search-btn');
@@ -1107,10 +1132,8 @@ WIDGET_REGISTRY['weatherMap'] = {
     const originZoomConfig = container.querySelector('[data-cfg="originZoom"]');
     const previewCanvas = container.querySelector('.weather-map-origin-preview-canvas');
     const previewMessage = container.querySelector('.weather-map-origin-preview-message');
-    const effective = _weatherEffectiveConfig(widget);
-    selected.textContent = c.inheritCyruneLocation === true && effective.cyruneLocationSource
-      ? `Using Cyrune ${effective.cyruneLocationSource} location: ${effective.locationName || `${effective.latitude}, ${effective.longitude}`}`
-      : (c.locationName ? `Origin: ${c.locationName}` : 'No origin location selected.');
+    const weatherLocation = container.querySelector('[data-cfg="useWeatherLocation"]');
+    const cyruneLocation = container.querySelector('[data-cfg="inheritCyruneLocation"]');
 
     let previewMap = null;
     let previewMarker = null;
@@ -1134,15 +1157,21 @@ WIDGET_REGISTRY['weatherMap'] = {
     };
 
     const updatePreview = () => {
-      const latitude = Number(c.latitude);
-      const longitude = Number(c.longitude);
+      const effective = _weatherMapEffectiveConfig(widget);
+      const latitude = Number(effective.latitude);
+      const longitude = Number(effective.longitude);
+      selected.textContent = effective.weatherLocationSource
+        ? `Using Weather location: ${effective.locationName || `${latitude}, ${longitude}`}`
+        : (c.inheritCyruneLocation === true && effective.cyruneLocationSource
+          ? `Using Cyrune ${effective.cyruneLocationSource} location: ${effective.locationName || `${latitude}, ${longitude}`}`
+          : (c.locationName ? `Origin: ${c.locationName}` : 'No origin location selected.'));
       const zoom = _normalizeWeatherMapOriginZoom(c.originZoom);
       originZoom.value = String(zoom);
       originZoomConfig.value = String(zoom);
       originZoomValue.textContent = zoom.toFixed(2);
       updateCurrentViewSummary();
       if (!Number.isFinite(latitude) || !Number.isFinite(longitude)
-          || c.latitude === '' || c.longitude === '') {
+          || effective.latitude === '' || effective.longitude === '') {
         destroyPreview();
         previewMessage.textContent = 'Choose an origin location to preview the map.';
         previewMessage.classList.remove('hidden');
@@ -1179,6 +1208,17 @@ WIDGET_REGISTRY['weatherMap'] = {
       });
     };
 
+    weatherLocation.addEventListener('change', () => {
+      c.useWeatherLocation = weatherLocation.checked;
+      if (weatherLocation.checked) { c.inheritCyruneLocation = false; cyruneLocation.checked = false; }
+      updatePreview();
+    });
+    cyruneLocation.addEventListener('change', () => {
+      c.inheritCyruneLocation = cyruneLocation.checked;
+      if (cyruneLocation.checked) { c.useWeatherLocation = false; weatherLocation.checked = false; }
+      updatePreview();
+    });
+
     originZoom.addEventListener('input', event => {
       event.stopPropagation();
       c.originZoom = _normalizeWeatherMapOriginZoom(originZoom.value);
@@ -1206,6 +1246,10 @@ WIDGET_REGISTRY['weatherMap'] = {
       results,
       signal: _wstgAbort?.signal,
       onSelect(result, label) {
+        widget.config.useWeatherLocation = false;
+        widget.config.inheritCyruneLocation = false;
+        weatherLocation.checked = false;
+        cyruneLocation.checked = false;
         widget.config.locationName = label;
         widget.config.latitude = result.latitude;
         widget.config.longitude = result.longitude;

@@ -274,7 +274,7 @@ function loadBookmarkTools(fixture, healthResponses = {}) {
     assert(source.includes('openHubBookmark'), `${sourceFile} should use the central bookmark-opening path`);
   }
   const renderSource = fs.readFileSync(path.join(ROOT, 'source', 'render.js'), 'utf8');
-  assert(renderSource.includes('recordBookmarkOpen'), 'search and rendered shortcuts should record activity through the central tracker');
+  assert(renderSource.includes('handleHubBookmarkClick'), 'search and rendered shortcuts should record activity through the central tracker');
   const activityRenderer = renderSource.slice(renderSource.indexOf('function _renderEssentialsActivityView'), renderSource.indexOf('function renderEssentials'));
   assert(activityRenderer.includes('getEssentialsActivityResults'), 'Essentials activity modes should reuse Smart View activity results');
   assert(activityRenderer.includes('handleEssentialsActivityContextMenu'), 'activity tiles should expose read-only open and locate actions');

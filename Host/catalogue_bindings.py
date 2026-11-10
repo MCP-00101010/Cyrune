@@ -538,14 +538,19 @@ class CatalogueBindings:
         Reuse the independent plan checks, quota and atomic store. This does
         not expose catalogue publication or permit Arcade to pick destinations.
         """
+        if game_key and (not isinstance(game_key, str) or not KEY.fullmatch(game_key)):
+            raise BindingError('invalid-request')
         with self._lock():
             with self._resolve_scope():
                 approval = selected_approval(plan, selection)
                 state = self.load()
                 before = deepcopy(state)
                 if game_key:
-                    if game_key not in state["bindings"]:
-                        raise BindingError("binding-forgotten")
+                    # An explicit Arcade selection may repair a lost approval
+                    # under the existing shortcut key. Ordinary launch never
+                    # recreates authority, and the full plan is rechecked below.
+                    if game_key not in state['bindings'] and len(state['bindings']) >= MAX_BINDINGS:
+                        raise BindingError('binding-limit')
                     key = game_key
                 else:
                     key = next((key for key, row in state["bindings"].items() if row == approval), None)

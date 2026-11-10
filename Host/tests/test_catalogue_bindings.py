@@ -55,8 +55,8 @@ def setup(tmp_path, monkeypatch):
     monkeypatch.setattr(arcade, "DATA", runtime)
     monkeypatch.setattr(arcade, "CONFIG_FILE", runtime / "config.json")
     monkeypatch.setattr(arcade, "STATE_FILE", runtime / "state.json")
-    monkeypatch.setattr(arcade, "COLLECTION", tmp_path / "different-active-source")
-    monkeypatch.setattr(arcade, "METADATA_FILE", arcade.COLLECTION / "collection-metadata.json")
+    monkeypatch.setattr(arcade, "DESASTERON_COLLECTION", tmp_path / "different-active-source")
+
     monkeypatch.setattr(arcade, "init_state", lambda: None)
     monkeypatch.setattr(arcade, "find_running_emulator_window", lambda _: 0)
     monkeypatch.setattr(arcade, "focus_launched_emulator", lambda *_: None)
@@ -505,6 +505,43 @@ def test_spectrum_display_fills_language_and_system_without_changing_approval(se
     assert status['defaultVersion'] == {'languages': ['en'], 'platforms': ['ZX Spectrum'], 'systems': ['16K-48K']}
     assert env.store.resolve(key) == plan
     assert read(path) == metadata
+
+
+def test_missing_shortcut_can_be_explicitly_repaired_without_changing_its_key(setup, monkeypatch):
+    from urllib.parse import urlsplit, parse_qs
+    env = setup
+    key = bind(env)
+    plan = env.store.resolve(key)
+    env.store.forget(key)
+    # Normal launch remains revoked; only the explicit Arcade review can repair it.
+    with pytest.raises(env.module.BindingError, match='binding-forgotten'):
+        env.host.launch_emugui_game(key)
+    for invalid in ('../private', 'x' * 81, {}):
+        with pytest.raises(ValueError, match='Invalid game reference'):
+            env.host.emugui_game_link(key, rebind=True, catalogue_id=invalid)
+    query = parse_qs(urlsplit(env.host.emugui_game_link(key, rebind=True)).query)
+    assert query == {'hubRebind': [key]}
+    query = parse_qs(urlsplit(env.host.emugui_game_link(key, rebind=True, catalogue_id=plan['catalogueId'])).query)
+    assert query == {'hubRebind': [key], 'collection': ['spectrum'], 'game': ['elite']}
+    assert key not in env.store.load()['bindings'], 'Navigation must not create launch authority'
+    with pytest.raises(env.module.BindingError, match='binding-forgotten'):
+        env.host.launch_emugui_game(key)
+    selection = {'emulatorId': 'test', 'profileId': ''}
+    assert env.store.approve_version(plan, game_key=key, selection=selection) == key
+    monkeypatch.setattr(env.host, 'CATALOGUE_BINDINGS', None)
+    restored = env.host.get_catalogue_bindings().resolve(key)
+    assert (restored['media'], restored['executable'], restored['emulatorId']) == (plan['media'], plan['executable'], 'test')
+
+
+def test_explicit_shortcut_repair_checks_key_and_binding_limit(setup, monkeypatch):
+    env = setup
+    key = bind(env)
+    plan = env.store.resolve(key)
+    with pytest.raises(env.module.BindingError, match='invalid-request'):
+        env.store.approve_version(plan, game_key='not-a-game-key')
+    monkeypatch.setattr(env.module, 'MAX_BINDINGS', 1)
+    with pytest.raises(env.module.BindingError, match='binding-limit'):
+        env.store.approve_version(plan, game_key='game_missing_123456789012')
 
 
 class ProcessInterrupted(BaseException):

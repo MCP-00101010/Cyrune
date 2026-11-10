@@ -18,6 +18,67 @@ function context() {
   vm.runInContext(source, sandbox); return sandbox;
 }
 
+function element(tagName) {
+  return {
+    tagName, children: [], listeners: {}, open: false,
+    append(...children) { this.children.push(...children); },
+    appendChild(child) { this.append(child); return child; },
+    addEventListener(type, listener) { this.listeners[type] = listener; },
+    contains(target) { return this === target || this.children.some(child => child.contains(target)); },
+    focus() { this.focused = true; }
+  };
+}
+
+test('wiki menus dismiss with Escape, focus leaving, and link activation while retaining internal focus', () => {
+  const sandbox = context();
+  sandbox.document.createElement = element;
+  const menu = vm.runInContext(`_mediaWatchlistRenderWikiMenu(_mediaWatchlistRecord({ wikis: [
+    { communityUrl: 'https://memory-alpha.fandom.com', label: 'Memory Alpha' }
+  ] }))`, sandbox);
+  const summary = menu.children[0]; const link = menu.children[1].children[0];
+  assert.equal(menu.open, false);
+  menu.open = true;
+  menu.listeners.focusout({ relatedTarget: link });
+  assert.equal(menu.open, true);
+  menu.listeners.keydown({ key: 'Enter' });
+  assert.equal(menu.open, true);
+  let prevented = false; let stopped = false;
+  menu.listeners.keydown({ key: 'Escape', preventDefault() { prevented = true; }, stopPropagation() { stopped = true; } });
+  assert.equal(menu.open, false);
+  assert.equal(summary.focused, true);
+  assert.ok(prevented && stopped);
+  for (const relatedTarget of [element('button'), null]) {
+    menu.open = true;
+    menu.listeners.focusout({ relatedTarget });
+    assert.equal(menu.open, false);
+  }
+  menu.open = true;
+  link.listeners.click();
+  assert.equal(menu.open, false);
+  assert.equal(link.href, 'https://memory-alpha.fandom.com');
+  assert.equal(link.target, '_blank');
+  const css = fs.readFileSync(path.join(__dirname, 'media-watchlist-widget.css'), 'utf8');
+  assert.match(css, /\.media-watchlist-wiki-menu:not\(\[open\]\)>\.media-watchlist-wiki-links\{display:none\}/);
+});
+
+test('series cards omit completion actions and films retain their watched toggle', () => {
+  const sandbox = context();
+  sandbox.document.createElement = element;
+  sandbox._setWidgetRefresher = () => {};
+  sandbox._setWidgetTimer = () => {};
+  sandbox._mediaWatchlistCheckNotifications = () => {};
+  for (const type of ['series', 'film']) {
+    for (const watched of [false, true]) {
+      sandbox.widget = { id: `${type}-${watched}`, config: {}, data: { records: [{ id: 'record', title: 'Example', type, watched }] } };
+      sandbox.container = element('div');
+      vm.runInContext("_mediaWatchlistRender(widget, container, 'column')", sandbox);
+      const actions = sandbox.container.children[0].children[0].children[0].children[1];
+      assert.deepEqual(actions.children.map(child => child.textContent), type === 'film' ? [watched ? 'Unwatch' : 'Watched'] : []);
+      assert.equal(sandbox.widget.data.records[0].watched, watched);
+    }
+  }
+});
+
 test('media records are provider-neutral, bounded, and preserve user fields', () => {
   const sandbox = context();
   const record = vm.runInContext(`_mediaWatchlistRecord({ type: 'series', title: 'Example', provider: 'tmdb', providerId: '12x', progress: { season: 2, episode: 3 }, watchedEpisodes: [{ season: 2, episode: 3, providerId: '44' }, { season: 2, episode: 3, providerId: 'duplicate' }, { season: 3, episode: 0 }], rating: 99, notes: 'note', showRating: false, showNotes: false, notify: true, upcoming: [{ id: 'one', title: 'Episode', date: '2026-10-02', kind: 'episode' }] })`, sandbox);
@@ -310,7 +371,7 @@ test('series seasons use horizontal tabs with one episode panel', () => {
 
 test('library management lives in settings and live cards no longer expose manual progress fields', () => {
   assert.match(source, /media-watchlist-settings-manager/);
-  assert.match(source, /Changes are applied only when you select Done/);
+
   assert.match(source, /_mediaWatchlistImport\(widget, importInput\.files\?\.\[0\], \{ persist: false \}\)/);
   assert.match(source, /record\.showRating = ratingInput\.checked/);
   assert.match(source, /record\.showNotes = notesInput\.checked/);

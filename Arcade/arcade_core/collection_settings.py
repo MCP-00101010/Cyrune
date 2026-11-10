@@ -56,6 +56,8 @@ def validate_settings(config, data, runtime, checkout):
         if adapter == 'atari-st-disks-v1':
             from arcade_core.atari import read_rows
             read_rows(root)
+            if collection.get('kind') == 'atari-compilations-v1' and read_object(metadata, 32 * 1024 * 1024).get('collectionKind') != collection['kind']:
+                raise ValueError('Choose an indexed Atari compilation collection')
         elif adapter == 'gameboy-cartridges-v1':
             from arcade_core.gameboy import read_rows
             read_rows(root)

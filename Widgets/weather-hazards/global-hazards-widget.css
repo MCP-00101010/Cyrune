@@ -448,17 +448,6 @@
   text-align: center;
 }
 
-.global-hazards-attribution {
-  align-self: flex-end;
-  color: var(--muted);
-  font-size: calc(0.57rem * var(--widget-text-scale, 1));
-}
-
-.global-hazards-attribution a {
-  color: inherit;
-  text-decoration: none;
-}
-
 .global-hazards-watch-marker {
   width: 12px;
   height: 12px;

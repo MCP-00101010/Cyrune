@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Cyrune Relay</title>
   <link rel="icon" type="image/svg+xml" href="../icons/icon-48.svg">
   <link rel="stylesheet" href="popup.css">
@@ -9,8 +10,14 @@
 <body>
   <header>
     <img src="../icons/icon-48.svg" alt="" class="logo">
-    <span class="title">Cyrune Relay</span>
+    <svg class="refresh-logo" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 6v6l4 2"/></svg>
+    <div class="popup-title"><span class="title">Cyrune Relay</span><p id="siteDomain" class="site-domain">Loading domain…</p></div>
+    <button id="tabTimersOpen" class="icon-button" type="button" title="Tab timers" aria-label="Tab timers">▤</button>
   </header>
+  <div class="relay-workspace">
+    <nav id="relayNavigation" class="relay-navigation" aria-label="Relay sections"></nav>
+    <div class="relay-content">
+      <section data-relay-pane="send">
 
   <div id="statusVersion" class="status-row muted"></div>
 
@@ -19,6 +26,10 @@
   <div id="statusPending"  class="status-row muted hidden"></div>
   <div id="statusPath"     class="status-row status-row-path hidden"></div>
   <div id="statusDetail"   class="status-row status-row-path hidden"></div>
+  <section id="storageChoice" class="storage-choice hidden">
+    <p>Your storage choice could not be confirmed. Restore Host storage settings to use its database, or choose Relay storage for this browser.</p>
+    <button id="useRelayStorageBtn" class="btn-secondary" type="button">Use Relay storage</button>
+  </section>
 
   <section id="tabInfo" class="tab-info hidden">
     <div id="tabTitle" class="tab-title"></div>
@@ -44,6 +55,89 @@
   </div>
 
   <div id="feedback" class="feedback hidden"></div>
+
+
+      </section>
+  <section class="utility-section productivity-controls" data-relay-pane="focus" aria-label="Focus and activity">
+    <div id="focusStatus">Connecting to Focus…</div>
+    <div class="utility-buttons"><button id="focusPauseResume" type="button" disabled>Pause / resume</button><button id="focusStop" type="button" disabled>Stop</button></div>
+    <div id="activityStatus"></div>
+    <div class="utility-buttons"><button id="activityPauseResume" type="button" disabled>Pause tracking</button></div>
+    <p id="productivityFeedback" role="status"></p>
+  </section>
+  <details class="browser-utilities" data-relay-pane="browser" open>
+    <summary>Browser utilities</summary>
+    <section class="native-menu" aria-label="Right-click menu">
+    <label><input id="nativeMenuEnabled" type="checkbox" disabled> Restore native right-click menu</label>
+    <label class="native-menu-site"><input id="nativeMenuSiteException" type="checkbox" disabled> Allow this site's own menu</label>
+    <p id="nativeMenuDetail" aria-live="polite">Loading right-click settings…</p>
+    </section>
+    <section class="utility-section" aria-label="Selection and clipboard">
+      <label><input id="restoreSelection" type="checkbox" disabled> Restore text selection</label>
+      <label><input id="restoreCopy" type="checkbox" disabled> Restore copying</label>
+      <label><input id="restorePaste" type="checkbox" disabled> Restore pasting</label>
+      <label class="muted"><input id="utilitySiteException" type="checkbox" disabled> Allow this site's restrictions</label>
+    </section>
+    <section class="utility-section" aria-label="Copy links and tabs">
+      <label class="utility-format">Copy format <select id="utilityCopyFormat"><option value="url">URLs</option><option value="text">Title and URL</option><option value="markdown">Markdown</option></select></label>
+      <div class="utility-buttons"><button id="copyPageBtn" type="button" disabled>Page</button><button id="copySelectedTabsBtn" type="button" disabled>Selected tabs</button><button id="copyWindowTabsBtn" type="button" disabled>Window</button></div>
+      <details class="menu-settings"><summary>Context-menu actions</summary>
+        <label><input id="utilityCopyLinks" type="checkbox" disabled> Copy link text and formats</label>
+        <label><input id="utilityCollectLinks" type="checkbox" disabled> Collect selected links</label>
+        <label><input id="utilityCopyTabs" type="checkbox" disabled> Copy tabs</label>
+      </details>
+      <p id="utilityFeedback" role="status"></p>
+    </section>
+  </details>
+  <main class="site-controls">
+    <section class="utility-section refresh-controls site-card" aria-label="Reload timer" data-relay-pane="timers">
+      <div class="reload-row"><label class="utility-heading"><input id="refreshEnabled" type="checkbox" disabled> Reload timer</label><label for="refreshAmount">Every</label><input id="refreshAmount" type="number" min="1" max="86400" value="5" step="1" disabled><select id="refreshUnit" aria-label="Interval unit" disabled><option value="1">seconds</option><option value="60" selected>minutes</option><option value="3600">hours</option></select></div>
+      <label class="timer-pause-row" for="reloadPause"><span>Pause this tab</span><select id="reloadPause" aria-label="Pause reloading for this tab" title="Pause automatic reloading for this tab without changing the saved site timer." disabled><option value="none">No pause</option><option value="1800">30 minutes</option><option value="3600">1 hour</option><option value="0">Until closed</option></select></label>
+      <p id="reloadPauseError" class="card-error" role="status" hidden></p>
+      <p id="refreshDetail" class="card-error" role="status" hidden></p>
+      <p id="refreshStatus" class="timer-status" aria-live="polite"></p>
+    </section>
+    <section class="utility-section site-card" aria-label="Inactive tab unloading" data-relay-pane="timers">
+      <div class="reload-row"><label class="utility-heading"><input id="unloadEnabled" type="checkbox" disabled> Unload after</label><input id="unloadAmount" type="number" min="1" max="1440" value="15" step="1" aria-label="Inactive time" disabled><select id="unloadUnit" aria-label="Unload interval unit" disabled><option value="60" selected>minutes</option><option value="3600">hours</option></select></div>
+      <p id="unloadDetail" class="card-error" role="status" hidden></p>
+      <p id="unloadStatus" class="timer-status" aria-live="polite"></p>
+      <label class="timer-pause-row" for="unloadPause"><span>Pause this tab</span><select id="unloadPause" aria-label="Pause unloading for this tab" title="Pause automatic unloading for this tab without changing the saved site timer." disabled><option value="none">No pause</option><option value="1800">30 minutes</option><option value="3600">1 hour</option><option value="0">Until closed</option></select></label>
+      <p id="unloadPauseError" class="card-error" role="status" hidden></p>
+    </section>
+    <section class="utility-section site-card" aria-label="Activity tracking" data-relay-pane="activity">
+      <div class="utility-heading activity-heading">Activity tracking <span id="siteTodayTime" title="Tracked time today" hidden></span></div>
+      <label>Category <select id="siteCategory" disabled></select></label>
+      <label><input id="siteExcluded" type="checkbox" disabled> Exclude this site from tracking</label>
+      <p id="siteActivityDetail" class="card-error" role="status" hidden></p>
+    </section>
+    <section class="utility-section site-card" aria-label="Distracting site" data-relay-pane="activity">
+      <div class="utility-heading">Distracting site</div>
+      <label><input id="siteDistracting" type="checkbox" disabled> Mark as distracting</label>
+      <div id="siteAllowance">
+        <div class="activity-heading allowance-heading"><span>Daily allowance</span><span id="siteAllowanceUsage"></span></div>
+        <div class="allowance-row allowance-options"><label><input id="siteAllowanceEnabled" type="checkbox" disabled> Limit</label><input id="siteAllowanceMinutes" type="number" value="20" min="1" max="1440" aria-label="Daily allowance minutes" disabled><span>min/day</span><label for="siteAllowanceWarning">Warn</label><input id="siteAllowanceWarning" type="number" value="5" min="0" max="60" aria-label="Warning minutes before limit" title="Minutes before the daily limit; 0 turns warnings off." disabled><span title="Minutes before the daily limit">min<span class="allowance-before-word"> before</span></span></div>
+        <label><input id="siteAllowanceBlock" type="checkbox" disabled> Block at limit</label>
+        <p id="siteAllowanceError" class="card-error" role="status" hidden></p>
+      </div>
+    </section>
+    <section class="utility-section site-card" aria-label="Site blocking" data-relay-pane="blocking">
+      <div class="utility-heading">Site blocking</div>
+      <div class="block-daily-row"><label><input id="siteBlockScheduled" type="checkbox" disabled> Block daily</label><label>From <input id="siteBlockFrom" type="text" inputmode="numeric" placeholder="HH:MM" maxlength="5" value="09:00" aria-label="Block from" disabled></label><label>Until <input id="siteBlockUntil" type="text" inputmode="numeric" placeholder="HH:MM" maxlength="5" value="17:00" aria-label="Block until" disabled></label></div>
+      <label><input id="siteBlockFocus" type="checkbox" disabled> Block during focus sessions</label>
+      <p id="siteBlockDetail" class="card-error" role="status" hidden></p>
+    </section>
+  </main>
+
+    </div>
+  </div>
+  <main class="timers-overview">
+    <div class="overview-tools"><input id="timerSearch" type="search" placeholder="Search tabs" aria-label="Search tabs" maxlength="128"><select id="timerFilter" aria-label="Tab filter"><option value="timers">Timers</option><option value="unloaded">Unloaded</option><option value="all">All web tabs</option></select></div>
+    <div class="overview-tools"><select id="timerBulkMode" aria-label="Bulk override"><option value="pause">Pause timers</option><option value="awake">Keep awake</option><option value="none">Resume timers</option></select><select id="timerBulkDuration" aria-label="Bulk duration"><option value="1800">30 min</option><option value="3600">1 hour</option><option value="0">Until closed</option></select><button id="timerBulkApply" type="button">Apply</button></div>
+    <div class="timer-table"><table><thead><tr><th><input id="timerSelectAll" type="checkbox" aria-label="Select displayed tabs"></th><th>Tab</th><th>Reload</th><th>Unload</th><th>Override</th></tr></thead><tbody id="timerRows"></tbody></table></div>
+    <div class="overview-tools"><button id="timerPrev" type="button">←</button><span id="timerPage"></span><button id="timerNext" type="button">→</button></div>
+    <p id="timerOverviewError" class="card-error" role="status" hidden></p>
+  </main>
+  <main class="blocked-page"><h1 id="blockedReason">Checking site rule…</h1><p id="blockedDomain"></p></main>
 
   <script src="popup.js"></script>
 </body>

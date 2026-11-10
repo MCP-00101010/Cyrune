@@ -129,6 +129,7 @@
           bridge.request('MW_NEXUS_GET_STATUS', {}, 30000)
         ]);
         snapshot = statusResult.status === 'fulfilled' ? (statusResult.value.snapshot || null) : null;
+        documentRepository?.discardOlderServiceRevisions(snapshot?.sampledAt || 0);
         remoteCheck = null;
         if (settingsResult.status === 'fulfilled') {
           settings = model.normalizeSettings(settingsResult.value.settings);
@@ -472,9 +473,8 @@
       return `<tr><th>${componentIconMarkup(component.id, 'protocol-icon')}<span>${model.escapeHtml(component.name)}</span></th><td>${model.escapeHtml(contracts)}</td><td><span class="compatibility-${compatibility.state}">${model.escapeHtml(compatibility.summary)}</span></td></tr>`;
     }).join('');
     const todoCards = model.COMPONENTS.map(component => `<article class="todo-summary" id="project-todo-summary-${component.id}">${componentIconMarkup(component.id, 'protocol-icon')}<div><strong>${model.escapeHtml(component.name)}</strong><span>Reading TODO…</span></div></article>`).join('');
-    viewRoot.innerHTML = `<section class="page-intro"><div><span class="section-kicker">Cyrune monorepo</span><h2>Architecture, migration and release state.</h2><p>Project combines the root migration checklist, component work queues, protocol readiness and the latest coordinated validation state.</p></div></section><section class="panel protocol-matrix"><div class="panel-heading"><div><span class="section-kicker">Expansion contracts</span><h2>Protocol compatibility matrix</h2></div></div><div class="table-scroll"><table><thead><tr><th>Component</th><th>Required contracts</th><th>Observed readiness</th></tr></thead><tbody>${protocolRows}</tbody></table></div></section><section class="panel todo-summary-panel"><div class="panel-heading"><div><span class="section-kicker">Work queues</span><h2>Component TODO summary</h2></div></div><div class="todo-summary-grid">${todoCards}</div></section><section class="document-grid">${projectDocumentPanel('todo', 'Migration and cutover', '../CYRUNE-MONOREPO-TODO.md')}${projectDocumentPanel('project', 'Project architecture', '../PROJECT.md')}</section>`;
+    viewRoot.innerHTML = `<section class="page-intro"><div><span class="section-kicker">Cyrune monorepo</span><h2>Architecture and release state.</h2><p>Project combines component work queues, architecture, protocol readiness and the latest coordinated validation state.</p></div></section><section class="panel protocol-matrix"><div class="panel-heading"><div><span class="section-kicker">Expansion contracts</span><h2>Protocol compatibility matrix</h2></div></div><div class="table-scroll"><table><thead><tr><th>Component</th><th>Required contracts</th><th>Observed readiness</th></tr></thead><tbody>${protocolRows}</tbody></table></div></section><section class="panel todo-summary-panel"><div class="panel-heading"><div><span class="section-kicker">Work queues</span><h2>Component TODO summary</h2></div></div><div class="todo-summary-grid">${todoCards}</div></section><section class="document-grid">${projectDocumentPanel('project', 'Project architecture', '../PROJECT.md')}</section>`;
     loadTodoSummaries();
-    loadProjectDocument('todo', '../CYRUNE-MONOREPO-TODO.md');
     loadProjectDocument('project', '../PROJECT.md');
   }
 
@@ -521,8 +521,8 @@
   }
 
   function projectDocumentPanel(id, label, url) {
-    const action = id === 'todo' ? '<button class="text-button" type="button" data-open-todo="project">Edit in VS Code ↗</button>' : `<a class="text-button" href="${url}" target="_blank" rel="noopener">Open file ↗</a>`;
-    return `<article class="panel document-panel"><div class="panel-heading"><div><span class="section-kicker">${label}</span><h2>${id === 'todo' ? 'Migration TODO' : 'PROJECT.md'}</h2></div>${action}</div><div class="document-content" id="project-document-${id}"><div class="document-loading"><span></span><p>Reading local document…</p></div></div></article>`;
+    const action = `<a class="text-button" href="${url}" target="_blank" rel="noopener">Open file ↗</a>`;
+    return `<article class="panel document-panel"><div class="panel-heading"><div><span class="section-kicker">${label}</span><h2>PROJECT.md</h2></div>${action}</div><div class="document-content" id="project-document-${id}"><div class="document-loading"><span></span><p>Reading local document…</p></div></div></article>`;
   }
 
   async function openTodoInVscode(component) {
@@ -640,7 +640,6 @@
   window.addEventListener('cyrune:nexus-settings-changed', event => {
     const revision = Number(event.detail?.revision || 0);
     if (revision > settings.revision) {
-      documentRepository?.discardOlderServiceRevisions(revision);
       void refreshAuthoritative();
     }
   });

@@ -11,7 +11,7 @@ import hashlib
 import json
 from pathlib import Path
 
-from arcade_core.catalogue_identity import CatalogueError, IdentityRegistry, encoded, read_object, relative_media, valid_id
+from arcade_core.catalogue_identity import CatalogueError, IdentityRegistry, encoded, read_object, valid_id
 from arcade_core.paths import ConfinedRoot, PathConfinementError
 from arcade_core.catalogue_snapshot import snapshot_cached
 from arcade_core.import_manifest import MEDIA_FORMATS, BASE_TEXT, DETAIL_TEXT, DETAIL_LISTS, plain_text as _text

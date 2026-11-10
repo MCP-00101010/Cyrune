@@ -12,6 +12,30 @@ function include(context, ...names) {
   }
 }
 
+test('Favourites uses the title family without falsely excluding an unstarred default edition', () => {
+  const base={id:'default',title:'Example',system:'128K',view:'collection',version_group:'family',default_version:'default',favourite:false};
+  const alternate={...base,id:'alternate',system:'48K',favourite:true};
+  const unrelated={...base,id:'other',version_group:'other',default_version:'other',favourite:false};
+  const games=[base,alternate,unrelated];
+  const state={games,gamesById:new Map(games.map(game=>[game.id,game])),versionGroups:new Map([['family',[base,alternate]],['other',[unrelated]]])};
+  const c=vm.createContext({state,gameLanguageCodes:game=>game.languages||[],gameTags:()=>[],gameYear:game=>game.year||''});
+  include(c,'intersects','matchesExcludedFilters','matchesActiveFilters','groupedGameRows','favouriteGameMembers','isGameFavourite');
+  const filters={view:'favourites',poks:'neutral',excluded:{},system:new Set(),language:new Set(),country:new Set(),year:new Set(),publisher:new Set(),tag:new Set()};
+  const rows=()=>c.groupedGameRows(games.filter(game=>c.matchesActiveFilters(game,'',filters)),filters);
+  assert.equal(rows().length,1);
+  assert.equal(rows()[0].id,'default');
+  assert.equal(rows()[0].favourite,true);
+  assert.equal(rows()[0].default_excluded_by_filters,false,'The default belongs to a favourite title even if only an alternative is starred');
+  filters.system.add('48K');
+  assert.equal(rows()[0].default_excluded_by_filters,true,'A real hardware filter still warns about the saved 128K default');
+  filters.system.clear();filters.excluded.system=new Set(['48K']);
+  assert.equal(rows().length,1,'Excluding the starred edition does not unstar the title');
+  assert.equal(rows()[0].favourite,true);
+  assert.equal(rows()[0].default_excluded_by_filters,false);
+  assert.equal(base.favourite,false);assert.equal(alternate.favourite,true);
+  assert.equal(base.default_version,'default','Filtering does not change launch policy');
+});
+
 test('a delayed collection dropdown refresh cannot restore the previous platform', async () => {
   let release;
   const state={activeCollection:{id:'old'},collections:[],collectionViewGeneration:0};
@@ -127,6 +151,7 @@ test('excluded editions leave the remaining count and badges while retaining the
   const row = state.filtered[0];
   assert.equal(state.filtered.length, 1); assert.equal(row.version_count,2);
   assert.equal(row.id,'FR'); assert.equal(row.default_version,'FR');
+  assert.equal(row.default_excluded_by_filters,true);
   assert.equal(row.title,'Pirates!'); assert.equal(row.publisher,'MicroProse');
   assert.deepEqual(Array.from(row.languages),['EN','DE']);
   assert.deepEqual(Array.from(row.version_systems),['ST','STe']);
@@ -146,6 +171,7 @@ test('search, positive/negative filters, POK state and view survive platform swi
   include(context,'filterSettings','setFilterCheckbox','rememberPlatformFilters','restorePlatformFilters');
   context.restorePlatformFilters('zx-spectrum');
   els.search.value='Jetpac'; state.multiFilters={system:['48K']}; state.excludedFilters={language:['FR']};
+  state.sortRules=[{key:'year',dir:'desc'}];
   input.dataset.filterState='exclude'; els.filterView.value='favourites';
   els.filterCleanup.value='review';
   context.restorePlatformFilters('atari-st');
@@ -155,6 +181,7 @@ test('search, positive/negative filters, POK state and view survive platform swi
   context.restorePlatformFilters('zx-spectrum');
   assert.equal(els.filterCleanup.value,'review');
   assert.equal(els.search.value,'Jetpac'); assert.equal(input.indeterminate,true);
+  assert.equal(state.sortRules[0].key,'year'); assert.equal(state.sortRules[0].dir,'desc');
   assert.equal(els.filterView.value,'favourites'); assert.deepEqual(Array.from(state.multiFilters.system),['48K']);
   context.rememberPlatformFilters();
   state.ui=JSON.parse(saved.get('ui')); state.filterPlatform='';

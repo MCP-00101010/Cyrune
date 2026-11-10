@@ -74,7 +74,7 @@ function refreshRenderedWidget(widget, context = 'column') {
   const selector = context === 'navpane' ? '.nav-widget-item' : '.widget-card';
   const host = [...document.querySelectorAll(`${selector}[data-item-id], ${selector}[data-id]`)]
     .find(element => (element.dataset.itemId || element.dataset.id) === widget.id);
-  const body = host?.querySelector(context === 'navpane' ? '.nav-widget-body' : '.widget-body');
+  const body = host?.querySelector('[data-widget-body]');
   const def = WIDGET_REGISTRY[widget.widgetType];
   if (!host || !body || !def) return false;
   clearWidgetContextRuntime(widget.id, context);
@@ -82,6 +82,7 @@ function refreshRenderedWidget(widget, context = 'column') {
   if (typeof WidgetSDK !== 'undefined') WidgetSDK.runtime.render(def, widget, body, context);
   else def.render(widget, body, context);
   host.dataset.widgetRenderSignature = _widgetRenderSignature(widget);
+  _syncWidgetTitle(host, widget);
   requestAnimationFrame(() => resizeWidgetRuntime(widget.id));
   return true;
 }
@@ -130,7 +131,21 @@ function _newWidgetState(widgetType) {
   };
 }
 
+function _syncWidgetTitle(host, widget) {
+  let heading = host.querySelector(':scope > .widget-custom-title');
+  const title = String(widget.title || '').trim();
+  if (!title) { heading?.remove(); return; }
+  if (!heading) {
+    heading = document.createElement('div');
+    heading.className = 'widget-custom-title';
+    host.prepend(heading);
+  }
+  heading.textContent = title;
+}
+
 function _appendWidgetActionButtons(host, widget, body, context, options = {}) {
+  body.dataset.widgetBody = '';
+  _syncWidgetTitle(host, widget);
   const def = WIDGET_REGISTRY[widget.widgetType];
   if (!def) return;
   const rerenderBody = () => {
@@ -139,6 +154,7 @@ function _appendWidgetActionButtons(host, widget, body, context, options = {}) {
     if (typeof WidgetSDK !== 'undefined') WidgetSDK.runtime.render(def, widget, body, context);
     else def.render(widget, body, context);
     host.dataset.widgetRenderSignature = _widgetRenderSignature(widget);
+    _syncWidgetTitle(host, widget);
   };
   const refreshAfterSettings = options.onSettingsRefresh || rerenderBody;
 
@@ -324,81 +340,129 @@ function openWidgetSettings(widget, onRefresh, options = {}) {
       while (body.firstChild) section.appendChild(body.firstChild);
       body.appendChild(section);
     }
-    if (typeof WidgetSDK === 'undefined') return;
+  };
+  renderSettingsBody();
+
+  const templatesButton = document.getElementById('wstgTemplatesBtn');
+  templatesButton.disabled = typeof WidgetSDK === 'undefined';
+  templatesButton.addEventListener('click', () => {
+    syncConfig(false);
+    const dialog = document.createElement('dialog');
+    const dialogAbort = new AbortController();
+    const dialogSig = dialogAbort.signal;
+    dialog.className = 'widget-templates-dialog settings-panel';
+    dialog.setAttribute('aria-labelledby', 'widgetTemplatesTitle');
+    dialog.innerHTML = `<div class="settings-header"><h3 id="widgetTemplatesTitle">Templates</h3></div><div class="widget-templates-body"></div><p class="widget-templates-status" role="status"></p><div class="form-actions"><button type="button" class="secondary-btn widget-templates-close">Close</button></div>`;
+    const templateBody = dialog.querySelector('.widget-templates-body');
     const presetSection = document.createElement('div');
     presetSection.className = 'settings-section widget-preset-settings';
     presetSection.innerHTML = `
-      <div class="settings-section-label">Reusable preset</div>
-      <div class="settings-row"><select class="settings-select widget-preset-select" aria-label="Saved widget preset"><option value="">Choose a preset…</option></select></div>
+      <div class="settings-section-label">${_escapeWidgetSettingValue(def.name)}</div>
+      <div class="settings-row"><select class="settings-select widget-preset-select" aria-label="Saved widget template"><option value="">Choose a template…</option></select></div>
+      <label class="settings-row"><span>Name</span><input class="settings-text-input widget-preset-name" maxlength="80" /></label>
       <label class="settings-row"><span>Include portable content when saving</span><input type="checkbox" class="widget-preset-data" /></label>
       <div class="widget-preset-actions">
-        <button type="button" class="secondary-btn widget-preset-save">Save new</button>
+        <button type="button" class="secondary-btn widget-preset-save">Save</button>
         <button type="button" class="secondary-btn widget-preset-apply">Apply</button>
         <button type="button" class="secondary-btn widget-preset-delete">Delete</button>
         <button type="button" class="secondary-btn widget-preset-export">Export</button>
-        <label class="secondary-btn widget-preset-import">Import<input type="file" accept="application/json,.json" hidden /></label>
+        <button type="button" class="secondary-btn widget-preset-import">Import</button><input class="widget-preset-file" type="file" accept="application/json,.json" hidden />
       </div>`;
     const select = presetSection.querySelector('.widget-preset-select');
-    WidgetSDK.presets.list(widget.widgetType).forEach(preset => {
-      const option = document.createElement('option');
-      option.value = preset.id;
-      option.textContent = preset.name;
-      select.appendChild(option);
-    });
+    const nameInput = presetSection.querySelector('.widget-preset-name');
+    nameInput.value = draftWidget.title || def.name;
+    const updateChoices = (selected = select.value) => {
+      select.replaceChildren();
+      const placeholder = document.createElement('option');
+      placeholder.value = ''; placeholder.textContent = 'Choose a template…'; select.appendChild(placeholder);
+      WidgetSDK.presets.list(widget.widgetType).forEach(preset => {
+        const option = document.createElement('option');
+        option.value = preset.id;
+        option.textContent = preset.name;
+        select.appendChild(option);
+      });
+      select.value = selected;
+      presetSection.querySelectorAll('.widget-preset-apply, .widget-preset-delete').forEach(button => { button.disabled = !select.value; });
+    };
+    updateChoices();
+    select.addEventListener('change', () => updateChoices());
+    const reportError = message => { dialog.querySelector('.widget-templates-status').textContent = message; };
+    const attempt = task => { try { reportError(''); task(); } catch (error) { reportError(error?.message || 'Could not update templates.'); } };
     presetSection.querySelector('.widget-preset-save').addEventListener('click', () => {
-      syncConfig(false);
-      const name = prompt('Preset name', draftWidget.title || def.name);
-      if (!name?.trim()) return;
-      const saved = WidgetSDK.presets.save(draftWidget, name, { includeData: presetSection.querySelector('.widget-preset-data').checked });
-      renderSettingsBody();
-      const nextSelect = body.querySelector('.widget-preset-select');
-      if (nextSelect) nextSelect.value = saved.id;
-      showNotice(`Saved “${saved.name}”.`);
-    }, { signal: sig });
+      attempt(() => {
+        const name = nameInput.value.trim();
+        if (!name) { nameInput.focus(); return; }
+        const saved = WidgetSDK.presets.save(draftWidget, name, { includeData: presetSection.querySelector('.widget-preset-data').checked });
+        updateChoices(saved.id);
+      });
+    }, { signal: dialogSig });
     presetSection.querySelector('.widget-preset-apply').addEventListener('click', () => {
-      if (!select.value) return showNotice('Choose a preset first.');
-      WidgetSDK.presets.apply(draftWidget, select.value);
-      titleInput.value = draftWidget.title || '';
-      renderSettingsBody();
-      if (def.liveSettingsPreview !== false && onRefresh) { applyDraftToWidget(); onRefresh(); }
-      showNotice('Preset applied to this draft. Cancel restores the previous settings.');
-    }, { signal: sig });
+      if (!select.value) return;
+      attempt(() => {
+        WidgetSDK.presets.apply(draftWidget, select.value);
+        titleInput.value = draftWidget.title || '';
+        renderSettingsBody();
+        if (def.liveSettingsPreview !== false && onRefresh) { applyDraftToWidget(); onRefresh(); }
+        dialog.close();
+      });
+    }, { signal: dialogSig });
     presetSection.querySelector('.widget-preset-delete').addEventListener('click', () => {
-      if (!select.value) return showNotice('Choose a preset first.');
-      const selectedName = select.selectedOptions[0]?.textContent || 'this preset';
+      if (!select.value) return;
+      const selectedName = select.selectedOptions[0]?.textContent || 'this template';
       if (!confirm(`Delete “${selectedName}”?`)) return;
-      WidgetSDK.presets.remove(select.value);
-      renderSettingsBody();
-      showNotice('Preset deleted.');
-    }, { signal: sig });
+      attempt(() => {
+        WidgetSDK.presets.remove(select.value);
+        updateChoices('');
+      });
+    }, { signal: dialogSig });
     presetSection.querySelector('.widget-preset-export').addEventListener('click', () => {
-      const blob = new Blob([WidgetSDK.presets.export(widget.widgetType)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const anchor = document.createElement('a');
-      anchor.href = url;
-      anchor.download = `${widget.widgetType}-presets.json`;
-      anchor.click();
-      URL.revokeObjectURL(url);
-    }, { signal: sig });
-    presetSection.querySelector('.widget-preset-import input').addEventListener('change', async event => {
+      attempt(() => {
+        const blob = new Blob([WidgetSDK.presets.export(widget.widgetType)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement('a');
+        anchor.href = url;
+        anchor.download = `${widget.widgetType}-presets.json`;
+        anchor.click();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+      });
+    }, { signal: dialogSig });
+    const fileInput = presetSection.querySelector('.widget-preset-file');
+    presetSection.querySelector('.widget-preset-import').addEventListener('click', () => fileInput.click());
+    fileInput.addEventListener('change', async event => {
       const file = event.target.files?.[0];
       if (!file) return;
       try {
-        const imported = WidgetSDK.presets.import(await file.text(), { conflict: 'rename' });
-        renderSettingsBody();
-        showNotice(`Imported ${imported.length} preset${imported.length === 1 ? '' : 's'}.`);
+        if (file.size > 4 * 1024 * 1024) throw new Error('Template file is too large.');
+        const text = await file.text();
+        if (sig.aborted || !dialog.open) return;
+        const documentValue = JSON.parse(text);
+        if (!Array.isArray(documentValue?.presets) || documentValue.presets.some(preset => preset.widgetType !== widget.widgetType)) throw new Error(`Import templates for ${def.name} only.`);
+        const imported = WidgetSDK.presets.import(text, { conflict: 'rename' });
+        updateChoices(imported[0]?.id || '');
       } catch (error) {
-        showNotice(error?.message || 'Could not import widget presets.');
+        if (!sig.aborted && dialog.open) reportError(error?.message || 'Could not import templates.');
       }
-    }, { signal: sig });
-    body.appendChild(presetSection);
-  };
-  renderSettingsBody();
+      fileInput.value = '';
+    }, { signal: dialogSig });
+    templateBody.appendChild(presetSection);
+    dialog.querySelector('.widget-templates-close').addEventListener('click', () => dialog.close());
+    dialog.addEventListener('keydown', event => event.stopPropagation());
+    dialog.addEventListener('close', () => { dialogAbort.abort(); dialog.remove(); if (!sig.aborted) templatesButton.focus(); }, { once: true });
+    const disposeDialog = () => { dialog.close(); dialog.remove(); };
+    sig.addEventListener('abort', disposeDialog, { once: true });
+    dialog.addEventListener('close', () => sig.removeEventListener('abort', disposeDialog), { once: true });
+    document.body.appendChild(dialog);
+    dialog.showModal();
+    centerPanel(dialog);
+    makeDraggable(dialog, dialog.querySelector('.settings-header'), undefined, { signal: dialogSig });
+    window.addEventListener('resize', () => centerPanel(dialog), { signal: dialogSig });
+  }, { signal: sig });
 
   document.getElementById('modalCard').classList.add('hidden');
   panel.classList.remove('hidden');
   elements.modalOverlay.classList.remove('hidden');
   centerPanel(panel);
+  window.addEventListener('resize', () => centerPanel(panel), { signal: sig });
   makeDraggable(panel, document.getElementById('wstgHeader'));
   titleInput.focus();
 
@@ -446,6 +510,7 @@ function openWidgetSettings(widget, onRefresh, options = {}) {
     if (typeof def.beforeSettingsCommit === 'function') {
       doneButton.disabled = true;
       cancelButton.disabled = true;
+      templatesButton.disabled = true;
       let canCommit = false;
       try {
         canCommit = await def.beforeSettingsCommit(draftWidget, body, {
@@ -461,6 +526,7 @@ function openWidgetSettings(widget, onRefresh, options = {}) {
       if (!canCommit) {
         doneButton.disabled = false;
         cancelButton.disabled = false;
+        templatesButton.disabled = typeof WidgetSDK === 'undefined';
         return;
       }
     }
@@ -521,9 +587,10 @@ function _createWidgetMapStyleControl(widget, context, normalizeStyle) {
         button.title = `Switch to ${nextLabel} basemap`;
         button.setAttribute('aria-label', button.title);
         button.dataset.mapStyle = style;
-        button.innerHTML = style === 'dark'
-          ? '<span aria-hidden="true">☀</span>'
-          : '<span aria-hidden="true">☾</span>';
+        const shape = style === 'dark'
+          ? '<circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5m11 11L19 19M5 19l1.5-1.5m11-11L19 5"/>'
+          : '<path d="M20.5 13.1A8.5 8.5 0 0 1 10.9 3.5 8.5 8.5 0 1 0 20.5 13.1Z"/>';
+        button.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${shape}</svg>`;
       };
 
       updateButton();

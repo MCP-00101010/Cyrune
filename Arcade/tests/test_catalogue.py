@@ -264,7 +264,7 @@ def test_paths_and_symlink_escapes_fail_closed(tmp_path):
 @pytest.mark.parametrize("params", [[], {"pageSize": True}, {"pageSize": 0}, {"pageSize": 101},
                                     {"pageSize": "2"}, {"view": "all"}, {"query": "x" * 161},
                                     {"query": None}, {"platformIds": ["zx-spectrum"] * 2},
-                                    {"platformIds": ["dosbox"]}, {"platformIds": [{}]}, {"cursor": "é"}])
+                                    {"platformIds": ["dosbox"]}, {"platformIds": [{}]}, {"cursor": "Ã©"}])
 def test_request_validation_rejects_coercion_and_unknown_fields(tmp_path, params):
     _, _, _, service = prepared(tmp_path)
     with pytest.raises(CatalogueError, match="invalid-request"):
@@ -352,3 +352,40 @@ def test_new_capability_is_not_exposed_by_legacy_dispatcher():
     service = ReadOnlyArcadeService(lambda: None, lambda: {}, lambda: [], lambda: [])
     with pytest.raises(ServiceContractError, match="Unsupported"):
         service.dispatch("CATALOGUE_SEARCH", {})
+
+
+def test_native_lookup_is_independent_of_picker_and_checks_target_kind(tmp_path):
+    root, registry, source, service = prepared(tmp_path)
+    entry = service.game_entry('spectrum', 'elite_48')
+    assert entry.base['title'] == 'Elite'
+    entry.base['title'] = 'Caller mutation'
+    assert service.game_entry('spectrum', 'elite_48').base['title'] == 'Elite'
+    with pytest.raises(CatalogueError, match='entry-missing'):
+        service.game_entry('other', 'elite_48')
+    with pytest.raises(CatalogueError, match='unsupported-target'):
+        service.game_entry('spectrum', 'elite_48', target_kind='scummvm-game')
+
+
+def test_native_family_projection_preserves_missing_default_and_file_views(tmp_path):
+    root, registry, source, service = prepared(tmp_path, [row(), row('elite_128', memory='128K', system='128K')])
+    anchor = service.game_entry('spectrum', 'elite_48')
+    group, members, default, saved = service.family(anchor.base['catalogueId'])
+    service.version_defaults = lambda: {group: {'catalogueId': 'f' * 64}}
+    games = [{'id': 'elite_48', 'view': 'collection'}, {'id': 'elite_128', 'view': 'incoming'}]
+    result = service.annotate_games('spectrum', games)
+    assert result[0]['version_count'] == 2
+    assert result[0]['default_version'] == ''
+    assert 'version_group' not in result[1]
+
+
+def test_native_operations_refresh_through_read_hook_without_search(tmp_path):
+    root, registry, source, original = prepared(tmp_path)
+    service = CatalogueService([source])
+    calls = []
+    def refresh():
+        calls.append(True)
+        service.refresh()
+    service._before_read = refresh
+    assert service.game_entry('spectrum', 'elite_48').legacy_id == 'elite_48'
+    assert service.annotate_games('spectrum', [{'id': 'elite_48'}])[0]['version_count'] == 1
+    assert len(calls) == 2

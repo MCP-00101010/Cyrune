@@ -1,4 +1,4 @@
-const ARCADE_VERSION = '0.2.58';
+const ARCADE_VERSION = '0.2.81';
 
 const state = {
   games: [],
@@ -119,10 +119,15 @@ const COUNTRY_OPTIONS = Object.keys(COUNTRY_NAMES).sort((a, b) => COUNTRY_NAMES[
 const LANGUAGE_OPTIONS = Object.keys(LANGUAGE_NAMES).sort((a, b) => LANGUAGE_NAMES[a].localeCompare(LANGUAGE_NAMES[b]));
 const ADD_COLLECTION_VALUE = "__add_collection__";
 const UI_STORAGE_KEY = "desasteron-spectrum-launcher-ui-v2";
-const VIRTUAL_ROW_HEIGHT = 38;
+let VIRTUAL_ROW_HEIGHT = 38;
+window.addEventListener('arcade:appearance-changed', event => {
+  VIRTUAL_ROW_HEIGHT = event.detail.rowHeight;
+  if (state.filtered.length) renderList();
+});
 const VIRTUAL_BUFFER_ROWS = 12;
 const COLUMN_DEFS = [
   { key: "title", label: "Title", sort: "title", width: 340, visible: true, render: renderTitleCell },
+  { key: "contents", label: "Contents", sort: "contents", width: 380, visible: true, render: (game) => escapeHtml(uniqueCompilationTitles(game.compilation_titles).join(' · ')) },
   { key: "publisher", label: "Publisher", sort: "publisher", width: 180, visible: true, render: (game) => escapeHtml(game.publisher || "") },
   { key: "series", label: "Series", sort: "series", width: 150, visible: true, render: (game) => escapeHtml(game.series || "") },
   { key: "year", label: "Year", sort: "year", width: 72, visible: true, render: (game) => escapeHtml(gameYear(game)) },
@@ -191,6 +196,7 @@ if (els.version) {
 
 function columnSettings(value = {}) {
   const order = Array.isArray(value.columnOrder) ? [...new Set(value.columnOrder.filter(key => COLUMN_MAP.has(key)))] : [];
+  if (order.length && COLUMN_MAP.has('contents') && !order.includes('contents')) order.splice(Math.max(0, order.indexOf('title') + 1), 0, 'contents');
   const result = {
     columnOrder: [...order, ...COLUMN_DEFS.map(column => column.key).filter(key => !order.includes(key))],
     columnVisibility: Object.fromEntries(COLUMN_DEFS.map(column => [column.key,
@@ -224,14 +230,102 @@ function loadUiState() {
 function saveUiState() {
   if (state.columnPlatform) state.ui.platformColumns[state.columnPlatform] = columnSettings(state.ui);
   try { localStorage.setItem(UI_STORAGE_KEY, JSON.stringify(state.ui)); } catch (_) { /* Keep preferences in memory if storage is unavailable. */ }
+  if (typeof arcadeSavedViewStore !== 'undefined' && arcadeSavedViewStore) renderSavedViews();
+}
+
+let arcadeSavedViewStore;
+function savedViewStore() {
+  return arcadeSavedViewStore ||= ArcadeSavedViews.create({storage:localStorage,
+    platforms:Object.keys(COLLECTION_PLATFORMS), filters:filterSettings, columns:columnSettings,
+    sorts:[...new Set([...SORT_FIELDS.map(row => row[0]), ...COLUMN_DEFS.map(column => column.sort)])]});
+}
+
+function currentSavedView() {
+  return {platform:collectionPlatform(state.activeCollection),
+    filters:filterSettings({search:els.search.value, multiFilters:state.multiFilters,
+      excludedFilters:state.excludedFilters, cleanup:els.filterCleanup.value,
+      poks:els.filterPoks.dataset.filterState, view:els.filterView.value}),
+    columns:columnSettings(state.ui), sortRules:state.sortRules.map(rule => ({...rule}))};
+}
+
+function renderSavedViews() {
+  const select = document.querySelector('#saved-view');
+  if (!select) return;
+  const current = currentSavedView();
+  const rows = savedViewStore().list(current.platform);
+  select.replaceChildren(new Option('Custom view', ''));
+  for (const row of rows) select.add(new Option(row.name, row.id));
+  const signature = value => JSON.stringify([value.filters, value.columns, value.sortRules]);
+  select.value = rows.find(row => signature(row) === signature(current))?.id || '';
+}
+
+function applySavedView(id) {
+  const saved = savedViewStore().list(collectionPlatform(state.activeCollection)).find(row => row.id === id);
+  if (!saved || state.collectionSwitchPending) return;
+  if (filterFrame) { cancelAnimationFrame(filterFrame); filterFrame = 0; }
+  els.search.value = saved.filters.search;
+  els.filterCleanup.value = saved.filters.cleanup;
+  state.multiFilters = saved.filters.multiFilters; state.excludedFilters = saved.filters.excludedFilters;
+  state.openFilterKey = '';
+  setFilterCheckbox(els.filterPoks, saved.filters.poks, 'POKs');
+  renderViewOptions();
+  els.filterView.value = [...els.filterView.options].some(option => option.value === saved.filters.view) ? saved.filters.view : 'all';
+  Object.assign(state.ui, saved.columns);
+  state.sortRules = saved.sortRules.length ? saved.sortRules : [{key:'title',dir:'asc'}];
+  els.library.scrollTop = 0;
+  renderTableStructure(); applyFilters();
+  document.querySelector('#saved-view-status').textContent = `Applied ${saved.name}`;
+}
+
+function showSavedViewsDialog(manage = false) {
+  const platform = collectionPlatform(state.activeCollection);
+  const captured = currentSavedView();
+  const overlay = document.createElement('div'); overlay.className = 'modal-overlay';
+  overlay.innerHTML = `<section class="modal"><h2>${manage ? 'Saved views' : 'Save current view'}</h2>
+
+    <label>Name<input data-view-name maxlength="80" autocomplete="off"></label>
+    <label>Existing view<select data-view-existing><option value="">New view</option></select></label>
+    <p data-view-message role="status"></p><div class="modal-actions">
+    <button data-view-save>Save</button><button data-view-delete class="secondary">Delete selected</button>
+    <button data-action="cancel" class="secondary">Cancel</button></div></section>`;
+  const name = overlay.querySelector('[data-view-name]'), existing = overlay.querySelector('[data-view-existing]');
+  const message = overlay.querySelector('[data-view-message]');
+  const refresh = () => {
+    existing.replaceChildren(new Option('New view', ''));
+    for (const row of savedViewStore().list(platform)) existing.add(new Option(row.name, row.id));
+  };
+  refresh();
+  existing.addEventListener('change', () => { name.value = savedViewStore().list(platform).find(row => row.id === existing.value)?.name || ''; });
+  overlay.querySelector('[data-view-save]').addEventListener('click', () => {
+    try {
+      if (!name.value.trim()) { name.focus(); throw new Error('Enter a view name.'); }
+      const rows = savedViewStore().list(platform);
+      const previous = rows.find(row => row.id === existing.value);
+      if (rows.some(row => row.id !== previous?.id && row.name.toLowerCase() === name.value.trim().toLowerCase())) throw new Error('That name is already used. Select the existing view to update it.');
+      savedViewStore().save({...((manage && previous) ? previous : captured), id:previous?.id || crypto.randomUUID(), name:name.value});
+      overlay.remove(); renderSavedViews();
+    } catch (error) { message.textContent = error.message || 'Browser storage is unavailable; the view was not saved.'; }
+  });
+  overlay.querySelector('[data-view-delete]').addEventListener('click', () => {
+    if (!existing.value) { message.textContent = 'Select a view to delete.'; return; }
+    try { savedViewStore().remove(existing.value); name.value = ''; refresh(); renderSavedViews(); message.textContent = 'View deleted.'; }
+    catch { message.textContent = 'Browser storage is unavailable; the view was retained.'; }
+  });
+  overlay.querySelector('[data-action="cancel"]').addEventListener('click', () => overlay.remove());
+  ArcadeDialogs.mount(overlay, {localOnly:true});
 }
 
 function filterSettings(value = {}) {
   value = value && typeof value === 'object' ? value : {};
-  const keys = ['system', 'language', 'country', 'year', 'publisher', 'tag'];
+  const keys = ['system', 'language', 'country', 'year', 'publisher', 'tag', 'compilation_group', 'series', 'compilation_condition'];
   const choices = field => Object.fromEntries(keys.map(key => [key, Array.isArray(value[field]?.[key])
     ? [...new Set(value[field][key].filter(item => typeof item === 'string' && item.length <= 200).slice(0, 200))] : []]));
+  const sortKeys = ['title','publisher','series','year','system','tag','language','country','version','poks','favourite','recent','contents','file','format','collection'];
+  const sortRules = (Array.isArray(value.sortRules) ? value.sortRules : []).slice(0,8)
+    .filter(rule => rule && sortKeys.includes(rule.key) && ['asc','desc'].includes(rule.dir))
+    .map(rule => ({key:rule.key,dir:rule.dir}));
   return {search:typeof value.search === 'string' ? value.search.slice(0, 500) : '',
+    sortRules:sortRules.length ? sortRules : [{key:'title',dir:'asc'}],
     multiFilters:choices('multiFilters'), excludedFilters:choices('excludedFilters'),
     cleanup:['artwork','description','review'].includes(value.cleanup) ? value.cleanup : '',
     poks:['include','exclude'].includes(value.poks) ? value.poks : 'neutral',
@@ -242,7 +336,7 @@ function rememberPlatformFilters() {
   if (!state.filterPlatform) return;
   state.ui.platformFilters[state.filterPlatform] = filterSettings({search:els.search.value,
     multiFilters:state.multiFilters, excludedFilters:state.excludedFilters,
-    poks:els.filterPoks.dataset.filterState, view:els.filterView.value, cleanup:els.filterCleanup?.value});
+    poks:els.filterPoks.dataset.filterState, view:els.filterView.value, cleanup:els.filterCleanup?.value,sortRules:state.sortRules});
   saveUiState();
 }
 
@@ -255,6 +349,7 @@ function restorePlatformFilters(platform) {
   if (els.filterCleanup) els.filterCleanup.value = saved.cleanup;
   state.multiFilters = saved.multiFilters;
   state.excludedFilters = saved.excludedFilters;
+  state.sortRules = saved.sortRules;
   state.openFilterKey = '';
   setFilterCheckbox(els.filterPoks, saved.poks, 'POKs');
   // Build this collection's available views before selecting the stored view.
@@ -264,6 +359,10 @@ function restorePlatformFilters(platform) {
 
 function collectionPlatform(collection) {
   return globalThis.ArcadePlatforms.collection(collection);
+}
+
+function isCompilationCollection() {
+  return state.activeCollection?.kind === 'atari-compilations-v1';
 }
 
 function restorePlatformColumns(platform) {
@@ -283,6 +382,7 @@ function visibleColumns() {
 }
 
 function platformColumnAvailable(key) {
+  if (key === 'contents') return isCompilationCollection();
   return key !== 'poks' || Boolean(globalThis.ArcadePlatforms.libraries[collectionPlatform(state.activeCollection)]?.poks);
 }
 
@@ -308,7 +408,10 @@ function renderLayout() {
 }
 
 function toggleSidebar(which) {
-  if (which === 'details' && window.innerWidth <= 1100) {
+  if (which === 'sidebar' && document.documentElement.dataset.arcadeNarrow === 'true') {
+    els.shell.classList.toggle('mobile-sidebar-open'); return;
+  }
+  if (which === 'details' && (window.innerWidth <= 1100 || document.documentElement.dataset.arcadeCompact === 'true')) {
     els.shell.classList.toggle('mobile-details-open');
     return;
   }
@@ -486,7 +589,7 @@ async function api(path, options = {}) {
       throw new Error("The Cyrune Arcade request body is invalid.");
     }
   }
-  const collectionRoutes = new Set('games game game-versions poks recent scrape-targets scrape-preview apply-scrape metadata-care update-metadata favourite favourites-bulk game-version-default launch open-pok open-explorer rename metadata-preview metadata-undo delete delete-bulk import-incoming import-incoming-bulk restore-trash purge-trash move-language rebuild'.split(' ').map(name => '/api/' + name));
+  const collectionRoutes = new Set('games game game-versions poks recent scrape-targets scrape-preview apply-scrape metadata-care update-metadata compilation-catalogue favourite favourites-bulk game-version-default launch open-pok open-explorer rename metadata-preview metadata-undo delete delete-bulk import-incoming import-incoming-bulk restore-trash purge-trash move-language rebuild'.split(' ').map(name => '/api/' + name));
   const collectionId = options.collectionId || state.activeCollection?.id;
   if (collectionId && collectionRoutes.has(target.pathname)) {
     if (String(options.method || 'GET').toUpperCase() === 'GET') target.searchParams.set('collection_id', collectionId);
@@ -496,12 +599,13 @@ async function api(path, options = {}) {
     if (state.summaryRevision && collectionId === state.summaryCollection) target.searchParams.set('since', state.summaryRevision);
   }
   const summaryBase = target.searchParams.has('since') ? [...state.games] : [];
-  const response = await requestArcadeRpc({
+  const request = () => requestArcadeRpc({
     method: String(options.method || "GET").toUpperCase(),
     path: target.pathname,
     query: Object.fromEntries(target.searchParams.entries()),
     body: body && typeof body === "object" ? body : {},
   });
+  const response = await (globalThis.ArcadeDialogs ? ArcadeDialogs.request(request) : request());
   let payload = response.result || {};
   if (target.pathname === '/api/scrape-preview' && payload.job_id) {
     const deadline = Date.now() + 180000;
@@ -583,7 +687,19 @@ async function init() {
 }
 
 function bindEvents() {
+  document.querySelector('#compilation-catalogue').addEventListener('click', showCompilationCatalogue);
   els.version.addEventListener('click', () => showArcadeSettings());
+  document.querySelector('#platform-grid').addEventListener('contextmenu', event => {
+    const button = event.target.closest('[data-platform]');
+    if (!button) return;
+    const platform = button.dataset.platform;
+    const collection = state.collections.find(item => collectionPlatform(item) === platform && item.available);
+    ArcadeMenus.show(event,[
+      {label:'Open library',group:'open',disabled:!collection,run:() => selectCollection(collection.id)},
+      {label:'Library settings…',group:'edit',run:() => showArcadeSettings(platform)},
+      {label:'Emulators & profiles…',group:'tools',disabled:!collection,run:() => showEmulatorProfileModal(collection)}
+    ]);
+  });
   document.querySelector('#platform-grid').addEventListener('click', async event => {
     const button = event.target.closest('[data-platform]');
     if (!button) return;
@@ -594,6 +710,9 @@ function bindEvents() {
     els.platformSelect.dispatchEvent(new Event('change'));
   });
   els.search.addEventListener("input", scheduleFilterApply);
+  document.querySelector('#saved-view').addEventListener('change', event => applySavedView(event.target.value));
+  document.querySelector('#save-view').addEventListener('click', () => showSavedViewsDialog());
+  document.querySelector('#manage-views').addEventListener('click', () => showSavedViewsDialog(true));
   document.addEventListener("click", hideContextMenu);
   window.addEventListener("blur", hideContextMenu);
   bindFilterCheckbox(els.filterPoks, 'neutral', 'POKs', applyFilters);
@@ -750,10 +869,12 @@ function groupedGameRows(games, filters = null) {
     const union = field => [...new Set(members.flatMap(row => row[field] || []).filter(Boolean))];
     // Keep the title and details attached to the same edition, even when filters hide it.
     return [{ ...launch,
+      default_excluded_by_filters: !!filters && !matchesActiveFilters(launch, '', filters),
       version_count:members.length, languages: union('languages'), countries: union('countries'),
       version_systems: union('system'), version_editions: union('version'),
       version_platforms: union('platform_options'),
-      favourite: members.some(row => row.favourite) }];
+      system_versions: members,
+      favourite: family.some(row => row.favourite) }];
   });
 }
 
@@ -781,19 +902,24 @@ const ARCADE_PLATFORM_ICONS = Object.freeze({
   steam: ['steam.svg', 'Steam edition'], unknown: ['unknown.svg', 'Unspecified platform']
 });
 
-function renderPlatformIcons(game) {
+function gameSystemBadges(game) {
   const values = game.version_platforms?.length ? game.version_platforms
     : game.platform_options?.length ? game.platform_options
     : game.version_systems?.length ? game.version_systems : [game.system || game.memory || ''];
+  if (game.type === 'Game Boy') {
+    const order = ['GB', 'GBC', 'GBA'];
+    return [...new Set(values)].filter(system => order.includes(system)).sort((a,b) => order.indexOf(a)-order.indexOf(b))
+      .map(system => ({id:system, name:system, text:system}));
+  }
   if (game.type === 'Atari ST') {
     const order = ['ST', 'STe', 'TT', 'Falcon'];
     const systems = [...new Set(values)].filter(value => order.includes(value)).sort((a,b) => order.indexOf(a)-order.indexOf(b));
-    return `<span class="game-platform-icons">${systems.map(system => `<span class="game-system-badge" title="Atari ${system}">${system}</span>`).join('')}</span>`;
+    return systems.map(system => ({id:system, name:`Atari ${system}`, text:system}));
   }
   const hardware = [...new Set(values.flatMap(value => /^(?:16|48|128)K(?:-(?:16|48|128)K)?$/i.test(String(value))
-    ? String(value).toUpperCase().split('-') : []))].sort((a, b) => parseInt(a) - parseInt(b));
-  if (hardware.length) return `<span class="game-platform-icons">${hardware.map(system =>
-    `<span class="game-system-badge" title="ZX Spectrum ${system}">${system}</span>`).join('')}</span>`;
+    ? [[...new Set(String(value).toUpperCase().split('-'))].sort((a,b) => parseInt(a)-parseInt(b)).join('-')] : []))]
+    .sort((a,b) => parseInt(a)-parseInt(b) || a.localeCompare(b));
+  if (hardware.length) return hardware.map(system => ({id:system, name:`ZX Spectrum ${system.replaceAll('-', '/')}`, text:system.replaceAll('-', '/')}));
   const icons = new Map();
   for (const value of values) {
     const label = String(value).slice(0, 80);
@@ -805,9 +931,24 @@ function renderPlatformIcons(game) {
     if (icons.has(id)) icons.get(id).labels.add(title);
     else icons.set(id, { file, name, labels: new Set([title]) });
   }
-  return `<span class="game-platform-icons">${[...icons].map(([id, icon]) =>
-    `<img class="game-platform-icon${id === 'steam' ? ' game-platform-steam' : ''}" src="assets/platforms/${icon.file}" alt="${escapeHtml(icon.name)}" title="${escapeHtml([...icon.labels].join(' / '))}" width="26" height="26">`
-  ).join('')}</span>`;
+  return [...icons].map(([id, icon]) => ({id, ...icon}));
+}
+
+function systemVersionCandidates(game, systemId) {
+  return (game.system_versions || [game]).filter(version => gameSystemBadges(version).some(badge => badge.id === systemId));
+}
+
+function renderPlatformIcons(game) {
+  return `<span class="game-platform-icons">${gameSystemBadges(game).map(badge => {
+    const members = systemVersionCandidates(game, badge.id);
+    const isDefault = members.some(version => version.id && version.id === (game.default_version || (!game.version_group ? game.id : '')));
+    const interactive = game.id && !['incoming', 'trash'].includes(game.view) && members.length;
+    const content = badge.text ? `<span class="game-system-badge">${escapeHtml(badge.text)}</span>`
+      : `<img class="game-platform-icon${badge.id === 'steam' ? ' game-platform-steam' : ''}" src="assets/platforms/${badge.file}" alt="${escapeHtml(badge.name)}" width="26" height="26">`;
+    const title = `${badge.name}${isDefault ? ' · Default version' : ''}${interactive ? ' · Click to launch; right-click for options' : ''}`;
+    return interactive ? `<button type="button" class="system-version-button${isDefault ? ' system-version-default' : ''}" data-system-version="${escapeHtml(badge.id)}" title="${escapeHtml(title)}" aria-label="${escapeHtml(title)}">${content}</button>`
+      : `<span title="${escapeHtml(title)}">${content}</span>`;
+  }).join('')}</span>`;
 }
 
 async function loadGameDialogVersions(game, collectionId) {
@@ -848,7 +989,7 @@ async function showGameProperties(game) {
     <p data-prop-status role="status" aria-live="polite">Loading properties…</p>
     <footer class="property-footer"><button data-prop-recover class="secondary" hidden>Recover interrupted save</button><button class="secondary" data-prop-cancel>Cancel</button><button data-prop-save>Save</button></footer>
   </section>`;
-  document.body.appendChild(overlay);
+  ArcadeDialogs.mount(overlay);
   const el = name => overlay.querySelector('[data-prop-' + name + ']');
   void loadGameDetails(game.id).then(details => {const note = details?.scrape_provenance; if (overlay.isConnected && state.activeCollection.id === collectionId) el('provenance').textContent = note?.scraped_at ? `Metadata: ${note.provider || 'Manual'} · ${note.platform || game.system} · ${note.scraped_at.slice(0,10)}` : '';}).catch(() => {});
   let data = null, busy = true, dirty = false, selectedDisk = '';
@@ -997,17 +1138,17 @@ async function showGameProperties(game) {
   } catch (error) { busy = false; el('status').textContent = error.message; refreshEnabled(); }
 }
 
-async function showGameVersions(game) {
+async function showGameVersions(game, systemChoice = null) {
   const collectionId = state.activeCollection.id;
   const previousFocus = document.activeElement;
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay';
   overlay.innerHTML = `<section class="modal game-versions-modal" role="dialog" aria-modal="true" aria-labelledby="game-versions-title">
-    <h2 id="game-versions-title">Launch Version…</h2><p data-version-title></p>
-    <p>Double-click launches the default. Launching another version here leaves the default unchanged.</p>
+    <h2 id="game-versions-title">${game.compilation_group ? 'Choose boot image…' : 'Launch Version…'}</h2><p data-version-title></p>
+    <p>${systemChoice ? 'Several installed editions use this system. Choose the edition to launch or make default.' : game.compilation_group ? 'Each choice boots one image in drive A. Choose a part or revision, then select the game in its original menu. Drive B is empty unless you configure it in Properties.' : 'Double-click launches the default. Launching another version here leaves the default unchanged.'}</p>
     <div data-version-list class="game-version-list"></div><p data-version-status role="status">Loading versions…</p>
     <div class="modal-actions"><button data-version-close class="secondary">Close</button></div></section>`;
-  document.body.appendChild(overlay);
+  ArcadeDialogs.mount(overlay);
   overlay.querySelector('[data-version-title]').textContent = game.title;
   const status = overlay.querySelector('[data-version-status]');
   const list = overlay.querySelector('[data-version-list]');
@@ -1031,7 +1172,9 @@ async function showGameVersions(game) {
     const result = await loadGameDialogVersions(game, collectionId);
     if (!overlay.isConnected) return;
     list.replaceChildren();
-    for (const version of result.versions) {
+    const versions = systemChoice ? result.versions.filter(version => systemChoice.gameIds.includes(version.gameId)) : result.versions;
+    if (systemChoice) overlay.querySelector('[data-version-title]').textContent = `${game.title} · ${systemChoice.label}`;
+    for (const version of versions) {
       const row = document.createElement('div'); row.className = 'game-version-row';
       const label = document.createElement('span'); label.className = 'game-version-label';
       for (const filename of version.imageFiles || []) {
@@ -1040,6 +1183,12 @@ async function showGameVersions(game) {
       }
       const description = document.createElement('span'); description.className = 'game-version-description'; description.textContent = version.label;
       label.appendChild(description);
+      const compilation = state.gamesById.get(version.gameId);
+      if (compilation?.compilation_titles?.length) {
+        const contents = document.createElement('span'); contents.className = 'game-version-description';
+        contents.textContent = 'Contents: ' + uniqueCompilationTitles(compilation.compilation_titles).join(' · ');
+        label.appendChild(contents);
+      }
       const marker = document.createElement('strong'); marker.textContent = version.isDefault ? 'Default' : '';
       const launch = document.createElement('button'); launch.textContent = 'Launch';
       const makeDefault = document.createElement('button'); makeDefault.className = 'secondary';
@@ -1056,7 +1205,9 @@ async function showGameVersions(game) {
             const target = state.games.find(row => row.catalogue_id === version.catalogueId && row.entry_revision === version.entryRevision);
             if (!target) throw new Error('The library changed. Close this window and try again.');
             await selectGame(target.id);
-            const result = await launchGame('', '', true);
+            if (state.activeCollection?.id !== collectionId || state.selected?.id !== target.id)
+              throw new Error('The selection changed. Try again.');
+            const result = await launchGame('', '', true, state.selected);
             await refreshRecentAfterLaunch(); await renderDetails(launchMessage(result));
             busy = false; dismiss();
           }
@@ -1068,7 +1219,8 @@ async function showGameVersions(game) {
       makeDefault.addEventListener('click', () => void run('default'));
       row.append(label, marker, launch, makeDefault); list.appendChild(row);
     }
-    status.textContent = result.versions.some(version => version.isDefault) ? '' : 'The saved default is missing. Choose an available version as default.';
+    status.textContent = !versions.length ? 'These versions are no longer available. Close this window and try again.'
+      : result.versions.some(version => version.isDefault) ? '' : 'The saved default is missing. Choose an available version as default.';
   };
   try { await load(); } catch (error) { status.textContent = error.message; }
 }
@@ -1093,6 +1245,15 @@ async function refreshCollectionsForDropdown() {
 }
 
 function renderMetadataFilters(filters = activeFiltersSnapshot()) {
+  const catalogueButton = document.querySelector('#compilation-catalogue');
+  if (catalogueButton) catalogueButton.hidden = !isCompilationCollection();
+  for (const [key, label] of [['compilation_group', 'Group'], ['series', 'Series'], ['compilation_condition', 'Image condition']]) {
+    const combo = document.querySelector('#filter-' + key);
+    if (combo) {
+      combo.closest('label').hidden = !isCompilationCollection();
+      if (isCompilationCollection()) renderFilterCombo(combo, buildSimpleOptions(key, filteredForCounts(key, filters)), label, 'All ' + label.toLowerCase());
+    }
+  }
   renderFilterCombo(els.filterSystem, buildSimpleOptions("system", filteredForCounts("system", filters)), "System", "All Systems");
   renderFilterCombo(els.filterLanguage, buildLanguageOptions(filteredForCounts("language", filters)), "Language", "All Languages");
   renderFilterCombo(els.filterCountry, buildCountryOptions(filteredForCounts("country", filters)), "Country", "All Countries");
@@ -1340,6 +1501,7 @@ function renderPlatformNavigation(platform) {
   grid.innerHTML = Object.entries(COLLECTION_PLATFORMS).map(([id, name]) =>
     `<button type="button" class="platform-slot" data-platform="${id}" aria-pressed="${id === platform}" title="${name}">
       ${renderNavigationIcon(id)}<span>${name}</span></button>`).join('');
+  globalThis.ArcadeNavigationOrder.attach(grid, 'platforms', 'data-platform');
   if (focused) [...grid.querySelectorAll('[data-platform]')].find(button => button.dataset.platform === focused)?.focus({preventScroll:true});
 }
 
@@ -1430,18 +1592,20 @@ function renderEmulators() {
   if (globalThis.ArcadeEmulatorShortcuts) {
     state.emulatorShortcuts ||= globalThis.ArcadeEmulatorShortcuts.create({
       container: document.querySelector('#emulator-shortcuts'), status: document.querySelector('#emulator-shortcuts-status'),
-      api, collectionId: () => state.activeCollection?.id
+      api, collectionId: () => state.activeCollection?.id,
+      platformId: () => collectionPlatform(state.activeCollection),
+      configure: emulatorId => showEmulatorProfileModal(state.activeCollection, emulatorId)
     });
     void state.emulatorShortcuts.refresh();
   }
 }
 
-function showEmulatorProfileModal(collection = state.activeCollection) {
+function showEmulatorProfileModal(collection = state.activeCollection, emulatorId = '') {
   const overlay = document.createElement("div");
   overlay.className = "modal-overlay";
   const spectrumEmulators = platformEmulators(collection).map(cloneEmulator);
   const editableEmulators = Object.fromEntries(spectrumEmulators.map((emu) => [emu.id, cloneEmulator(emu)]));
-  let selectedEmulatorId = spectrumEmulators.find(emu => emu.id === els.emulator.value)?.id || spectrumEmulators[0]?.id || '';
+  let selectedEmulatorId = spectrumEmulators.find(emu => emu.id === (emulatorId || els.emulator.value))?.id || spectrumEmulators[0]?.id || '';
   overlay.innerHTML = `
     <div class="modal emulator-modal">
       <div class="modal-scroll">
@@ -1489,7 +1653,7 @@ function showEmulatorProfileModal(collection = state.activeCollection) {
       </div>
     </div>
   `;
-  document.body.appendChild(overlay);
+  ArcadeDialogs.mount(overlay);
   const errorBox = overlay.querySelector("#emulator-error");
   const selectedSettings = overlay.querySelector("#selected-emulator-settings");
   const emulatorSelect = overlay.querySelector("#spectrum-emulator-select");
@@ -1643,15 +1807,13 @@ async function showScraperSettingsModal() {
       <div class="modal-scroll">
         <h2>Metadata Providers</h2>
         <section class="emulator-card">
-          <h3>ScreenScraper</h3>
-          <p>Used for Spectrum game metadata, screenshots, and loading screens. Credentials are kept in Windows Credential Manager; password fields can be left blank to keep existing values.</p>
+          <h3 title="Used for Spectrum game metadata and artwork. Credentials stay in Windows Credential Manager; leave password fields blank to retain existing values.">ScreenScraper</h3>
           <div id="screenscraper-settings-content" class="profile-import-grid">
             <div class="meta wide">Loading provider settings...</div>
           </div>
         </section>
         <section class="emulator-card">
-          <h3>TheGamesDB</h3>
-          <p>Key-based lookup for game metadata. Spectrum platform ID defaults to 4913.</p>
+          <h3 title="Key-based game metadata lookup. Spectrum platform ID defaults to 4913.">TheGamesDB</h3>
           <div id="thegamesdb-settings-content" class="profile-import-grid">
             <div class="meta wide">Loading provider settings...</div>
           </div>
@@ -1664,7 +1826,7 @@ async function showScraperSettingsModal() {
       </div>
     </div>
   `;
-  document.body.appendChild(overlay);
+  ArcadeDialogs.mount(overlay);
   const errorBox = overlay.querySelector("#scraper-settings-error");
   const screenscraperContent = overlay.querySelector("#screenscraper-settings-content");
   const thegamesdbContent = overlay.querySelector("#thegamesdb-settings-content");
@@ -1752,11 +1914,6 @@ function readScraperSettings(root) {
   return settings;
 }
 
-function supportedSpectrumEmulators() {
-  const supportedIds = ["eightyone", "spectaculator"];
-  return supportedIds.map((id) => state.emulators.find((emu) => emu.id === id) || { id, name: emulatorDisplayName(id) });
-}
-
 function cloneEmulator(emulator) {
   return {
     ...emulator,
@@ -1838,7 +1995,7 @@ function showManagedProfileEditor(profile, parentRoot, selectedEmulatorId) {
       <div class="message error" id="managed-profile-error"></div>
     </div>
   `;
-  document.body.appendChild(overlay);
+  ArcadeDialogs.mount(overlay);
   overlay.querySelector("#edit-profile-name")?.focus();
   overlay.addEventListener("click", async (event) => {
     if (event.target === overlay) {
@@ -1993,7 +2150,7 @@ function showAddEmulatorModal(onAdd, collection = state.activeCollection) {
       <div class="message error" id="add-emulator-error"></div>
     </div>
   `;
-  document.body.appendChild(overlay);
+  ArcadeDialogs.mount(overlay);
   overlay.querySelector("#add-emulator-id")?.focus();
   overlay.addEventListener("click", async (event) => {
     if (event.target === overlay || event.target.closest("button")?.dataset.action === "cancel") {
@@ -2048,6 +2205,7 @@ function applyFilters() {
   renderCounts();
   updateSortHeaders();
   rememberPlatformFilters();
+  if (typeof ArcadeSavedViews !== 'undefined') renderSavedViews();
 }
 
 function scheduleFilterApply() {
@@ -2068,13 +2226,21 @@ function activeFiltersSnapshot() {
     year: new Set(selectedFilterValues("year")),
     publisher: new Set(selectedFilterValues("publisher")),
     tag: new Set(selectedFilterValues("tag")),
+    compilation_group: new Set(isCompilationCollection() ? selectedFilterValues('compilation_group') : []),
+    series: new Set(isCompilationCollection() ? selectedFilterValues('series') : []),
+    compilation_condition: new Set(isCompilationCollection() ? selectedFilterValues('compilation_condition') : []),
     view: els.filterView.value || "all",
     poks: platformColumnAvailable('poks') ? els.filterPoks.dataset.filterState || (els.filterPoks.checked ? 'include' : 'neutral') : 'neutral',
-    excluded: Object.fromEntries(Object.entries(state.excludedFilters).map(([key, values]) => [key, new Set(values)])),
+    excluded: Object.fromEntries(Object.entries(state.excludedFilters)
+      .filter(([key]) => isCompilationCollection() || !['compilation_group', 'series', 'compilation_condition'].includes(key))
+      .map(([key, values]) => [key, new Set(values)])),
   };
 }
 
 function matchesActiveFilters(game, excludeKey = "", filters = activeFiltersSnapshot()) {
+  for (const key of ['compilation_group', 'series', 'compilation_condition']) {
+    if (excludeKey !== key && filters[key]?.size && !filters[key].has(game[key])) return false;
+  }
   if (filters.query && !matchesQuery(game, filters.query)) return false;
   if (filters.cleanup && !game.cleanup?.[filters.cleanup]) return false;
   if (excludeKey !== "system" && filters.system.size && !filters.system.has(game.system)) return false;
@@ -2087,7 +2253,7 @@ function matchesActiveFilters(game, excludeKey = "", filters = activeFiltersSnap
   if (matchesExcludedFilters(game, excludeKey, filters)) return false;
   if (excludeKey === "view") return true;
   if (filters.view === "all" && ["incoming", "trash"].includes(game.view)) return false;
-  if (filters.view === "favourites" && !game.favourite) return false;
+  if (filters.view === "favourites" && !isGameFavourite(game)) return false;
   if (filters.view === "recent" && !state.recentIds.has(game.id)) return false;
   if (filters.view === "new" && !game.newly_indexed) return false;
   if (filters.view === "incoming" && game.view !== "incoming") return false;
@@ -2100,7 +2266,8 @@ function matchesExcludedFilters(game, excludeKey, filters) {
   const exclusions = Object.entries(filters.excluded || {}).filter(([key, excluded]) => key !== excludeKey && excluded.size);
   if (!exclusions.length) return false;
   const values = {system:[game.system], language:gameLanguageCodes(game), country:game.countries || [],
-    year:[gameYear(game)], publisher:[game.publisher], tag:gameTags(game)};
+    year:[gameYear(game)], publisher:[game.publisher], tag:gameTags(game),
+    compilation_group:[game.compilation_group], series:[game.series], compilation_condition:[game.compilation_condition]};
   return exclusions.some(([key, excluded]) => intersects(values[key] || [], excluded));
 }
 
@@ -2146,6 +2313,7 @@ function compareSortValues(a, b, key) {
 }
 
 function sortValue(game, key) {
+  if (key === 'contents') return uniqueCompilationTitles(game.compilation_titles).join(' · ');
   if (key === "title") return game.sort_title || game.title_key || game.title;
   if (key === "publisher") return game.publisher || "";
   if (key === "series") return game.series || "";
@@ -2177,6 +2345,9 @@ function matchesQuery(game, query) {
     ...(game.countries || []),
     game.publisher,
     game.series,
+    game.compilation_condition,
+    game.compilation_part,
+    ...(game.compilation_titles || []),
     game.year,
     ...(game.tosec_tags || []),
     ...(game.flags || []),
@@ -2189,8 +2360,8 @@ function matchesQuery(game, query) {
 function renderCounts() {
   const collectionName = state.activeCollection?.name || "collection";
   const access = state.activeCollection?.writable ? "" : " read-only";
-  els.count.textContent = `${state.games.length.toLocaleString()} ${collectionName}${access} games indexed`;
-  els.resultCount.textContent = `${state.filtered.length.toLocaleString()} games`;
+  els.count.textContent = `${state.games.length.toLocaleString()} ${collectionName}${access} ${isCompilationCollection() ? 'images' : 'games'} indexed`;
+  els.resultCount.textContent = `${state.filtered.length.toLocaleString()} ${isCompilationCollection() ? 'compilations' : 'games'}`;
   const selectedCount = state.selectedIds.size;
   els.selectionCount.textContent = selectedCount ? `${selectedCount.toLocaleString()} selected` : "";
   const selectedGames = selectedGameList();
@@ -2273,6 +2444,9 @@ function handleImportSelectTools(event) {
 function handleBulkAction() {
   const selectedGames = selectedGameList();
   if (!selectedGames.length) return;
+  if (new Set(selectedGames.map(game => game.view || 'collection')).size > 1) {
+    void renderDetails('The selection spans Collection, Incoming or Bin. Select items from one view for bulk actions.'); return;
+  }
   if (selectedGames.some((game) => game.view === "incoming")) {
     showIncomingBulkModal(selectedGames.filter((game) => game.view === "incoming"));
     return;
@@ -2308,7 +2482,7 @@ function showCollectionBulkModal(games) {
       <div class="message error" id="collection-bulk-error"></div>
     </div>
   `;
-  document.body.appendChild(overlay);
+  ArcadeDialogs.mount(overlay);
   const errorBox = overlay.querySelector("#collection-bulk-error");
   overlay.addEventListener("click", async (event) => {
     if (event.target === overlay) {
@@ -2429,7 +2603,7 @@ function showIncomingBulkModal(games) {
       <div class="message error" id="incoming-bulk-error"></div>
     </div>
   `;
-  document.body.appendChild(overlay);
+  ArcadeDialogs.mount(overlay);
   const errorBox = overlay.querySelector("#incoming-bulk-error");
   overlay.addEventListener("click", async (event) => {
     if (event.target === overlay) {
@@ -2519,7 +2693,7 @@ function showTrashBulkModal(games) {
       <div class="message error" id="trash-bulk-error"></div>
     </div>
   `;
-  document.body.appendChild(overlay);
+  ArcadeDialogs.mount(overlay);
   const errorBox = overlay.querySelector("#trash-bulk-error");
   overlay.addEventListener("click", async (event) => {
     if (event.target === overlay) {
@@ -2663,6 +2837,7 @@ function renderGameRow(game, columns) {
 function renderTitleCell(game) {
   const flags = [
     importStatusIcon(game),
+    game.default_excluded_by_filters ? `<span class="default-filter-warning" title="${escapeHtml('Default excluded by filters: ' + (game.file_name || game.title) + '. Double-click launches this saved default. Use Launch Version… to choose another.')}">Default excluded</span>` : '',
     game.favourite ? statusIcon("favourite", "Favourite", "★") : "",
     state.recentIds.has(game.id) ? statusIcon("recent", "Recent", "↻") : "",
   ].join("");
@@ -2699,7 +2874,72 @@ function statusIcon(kind, label, symbol) {
   return `<span class="status-icon ${escapeHtml(kind)}" title="${escapeHtml(label)}" aria-label="${escapeHtml(label)}">${escapeHtml(symbol)}</span>`;
 }
 
+function systemVersionRow(anchorId) {
+  return state.filtered.find(game => game.id === anchorId) || state.gamesById.get(anchorId);
+}
+
+async function runSystemVersionAction(anchorId, systemId, action) {
+  const collectionId = state.activeCollection?.id;
+  const generation = state.metadataGeneration || 0;
+  const game = systemVersionRow(anchorId);
+  if (!game || ['incoming', 'trash'].includes(game.view)) return;
+  const valid = () => state.activeCollection?.id === collectionId && (state.metadataGeneration || 0) === generation
+    && state.gamesById.has(anchorId);
+  state.systemVersionBusy ||= new Set();
+  const busyKey = `${collectionId}:${anchorId}`;
+  if (state.systemVersionBusy.has(busyKey)) return;
+  state.systemVersionBusy.add(busyKey);
+  try {
+    const candidates = systemVersionCandidates(game, systemId);
+    if (!candidates.length) throw new Error('This system version is no longer available. Try again.');
+    const result = await loadGameDialogVersions(game, collectionId);
+    if (!valid()) throw new Error('The library changed. Try again.');
+    const versions = result.versions.filter(version => candidates.some(candidate =>
+      candidate.id === version.gameId && candidate.catalogue_id === version.catalogueId && candidate.entry_revision === version.entryRevision));
+    if (versions.length !== candidates.length) throw new Error('The library changed. Reload it and try again.');
+    const version = versions.find(version => version.isDefault) || (versions.length === 1 ? versions[0] : null);
+    if (!version) {
+      const label = gameSystemBadges(game).find(badge => badge.id === systemId)?.name || systemId;
+      await showGameVersions(game, {gameIds:versions.map(version => version.gameId), label});
+      return;
+    }
+    if (action === 'default') {
+      await api('/api/game-version-default', {method:'POST', body:JSON.stringify({game_id:anchorId,
+        catalogueId:version.catalogueId, entryRevision:version.entryRevision})});
+      if (state.activeCollection?.id === collectionId) {
+        await reloadGames(); await renderDetails('Default saved for Arcade and Portal.');
+      }
+      return;
+    }
+    const target = await loadGameDetails(version.gameId);
+    if (!target || !valid()) throw new Error('The library changed. Try again.');
+    let launched;
+    try { launched = await launchGame('', '', true, target); }
+    catch (error) {
+      let choice;
+      if (error.payload?.needs_choice) choice = await showLaunchChoice(error.payload);
+      else if (error.payload?.needs_confirmation) choice = window.confirm(error.message) ? 'new' : '';
+      else throw error;
+      if (!choice) return;
+      if (!valid()) throw new Error('The library changed. Try again.');
+      launched = await launchGame(choice, '', true, target);
+    }
+    if (state.activeCollection?.id === collectionId) {
+      await refreshRecentAfterLaunch(); await renderDetails(launchMessage(launched));
+    }
+  } catch (error) {
+    if (state.activeCollection?.id === collectionId) await renderDetails(error.message, true);
+  } finally { state.systemVersionBusy.delete(busyKey); }
+}
+
 function handleListClick(event) {
+  const badge = event.target.closest('[data-system-version]');
+  if (badge) {
+    event.preventDefault(); event.stopPropagation(); clearTimeout(listClickTimer);
+    const row = badge.closest('tr[data-id]');
+    if (row && event.detail < 2) void runSystemVersionAction(row.dataset.id, badge.dataset.systemVersion, 'launch');
+    return;
+  }
   if (event.target.closest(".row-select")) return;
   const row = event.target.closest("tr[data-id]");
   if (!row) return;
@@ -2708,6 +2948,7 @@ function handleListClick(event) {
 }
 
 async function handleListDoubleClick(event) {
+  if (event.target.closest('[data-system-version]')) { event.preventDefault(); clearTimeout(listClickTimer); return; }
   const row = event.target.closest("tr[data-id]");
   if (!row || event.target.closest(".row-select")) return;
   clearTimeout(listClickTimer);
@@ -2718,6 +2959,25 @@ async function handleListDoubleClick(event) {
 function handleListContextMenu(event) {
   const row = event.target.closest("tr[data-id]");
   if (!row) return;
+  const badge = event.target.closest('[data-system-version]');
+  if (badge) {
+    clearTimeout(listClickTimer);
+    const game = systemVersionRow(row.dataset.id), systemId = badge.dataset.systemVersion;
+    if (!game) return;
+    const label = gameSystemBadges(game).find(system => system.id === systemId)?.name || systemId;
+    const collectionId = state.activeCollection?.id, generation = state.metadataGeneration || 0;
+    const anchorId = row.dataset.id;
+    const run = action => {
+      if (state.activeCollection?.id === collectionId && (state.metadataGeneration || 0) === generation)
+        return runSystemVersionAction(anchorId, systemId, action);
+    };
+    ArcadeMenus.show(event, [
+      {label:`Launch ${label} Version`,group:'open',run:() => run('launch')},
+      {label:'Make default',group:'organize',run:() => run('default'),
+        disabled:systemVersionCandidates(game, systemId).some(version => version.id === game.default_version)}
+    ]);
+    return;
+  }
   showContextMenu(event, row.dataset.id);
 }
 
@@ -2814,6 +3074,11 @@ function escapeAttributeSelector(value) {
 async function renderDetails(message = "", isError = false) {
   const generation = ++detailRenderGeneration;
   const game = state.selected;
+  if (!message && webHubHandoff.rebindGameKey) {
+    message = game
+      ? 'Review the game and emulator, then choose Repair Portal Shortcut.'
+      : 'Choose the game and emulator for your Portal shortcut, then choose Repair Portal Shortcut.';
+  }
   if (!game) {
     els.details.innerHTML = message
       ? `<div class="empty-state">${escapeHtml(message)}</div>`
@@ -2850,8 +3115,9 @@ async function renderDetails(message = "", isError = false) {
       ${detailTags.map((tag) => `<span class="pill">${escapeHtml(tag)}</span>`).join("")}
     </div>
     <div class="detail-actions">
-      <button id="send-webhub" class="secondary">${webHubHandoff.rebindGameKey ? "Update Portal Shortcut" : "Send to Portal"}</button>
+      <button id="send-webhub" class="secondary">${webHubHandoff.rebindGameKey ? "Repair Portal Shortcut" : "Send to Portal"}</button>
     </div>
+    ${game.compilation_group ? `<div class="scraped-meta"><div><strong>Group:</strong> ${escapeHtml(game.compilation_group)}</div><div><strong>Series:</strong> ${escapeHtml(game.series)}</div><div><strong>Image condition:</strong> ${escapeHtml(game.compilation_condition)}</div></div>${renderCompilationContents(game)}` : ''}
     ${renderScrapedMetadata(game)}
     ${(game.screenshot || game.loading_screen) ? '<button class="secondary" data-retry-artwork>Reload artwork</button>' : ''}
     ${game.scrape_provenance?.scraped_at ? `<div class="meta">Metadata: ${escapeHtml(game.scrape_provenance.provider || 'Manual')} · ${escapeHtml(game.scrape_provenance.platform || game.system)} · ${escapeHtml(game.scrape_provenance.scraped_at.slice(0, 10))}</div>` : ''}
@@ -2924,6 +3190,134 @@ function renderScrapedMetadata(game) {
       </div>
     `;
   }
+
+function compilationSourceLink(url, label) {
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== 'https:' || parsed.username || parsed.password || parsed.port ||
+        !['www.atarilegend.com', 'atari.8bitchip.info', 'www.atariuptodate.de', 'creativecommons.org'].includes(parsed.hostname)) return escapeHtml(label);
+    return `<a href="${escapeHtml(parsed.href)}" target="_blank" rel="noopener noreferrer">${escapeHtml(label)}</a>`;
+  } catch (_) { return escapeHtml(label); }
+}
+
+function uniqueCompilationTitles(titles = []) {
+  const seen = new Set();
+  return titles.filter(title => {
+    const key = title.trim().toLocaleLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function compilationContentName(item) {
+  const title = item.title.trim(), version = String(item.version || '').trim();
+  if (!version) return title;
+  const number = version.replace(/^v(?:ersion)?\s*(?=\d)/i, '');
+  const escaped = number.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const suffix = new RegExp('(?:^|[\\s(])(?:v(?:ersion)?\\s*)?' + escaped + '\\)?$', 'i');
+  return suffix.test(title) ? title : `${title} ${version}`;
+}
+
+function compilationContentGroups(items = []) {
+  const groups = [];
+  for (const item of items) {
+    const title = compilationContentName(item);
+    const key = title.toLocaleLowerCase();
+    let group = groups.find(value => value.key === key && (!value.url || !item.url || value.url === item.url));
+    if (!group) {
+      group = {key, title, url:item.url, labels:[]};
+      groups.push(group);
+    }
+    if (!group.url) group.url = item.url;
+    const type = String(item.subtype || item.kind || '').trim();
+    const friendly = ({doc:'Documentation', docs:'Documentation', documentation:'Documentation',
+      'game - doc':'Documentation', walkthrough:'Walkthrough', solution:'Walkthrough'})[type.toLowerCase()];
+    const label = [friendly || [item.kind, item.subtype].filter(Boolean).join(' · '),
+      item.sequence ? 'Game part ' + item.sequence : '', item.requirements].filter(Boolean).join(' · ');
+    if (label && !group.labels.includes(label)) group.labels.push(label);
+  }
+  return groups;
+}
+
+function renderCompilationContents(game) {
+  const menu = game.compilation_catalogue;
+  const items = compilationContentGroups(menu?.contents);
+  const files = game.compilation_catalogue_status === 'Disk file index';
+  return `<h2 class="section-heading">${files ? 'Disk files' : 'Disk contents'}</h2>
+    <div class="scraped-meta"><div class="compilation-contents">
+      ${items.length ? `<ul>${items.map(item => `<li>${compilationSourceLink(item.url, item.title)} <span class="meta compilation-content-kinds">${escapeHtml(item.labels.join(', '))}</span></li>`).join('')}</ul>` : '<p class="meta">No contents catalogued.</p>'}
+      ${files && menu.file_count > items.length ? `<p class="meta">Showing ${items.length} of ${Number(menu.file_count)} disk entries.</p>` : ''}
+      ${menu?.file_index?.length ? `<details><summary>Disk files (${menu.file_index.length})</summary><ul>${menu.file_index.map(name => `<li>${escapeHtml(name)}</li>`).join('')}</ul></details>` : ''}
+    </div></div>`;
+}
+
+async function showCompilationCatalogue() {
+  const collectionId = state.activeCollection.id, previousFocus = document.activeElement;
+  const overlay = document.createElement('div'); overlay.className = 'modal-overlay';
+  overlay.innerHTML = `<section class="modal game-versions-modal compilation-catalogue-modal" role="dialog" aria-modal="true" aria-labelledby="compilation-catalogue-title">
+    <h2 id="compilation-catalogue-title">Compilation catalogue</h2>
+    <p>Look up contents and menu artwork from Atari Legend, the 8bitchip / Bruno title list and AtariUpToDate’s Floppyshop Utility catalogue. Imported SuperGAU CD descriptions remain the preferred source and work offline.</p>
+    <p>Atari Legend content uses ${compilationSourceLink('https://creativecommons.org/licenses/by-nc-sa/4.0/', 'CC BY-NC-SA 4.0')}. The secondary list dates from 2004. Coverage and revision details vary by source.</p>
+    <p data-catalogue-status role="status"></p><div data-catalogue-summary></div>
+    <label><input data-catalogue-online type="checkbox" checked> Use online catalogues (uncheck to read local disk files only)</label>
+    <label><input data-catalogue-labels type="checkbox"> Include matches based on menu labels (unverified images)</label>
+    <label><input data-catalogue-files type="checkbox"> Include disk file indexes (original file names, not identified software titles)</label>
+    <div data-catalogue-list class="game-version-list"></div>
+    <div class="modal-actions"><button data-catalogue-previous class="secondary" disabled>Previous</button><button data-catalogue-next class="secondary" disabled>Next</button>
+    <button data-catalogue-prepare>Prepare preview</button><button data-catalogue-apply disabled>Apply reviewed matches</button><button data-catalogue-close class="secondary">Close</button></div></section>`;
+  ArcadeDialogs.mount(overlay);
+  const el = key => overlay.querySelector('[data-catalogue-' + key + ']');
+  let busy = false, preview = null;
+  const checkCollection = () => { if (state.activeCollection.id !== collectionId) throw Error('The collection changed. Reopen the catalogue.'); };
+  const request = data => { checkCollection(); return api('/api/compilation-catalogue', {method:'POST', body:JSON.stringify({...data, collection_id:collectionId})}); };
+  const refresh = () => {
+    el('apply').disabled = busy || !preview || !((preview.counts.hash || 0) + (preview.counts.content || 0) + (el('labels').checked ? preview.counts.label || 0 : 0) + (el('files').checked ? preview.counts.files || 0 : 0));
+    for (const control of ['prepare', 'labels', 'files', 'online', 'close']) el(control).disabled = busy;
+    el('previous').disabled = busy || !preview || preview.offset === 0;
+    el('next').disabled = busy || !preview || preview.offset + 50 >= preview.total;
+  };
+  const showPage = async offset => {
+    const next = await request({action:'preview', offset});
+    if (preview && next.token !== preview.token) throw Error('Another catalogue preview replaced this one. Look up again.');
+    preview = next;
+    el('summary').textContent = `${preview.counts.hash || 0} hash-verified · ${preview.counts.content || 0} CD contents checked · ${preview.counts.label || 0} menu label matches · ${preview.counts.files || 0} disk file indexes · ${preview.counts.ambiguous || 0} ambiguous · ${preview.counts.unmatched || 0} unmatched. Accepted CD descriptions and existing entries without a new match are retained.`;
+    el('list').innerHTML = preview.rows.map(row => `<div class="game-version-row"><span class="game-version-label"><strong>${escapeHtml(row.title)}</strong><span class="game-version-filename">${escapeHtml(row.file_name)}</span><span>${escapeHtml(row.status)} ${row.provider ? ' · ' + compilationSourceLink(row.url, row.provider) + ' · ' + escapeHtml(row.menu) : ''}</span><span class="game-version-description">${escapeHtml(row.contents.join(' · ') || 'No contents recorded')}</span></span></div>`).join('');
+    el('status').textContent = [`Catalogue date ${preview.source_date}; images ${preview.offset + 1}–${Math.min(preview.offset + 50, preview.total)} of ${preview.total}.`, ...preview.warnings].join(' ');
+  };
+  const run = async work => {
+    busy = true; refresh(); el('status').textContent = 'Working…';
+    try { await work(); } catch (error) { el('status').textContent = error.message; }
+    finally { busy = false; refresh(); }
+  };
+  el('prepare').addEventListener('click', () => run(async () => {
+    preview = null;
+    await withBusy('Compilation catalogue', 'Reading compilation contents…', async () => {
+      const job = await request({action:'prepare', local_only:!el('online').checked}); await waitForJob(job.job_id);
+    });
+    await showPage(0);
+  }));
+  el('previous').addEventListener('click', () => run(() => showPage(Math.max(0, preview.offset - 50))));
+  el('next').addEventListener('click', () => run(() => showPage(preview.offset + 50)));
+  el('labels').addEventListener('change', refresh);
+  el('files').addEventListener('change', refresh);
+  el('apply').addEventListener('click', () => run(async () => {
+    const result = await request({action:'apply', token:preview.token, include_labels:el('labels').checked, include_files:el('files').checked});
+    preview = null; await reloadGames(); el('status').textContent = `${result.applied} images catalogued. Search now includes their contents.`;
+  }));
+  const dismiss = () => { if (!busy) { overlay.remove(); previousFocus?.focus(); } };
+  el('close').addEventListener('click', dismiss);
+  overlay.addEventListener('keydown', event => {
+    if (event.key === 'Escape') { event.stopPropagation(); dismiss(); }
+    if (event.key === 'Tab') {
+      const controls = [...overlay.querySelectorAll('a,button:not(:disabled),input:not(:disabled)')];
+      if (event.shiftKey && document.activeElement === controls[0] || !event.shiftKey && document.activeElement === controls.at(-1)) {
+        event.preventDefault(); controls[event.shiftKey ? controls.length - 1 : 0]?.focus();
+      }
+    }
+  });
+  el('prepare').focus();
+}
 
 function renderArtworkPanel(assets, gameId = '') {
   if (!assets.length) return "";
@@ -3015,7 +3409,7 @@ async function sendSelectedToWebHub() {
       const url = new URL(window.location.href);
       url.searchParams.delete("hubRebind");
       window.history.replaceState(null, "", url);
-      await renderDetails(`Updated the existing Portal shortcut${result.persisted ? ` (${result.persisted})` : ""}.`);
+      await renderDetails(`Repaired the existing Portal shortcut${result.persisted ? ` (${result.persisted})` : ""}.`);
     } else {
       await renderDetails(`Sent to Cyrune Portal Inbox${result.persisted ? ` (${result.persisted})` : ""}.`);
     }
@@ -3043,7 +3437,7 @@ async function sendGamesToPortal(games) {
       <button data-delivery-close class="secondary" disabled>Close</button>
     </div>
   </div>`;
-  document.body.appendChild(overlay);
+  ArcadeDialogs.mount(overlay);
   const status = overlay.querySelector('[data-delivery-status]');
   const results = overlay.querySelector('[data-delivery-results]');
   const retry = overlay.querySelector('[data-delivery-retry]');
@@ -3250,16 +3644,16 @@ async function runLaunchChoice(choice, emulator = "") {
   }
 }
 
-async function launchGame(launchAction, emulator = "", exactVersion = false) {
-  const summary = state.gamesById.get(state.selected.id);
+async function launchGame(launchAction, emulator = "", exactVersion = false, game = state.selected) {
+  const summary = state.gamesById.get(game.id);
   if (!exactVersion && summary?.version_group && !summary.default_version) {
     throw new Error('The saved default version is missing. Choose another in Launch Version…');
   }
-  const binding = resolveLaunchBinding(state.selected, emulator);
+  const binding = resolveLaunchBinding(game, emulator);
   return api("/api/launch", {
     method: "POST",
     body: JSON.stringify({
-      game_id: state.selected.id,
+      game_id: game.id,
       emulator: binding.emulatorId,
       launch_action: launchAction,
       profile_id: binding.profileId,
@@ -3288,7 +3682,7 @@ function showLaunchChoice(payload) {
         </div>
       </div>
     `;
-    document.body.appendChild(overlay);
+    ArcadeDialogs.mount(overlay);
     overlay.querySelectorAll("button").forEach((button) => {
       button.addEventListener("click", () => {
         const choice = button.dataset.choice || "";
@@ -3318,7 +3712,7 @@ function showCatalogueReattachmentModal() {
       </div>
       <div data-reattachment-error class="message error" role="alert"></div>
     </div>`;
-  document.body.appendChild(overlay);
+  ArcadeDialogs.mount(overlay);
   const source = overlay.querySelector('[data-reattachment-source]');
   const summary = overlay.querySelector('[data-reattachment-summary]');
   const errorBox = overlay.querySelector('[data-reattachment-error]');
@@ -3427,7 +3821,7 @@ function showCatalogueRecoveryModal() {
       </div>
       <div data-recovery-error class="message error" role="alert"></div>
     </div>`;
-  document.body.appendChild(overlay);
+  ArcadeDialogs.mount(overlay);
   const direction = overlay.querySelector('[data-recovery-direction]');
   const status = overlay.querySelector('[data-recovery-status]');
   const preview = overlay.querySelector('[data-recovery-preview]');
@@ -3542,7 +3936,7 @@ function showCataloguePreparationModal() {
       </div>
       <div data-preparation-error class="message error" role="alert"></div>
     </div>`;
-  document.body.appendChild(overlay);
+  ArcadeDialogs.mount(overlay);
   const reviewButton = overlay.querySelector('[data-action="review"]');
   const confirmButton = overlay.querySelector('[data-action="confirm"]');
   const cancelButton = overlay.querySelector('[data-action="cancel"]');
@@ -3627,7 +4021,7 @@ function showAddCollectionModal() {
       <div id="new-collection-error" class="message error"></div>
     </div>
   `;
-  document.body.appendChild(overlay);
+  ArcadeDialogs.mount(overlay);
   const rootInput = overlay.querySelector("#new-collection-root");
   const nameInput = overlay.querySelector("#new-collection-name");
   const metadataInput = overlay.querySelector("#new-collection-metadata");
@@ -3700,7 +4094,7 @@ function showColumnOptionsModal() {
       <div class="message error" id="column-error"></div>
     </div>
   `;
-  document.body.appendChild(overlay);
+  ArcadeDialogs.mount(overlay);
   const list = overlay.querySelector(".column-editor");
   const errorBox = overlay.querySelector("#column-error");
   overlay.addEventListener("click", (event) => {
@@ -3870,6 +4264,8 @@ function showSortHeaderMenu(event, key) {
   const nextDir = currentRule?.dir === "desc" ? "asc" : "desc";
   const menu = document.createElement("div");
   menu.className = "context-menu sort-context-menu";
+  menu._returnFocus = document.activeElement;
+  menu.setAttribute('role', 'menu');
   menu.style.left = `${event.clientX}px`;
   menu.style.top = `${event.clientY}px`;
   menu.innerHTML = `
@@ -3883,21 +4279,35 @@ function showSortHeaderMenu(event, key) {
       <button data-action="clear" ${currentRule ? "" : "disabled"}>Remove from Sort</button>
       <button data-action="reset">Reset to Title</button>
     </div>
+    <div class="context-section">
+      <button data-action="hide-column" ${key === 'title' || visibleColumns().length < 2 ? 'disabled' : ''}>Hide column</button>
+      <button data-action="columns">Columns…</button>
+      <button data-action="reset-columns">Reset column layout</button>
+    </div>
   `;
   document.body.appendChild(menu);
   clampMenuToViewport(menu);
+  menu.querySelectorAll('button').forEach(button => { button.type = 'button'; button.setAttribute('role', 'menuitem'); });
+  menu.addEventListener('keydown', arcadeContextMenuKeydown);
+  menu.querySelector('button:not(:disabled)')?.focus({ preventScroll: true });
   menu.addEventListener("click", (clickEvent) => {
     clickEvent.stopPropagation();
     const button = clickEvent.target.closest("button");
     if (!button || button.disabled) return;
     const action = button.dataset.action;
-    hideContextMenu();
+    hideContextMenu({restoreFocus:true});
     if (action === "primary") setSortRulePosition(key, 0);
     if (action === "secondary") setSortRulePosition(key, 1);
     if (action === "tertiary") setSortRulePosition(key, 2);
     if (action === "direction") setSortDirection(key, button.dataset.dir === "desc" ? "desc" : "asc");
     if (action === "clear") clearSortRule(key);
     if (action === "reset") resetSortRules();
+    if (action === 'columns') showColumnOptionsModal();
+    if (action === 'reset-columns') resetColumnLayout();
+    if (action === 'hide-column' && key !== 'title' && visibleColumns().length > 1) {
+      const column = COLUMN_DEFS.find(column => column.sort === key);
+      if (column) { state.ui.columnVisibility[column.key] = false; saveUiState(); renderTableStructure(); renderList(); }
+    }
   });
 }
 
@@ -3915,20 +4325,47 @@ function compatibleGameEmulators(game) {
   });
 }
 
+let arcadeContextMenuGeneration = 0;
+
+function arcadeContextMenuKeydown(event) {
+  const buttons = [...event.currentTarget.querySelectorAll('button:not(:disabled)')];
+  const index = buttons.indexOf(document.activeElement);
+  if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
+    event.preventDefault(); event.stopPropagation();
+    const next = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1
+      : (index + (event.key === 'ArrowDown' ? 1 : -1) + buttons.length) % buttons.length;
+    buttons[next]?.focus();
+  } else if (event.key === 'ArrowRight' && document.activeElement?.getAttribute('aria-haspopup') === 'menu') {
+    event.preventDefault(); document.activeElement.click();
+  } else if (event.key === 'Escape' || event.key === 'Tab') {
+    if (event.key === 'Escape') event.preventDefault();
+    event.stopPropagation(); hideContextMenu({ restoreFocus: event.key === 'Escape' });
+  }
+}
+
 async function showContextMenu(event, gameId) {
   event.preventDefault();
   hideContextMenu();
+  const generation = arcadeContextMenuGeneration;
   const game = state.gamesById.get(gameId);
   if (!game) return;
   const previousId = state.selected?.id;
   state.selected = game;
   applyGameDefaultEmulator(game);
   updateSelectedRow(previousId, gameId);
-  const details = await loadGameDetails(gameId);
-  if (state.selected?.id === gameId && details) state.selected = details;
-  await renderDetails();
+  // Opening a menu must not wait for a native details read. Ignore late reads
+  // after another selection, collection switch or menu dismissal.
+  const collectionId = state.activeCollection?.id;
+  void loadGameDetails(gameId).then(async details => {
+    if (generation !== arcadeContextMenuGeneration || state.selected?.id !== gameId
+        || state.activeCollection?.id !== collectionId) return;
+    if (details) state.selected = details;
+    await renderDetails();
+  }).catch(() => {});
   const menu = document.createElement("div");
   menu.className = "context-menu";
+  menu._returnFocus = document.activeElement;
+  menu.setAttribute('role', 'menu');
   menu.style.left = `${event.clientX}px`;
   menu.style.top = `${event.clientY}px`;
   const isIncoming = game.view === "incoming";
@@ -3940,7 +4377,6 @@ async function showContextMenu(event, gameId) {
       <button data-action="set-country">Set Country</button>
       <button data-action="set-language">Set Language</button>
       <button data-action="rename">Rename</button>
-      <button data-action="delete" class="danger">Delete</button>
     `
     : "";
   const importButton = state.activeCollection?.writable && isIncoming
@@ -3949,7 +4385,6 @@ async function showContextMenu(event, gameId) {
   const trashButtons = state.activeCollection?.writable && isTrash
     ? `
       <button data-action="restore-trash">Restore to Collection</button>
-      <button data-action="purge-trash" class="danger">Remove Permanently</button>
     `
     : "";
   const emulatorButtons = compatibleGameEmulators(state.selected)
@@ -3959,46 +4394,96 @@ async function showContextMenu(event, gameId) {
     )
     .join("");
   menu.innerHTML = `
-    <div class="context-section">
-      ${!isIncoming && !isTrash && game.type === 'Atari ST' ? '<button data-action="properties">Properties…</button>' : ''}
-      ${!isIncoming && !isTrash ? '<button data-action="launch-version">Launch Version…</button>' : ''}
-      ${!isIncoming && !isTrash ? '<button data-action="scrape">Scrape Metadata</button>' : ''}
-      ${!isIncoming && !isTrash && selectedForPortal.length > 1 && canScrapeMetadata()
-        ? `<button data-action="scrape-selected">Scrape selected games (${selectedForPortal.length})</button>` : ''}
-      ${globalThis.ArcadeScrapeDrafts.load(state.activeCollection.id) ? '<button data-action="resume-scrape">Resume scrape review</button>' : ''}
-      ${emulatorButtons}
-      ${!isIncoming && !isTrash ? `<button data-action="favourite">${isGameFavourite(game) ? 'Remove from Favourites' : 'Add to Favourites'}</button>` : ''}
-      <button data-action="send-webhub">${webHubHandoff.rebindGameKey ? "Update Portal Shortcut" : "Send to Portal"}</button>
-      ${selectedForPortal.length > 1 && !webHubHandoff.rebindGameKey && !isIncoming && !isTrash
-        ? `<button data-action="send-selected-webhub">Send selected games to Portal (${selectedForPortal.length})</button>` : ''}
+    <div class="context-section" data-menu-group="open">
+      ${!isIncoming && !isTrash ? '<button data-action="launch">Launch game</button>' : ''}
+      ${!isIncoming && !isTrash ? `<button data-action="launch-version">${game.compilation_group ? 'Choose boot image…' : 'Launch Version…'}</button>` : ''}
+      ${emulatorButtons && !isIncoming && !isTrash ? '<button data-action="menu-openwith" aria-haspopup="menu" aria-expanded="false">Open with ›</button>' : ''}
+    </div>
+    <div class="context-section" data-menu-group="locate">
+      <button data-action="explorer">Open in Explorer</button>
       <button data-action="research-web">Search the Web</button>
     </div>
-    <div class="context-section">
-      <button data-action="explorer">Open in Explorer</button>
+    <div class="context-section" data-menu-group="edit">
+      ${!isIncoming && !isTrash && game.type === 'Atari ST' ? '<button data-action="properties">Properties…</button>' : ''}
+      ${editButtons}
+      ${!isIncoming && !isTrash && canScrapeMetadata() ? '<button data-action="scrape">Scrape Metadata</button>' : ''}
+
+      ${!isIncoming && !isTrash && canScrapeMetadata() && globalThis.ArcadeScrapeDrafts.load(state.activeCollection.id) ? '<button data-action="resume-scrape">Resume scrape review</button>' : ''}
+      ${!isIncoming && !isTrash && canScrapeMetadata() ? '<button data-action="metadata-care">Metadata & protection…</button><button data-action="scrape-undo">Undo last scrape</button>' : ''}
+    </div>
+    <div class="context-section" data-menu-group="organize">
+      ${!isIncoming && !isTrash ? `<button data-action="favourite">${isGameFavourite(game) ? 'Remove from Favourites' : 'Add to Favourites'}</button>` : ''}
+      ${!isIncoming && !isTrash ? `<button data-action="send-webhub">${webHubHandoff.rebindGameKey ? "Repair Portal Shortcut" : "Send to Portal"}</button>` : ''}
+      ${selectedForPortal.length > 1 ? `<button data-action="menu-selected" aria-haspopup="menu" aria-expanded="false">Selected items (${selectedForPortal.length}) ›</button>` : ''}
       ${importButton}
       ${trashButtons}
-      ${!isIncoming && !isTrash && canScrapeMetadata() ? '<button data-action="metadata-care">Metadata & protection…</button><button data-action="scrape-undo">Undo last scrape</button>' : ""}
-      ${editButtons}
+    </div>
+    <div class="context-section" data-menu-group="remove">
+      ${state.activeCollection?.writable && !isIncoming && !isTrash ? '<button data-action="delete" class="danger">Delete</button>' : ''}
+      ${state.activeCollection?.writable && isTrash ? '<button data-action="purge-trash" class="danger">Remove Permanently</button>' : ''}
     </div>
   `;
+  menu.querySelectorAll('.context-section').forEach(section => { if (!section.querySelector('button')) section.remove(); });
+  menu.querySelectorAll('button').forEach(button => { button.type = 'button'; button.setAttribute('role', 'menuitem'); });
+  menu.addEventListener('keydown', arcadeContextMenuKeydown);
   document.body.appendChild(menu);
   clampMenuToViewport(menu);
-  menu.addEventListener("click", async (clickEvent) => {
+  menu.querySelector('button:not(:disabled)')?.focus({ preventScroll: true });
+  const onMenuClick = async (clickEvent) => {
     clickEvent.stopPropagation();
     const button = clickEvent.target.closest("button");
-    if (!button) return;
+    if (!button || button.disabled || state.selected?.id !== gameId || state.activeCollection?.id !== collectionId) return;
     const action = button.dataset.action;
     const emulator = button.dataset.emulator;
-    hideContextMenu();
+    if (action === 'menu-openwith') { ArcadeMenus.submenu(button,emulatorButtons,onMenuClick); return; }
+    if (action === 'menu-selected') {
+      const sameView = selectedForPortal.every(game => (game.view || 'collection') === (state.gamesById.get(gameId)?.view || 'collection'));
+      const writable = state.activeCollection?.writable;
+      const selectedButton = (action,label,enabled=true) => `<button data-action="selected-${action}" ${sameView && enabled ? '' : 'disabled'}>${label}</button>`;
+      const buttons = !sameView ? '<button disabled>Select items from one view first</button>' : isIncoming
+        ? `<div class="context-section">${selectedButton('import','Import selected…',writable)}</div><div class="context-section">${selectedButton('delete','Delete selected…',writable)}</div>`
+        : isTrash ? `<div class="context-section">${selectedButton('restore','Restore selected…',writable)}</div><div class="context-section">${selectedButton('purge','Remove selected permanently…',writable)}</div>`
+        : `<div class="context-section">${selectedButton('metadata','Edit metadata…',writable)}</div>
+          <div class="context-section">${selectedButton('favourite-add','Add to favourites…')}${selectedButton('favourite-remove','Remove from favourites…')}${!webHubHandoff.rebindGameKey ? '<button data-action="send-selected-webhub">Send selected to Portal</button>' : ''}</div>
+          ${canScrapeMetadata() ? '<div class="context-section"><button data-action="scrape-selected">Scrape selected…</button></div>' : ''}
+          <div class="context-section">${selectedButton('delete','Delete selected…',writable)}</div>`;
+      ArcadeMenus.submenu(button,buttons,onMenuClick); return;
+    }
+    if ((action.startsWith('selected-') || ['scrape-selected','send-selected-webhub'].includes(action))
+      && (selectedForPortal.length !== state.selectedIds.size || !selectedForPortal.every(game => state.selectedIds.has(game.id)))) {
+      hideContextMenu(); await renderDetails('Selection changed. Open the menu again.'); return;
+    }
+    hideContextMenu({restoreFocus:true});
+    if (action.startsWith('selected-')) {
+      const view = state.gamesById.get(gameId)?.view;
+      if (view === 'incoming') showIncomingBulkModal(selectedForPortal);
+      else if (view === 'trash') showTrashBulkModal(selectedForPortal);
+      else showCollectionBulkModal(selectedForPortal);
+      const target = action.slice('selected-'.length);
+      // Keep the existing review/confirmation workflow and make its scoped action explicit.
+      queueMicrotask(() => document.querySelector('.modal-overlay:last-of-type')?.querySelector(`[data-action="${target}"]`)?.focus());
+      return;
+    }
     if (action === 'send-selected-webhub') { await sendGamesToPortal(selectedForPortal); return; }
     if (action === 'resume-scrape') {const draft = globalThis.ArcadeScrapeDrafts.load(state.activeCollection.id); if (draft) await showBulkScrapeModal(state.games.filter(game => draft.gameIds.includes(game.id)).slice(0,100)); return;}
     if (action === 'scrape-selected') { await showBulkScrapeModal(selectedForPortal); return; }
     await handleContextAction(action, emulator);
+  };
+  menu.addEventListener('click', onMenuClick);
+  menu.addEventListener('scroll', () => document.querySelectorAll('.arcade-submenu').forEach(submenu => {
+    submenu._trigger?.setAttribute('aria-expanded','false'); submenu.remove();
+  }));
+  menu.querySelectorAll('[aria-haspopup="menu"]').forEach(button => {
+    button.addEventListener('mouseenter', () => button.click());
   });
 }
 
-function hideContextMenu() {
-  document.querySelectorAll(".context-menu").forEach((menu) => menu.remove());
+function hideContextMenu(options = {}) {
+  arcadeContextMenuGeneration++;
+  document.querySelectorAll(".context-menu").forEach((menu) => {
+    menu.remove();
+    if (options.restoreFocus && menu._returnFocus?.isConnected) menu._returnFocus.focus({ preventScroll: true });
+  });
 }
 
 function clampMenuToViewport(menu) {
@@ -4120,6 +4605,7 @@ async function importIncomingSelected() {
 }
 
 function canScrapeMetadata() {
+  if (isCompilationCollection()) return false;
   const platform = globalThis.ArcadePlatforms.libraries[collectionPlatform(state.activeCollection)];
   return Boolean(platform && (state.activeCollection?.writable || platform.presentationOverrides || platform.metadataWritable));
 }
@@ -4216,7 +4702,7 @@ function showMetadataModal(gameIds, isBulk, focusField = "") {
       <div class="message error" id="metadata-error"></div>
     </div>
   `;
-  document.body.appendChild(overlay);
+  ArcadeDialogs.mount(overlay);
   const errorBox = overlay.querySelector("#metadata-error");
   setupMetadataComboDropdowns(overlay);
   setupMetadataProfileFilter(overlay, isBulk);
@@ -4543,7 +5029,7 @@ async function renameSelected() {
       <div class="message error" id="rename-error"></div>
     </div>
   `;
-  document.body.appendChild(overlay);
+  ArcadeDialogs.mount(overlay);
   const input = overlay.querySelector("#rename-stem");
   const errorBox = overlay.querySelector("#rename-error");
   input.focus();
@@ -4676,6 +5162,7 @@ function escapeHtml(value) {
     .replaceAll("'", "&#039;");
 }
 
+ArcadeAppearance.refresh();
 init().catch((error) => {
   els.count.textContent = "Library unavailable";
   els.details.innerHTML = `<div class="empty-state">${escapeHtml(error.message || "The library could not be loaded.")} Reload the page after resolving the issue.</div>`;

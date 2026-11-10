@@ -37,6 +37,7 @@ async function main() {
     escapeHtml: (value) => String(value),
     api: async (route, options) => { requests.push({ route, body: JSON.parse(options.body) }); return await response(); },
   };
+  context.ArcadeDialogs = {mount: overlay => document.body.appendChild(overlay)};
   vm.createContext(context);
   vm.runInContext(controller, context);
   const settle = () => new Promise((resolve) => setImmediate(resolve));

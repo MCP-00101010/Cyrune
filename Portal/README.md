@@ -24,6 +24,8 @@ Portal and its hosted Widgets consume the fixed `portal-widgets` Nexus settings 
 
 ## Game Picker
 
+External bookmark Inbox, game Inbox and Import Manager deliveries share the lifecycle in `source/external-deliveries.js`. It waits for authoritative startup before capturing the destination, preserves delivery IDs across retries, confirms authoritative persistence before acknowledgement, and rebases once only when no unrelated edit intervened. Timeout leaves the result unconfirmed and fences later deliveries until the underlying save settles. A rebase captures a fresh Undo baseline after authoritative reload.
+
 Portal 0.12.7 provides **Add Game** in the context menu of an unlocked regular board column with Relay 1.1.5, Host 0.2.5 and Arcade 0.2.11. Right-click a column, search your Arcade library, select games, and click **Add selected games**. Configured managed Spectrum collections, including read-only collections, are browsed directly; there is no preparation or publication step. Arcade's game/collection emulator default, or its initial configured launcher selection, supplies the launch policy. Firefox 153+ requires Relay's **Access local files on your computer** permission in `about:addons`. Reload Relay and the pages after updating. See the [direct browsing record](../docs/architecture/portal-arcade-spectrum-migration.md#direct-library-browsing--2026-09-07).
 
 The picker searches bounded pages, keeps exact hardware/edition variants separate, supports up to 100 selected entries and can explicitly copy suggested Arcade tags. Confirmation creates or reuses approved device bindings, then saves successful cards to the captured column as one undoable batch. Failed entries remain visible. Connection changes require a fresh selection; an uncertain save uses Portal's storage recovery without automatically inserting the batch again. Closing the draft discards its catalogue records and artwork.
@@ -58,3 +60,24 @@ Portal publishes its committed theme presentation to Arcade through Relay after 
 
 
 The optional `arcade-gameboy: 1` catalogue capability adds Game Boy cartridges with GB/GBC/GBA hardware labels. Existing cached provider artwork is resolved natively and only compact image presentation reaches Portal.
+
+## Interaction consistency
+
+Search combines Portal records, web search providers and transient Arcade library results. Type `@` to choose a provider; configured Universal Search widget providers are reused when present. Arrow keys move between results, Enter activates one, and Shift+Enter on an existing bookmark, application or game chooses where to move it. Completed recent searches are browser-local and opt-in; turning remembering off clears them.
+
+Drag an existing shortcut to move it, or an Arcade result to add it, into an unlocked column, Inbox, ordinary folder/subfolder or empty Essentials/Speed Dial slot. Catalogue results use authenticated exact-entry binding and authoritative saving. Occupied slots are retained, missing destinations never fall back to another board, and games remain excluded from Sets and multi-launch commands. The batch Add Game picker remains available for selecting several games together.
+
+Use **Review Inbox…** in the Inbox footer to inspect unmatched bookmarks and rule explanations. Destination suggestions use exact-host matches among bookmarks already filed in regular columns/folders. Each suggested move requires a click, uses one Undo step and saves through Portal's normal persistence boundary. Suggestions never create automation rules. Choose **All bookmarks** to inspect matching rules in order, including their stop boundary.
+
+Search and command actions retain the owning board/tab without switching the visible view. Locked ancestors block mutations at menu, dispatch and save time; use **Show in board** to navigate explicitly. A removed destination never substitutes the active board. Trash retains entries when their original destination cannot accept a restore.
+
+General settings provide separate confirmation preferences for bookmarks, games and applications. Older supported snapshots initialize the new optional choices from either previously enabled bookmark/title confirmation, preserving requested protection; later explicit opt-outs remain unchanged. Bulk and permanent deletion always keep a review/confirmation step.
+
+Ordinary bookmark clicks follow the shared external-link preference. Explicit new-tab/window commands, modifier clicks and opening multiple links retain their explicit targets. The sidebar version opens Settings on About. Settings uses a category rail, a scrolling content pane and Done in its header; optional explanations are tooltips. Relay selects Host or Relay storage explicitly; a disconnected authority leaves Portal read-only and page storage remains a recovery cache.
+
+Game shortcuts launch on click without Offline/readiness badges. A failed background presentation lookup does not disable them. Actual launch errors explain the missing resource or connection. For a lost or changed launch setup, use Repair shortcut… in its context menu, review the intended game and emulator in Arcade, and choose Repair Portal Shortcut; the existing Portal card and key are retained. Native launch targets stay in Host storage.
+
+Healthy games have no repair or device-binding management action. A temporary Relay/Host disconnection uses connection guidance rather than prompting shortcut repair. A stable public catalogue reference helps repair preselect the game; it contains no native paths or launch permission.
+
+
+Portal 0.13.0 hosts synchronized Focus Session and Browser Activity widgets using Relay 1.4.0. Relay continues timers and opted-in collection while Portal is closed. These browser-local records are outside the shared Portal database; see [productivity services](../docs/architecture/productivity-services.md).

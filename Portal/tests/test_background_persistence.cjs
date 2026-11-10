@@ -44,6 +44,10 @@ test('Portal discovery renewal preserves its token and stale pings cannot replac
 
 async function loadBackground(options = {}) {
   const listeners = {};
+  const alarmListeners = [];
+  listeners.alarm = alarm => alarmListeners.forEach(listener => listener(alarm));
+  const tabListeners = {removed:[],updated:[],activated:[]};
+  for (const name of Object.keys(tabListeners)) listeners[name] = (...args) => tabListeners[name].forEach(listener => listener(...args));
   const nativeWrites = [];
   const pendingWrites = [];
   const sentTabs = [];
@@ -55,6 +59,12 @@ async function loadBackground(options = {}) {
   const scheduledTimeouts = [];
   const injectedTabs = new Set();
   const storageValues = new Map(Object.entries(options.storageValues || {}));
+  if (options.authority !== undefined) {
+    if (options.authority === null) storageValues.delete('cyrunePortalAuthorityV1');
+    else storageValues.set('cyrunePortalAuthorityV1', options.authority);
+  } else if (options.nativeUnavailable && !storageValues.has('cyrunePortalAuthorityV1')) {
+    storageValues.set('cyrunePortalAuthorityV1', { schemaVersion: 1, authority: 'relay' });
+  }
   if (options.localStorageState) storageValues.set('morpheusState', options.localStorageState);
   const createdAlarms = new Map();
   const createdNotifications = [];
@@ -82,6 +92,7 @@ async function loadBackground(options = {}) {
     return emuguiTransferChunk(transferId, 0);
   };
   const browser = {
+    webRequest: { onBeforeRequest: { addListener() {} } },
     runtime: {
       id: 'test-extension',
       getManifest: () => ({ version: '1.0.31' }),
@@ -93,7 +104,7 @@ async function loadBackground(options = {}) {
           if (options.nativeUnavailable) throw new Error('native unavailable');
           return options.nativePing?.promise || { ok: true, protocols: HOST_PROTOCOLS };
         }
-        if (message.type === 'PORTAL_GET_STORAGE_CONFIG') return { ok: true, config: { databasePath: 'C:\\hub.json' } };
+        if (message.type === 'PORTAL_GET_STORAGE_CONFIG') return options.nativeConfigResponse || { ok: true, config: { databasePath: options.databasePath === undefined ? 'C:\\hub.json' : options.databasePath } };
         if (message.type === 'NEXUS_GET_COMPONENT_SETTINGS') {
           return { ok: true, profile: { values: { privacy: { allowOptionalNetwork: options.arcadeOptionalNetwork !== false } } } };
         }
@@ -154,14 +165,17 @@ async function loadBackground(options = {}) {
           const selected = typeof keys === 'string' ? [keys] : (Array.isArray(keys) ? keys : [...storageValues.keys()]);
           return Object.fromEntries(selected.filter(key => storageValues.has(key)).map(key => [key, storageValues.get(key)]));
         },
-        set: async values => { Object.entries(values || {}).forEach(([key, value]) => storageValues.set(key, value)); },
+        set: async values => {
+          if (options.authorityWriteError && Object.hasOwn(values, 'cyrunePortalAuthorityV1')) throw new Error('Synthetic authority storage failure');
+          Object.entries(values || {}).forEach(([key, value]) => storageValues.set(key, value));
+        },
         remove: async keys => { (Array.isArray(keys) ? keys : [keys]).forEach(key => storageValues.delete(key)); }
       }
     },
     alarms: {
       create: (name, details) => { createdAlarms.set(name, details); },
       clear: async name => createdAlarms.delete(name),
-      onAlarm: { addListener: listener => { listeners.alarm = listener; } }
+      onAlarm: { addListener: listener => { alarmListeners.push(listener); } }
     },
     notifications: {
       create: async (id, details) => { createdNotifications.push({ id, details }); return id; },
@@ -205,9 +219,9 @@ async function loadBackground(options = {}) {
         }
         return { ok: true, persisted: 'shared' };
       },
-      onRemoved: { addListener: listener => { listeners.removed = listener; } },
-      onUpdated: { addListener: listener => { listeners.updated = listener; } },
-      onActivated: { addListener: listener => { listeners.activated = listener; } }
+      onRemoved: { addListener: listener => { tabListeners.removed.push(listener); } },
+      onUpdated: { addListener: listener => { tabListeners.updated.push(listener); } },
+      onActivated: { addListener: listener => { tabListeners.activated.push(listener); } }
     },
     sessions: { getRecentlyClosed: async () => options.recentlyClosed || [] },
     bookmarks: { getSubTree: async () => [] },
@@ -284,6 +298,7 @@ async function loadBackground(options = {}) {
     };
   }
   const context = vm.createContext({
+    setInterval() {},
     browser,
     console,
     URL,
@@ -491,6 +506,204 @@ test('Relay-owned Portal snapshots migrate legacy storage and enforce revision C
   assert.equal(conflict.ok, false);
   assert.equal(conflict.conflict, true);
   assert.equal(conflict.fileInfo.revision, 2);
+});
+
+test('authority discovery persists only a path-free selection and keeps Relay selection across Host recovery', async () => {
+  for (const [databasePath, authority] of [['C:\\hub.json', 'host'], ['', 'relay']]) {
+    const h = await loadBackground({ databasePath, authority: null });
+    await h.context.ensureNativeStorageReady();
+    assert.deepEqual(JSON.parse(JSON.stringify(h.storageValues.get('cyrunePortalAuthorityV1'))), { schemaVersion: 1, authority });
+    assert.equal(h.context.getStorageInfo().storageMode, authority);
+  }
+  const h = await loadBackground({ authority: { schemaVersion: 1, authority: 'relay' } });
+  const loaded = await h.context.loadState();
+  assert.equal(loaded.storageMode, 'relay');
+  assert.equal(h.context.getStorageInfo().databasePath, null);
+  assert.equal(h.nativeRequests.some(request => request.type === 'PORTAL_DATABASE_READ_CHUNK'), false);
+});
+
+test('authority selection survives restart and does not follow transient Host configuration', async () => {
+  for (const [databasePath, authority] of [['C:\\hub.json', 'host'], ['', 'relay']]) {
+    const original = await loadBackground({ databasePath, authority: null });
+    await original.context.ensureNativeStorageReady();
+    const stored = Object.fromEntries(original.storageValues);
+    assert.deepEqual(JSON.parse(JSON.stringify(stored.cyrunePortalAuthorityV1)), { schemaVersion: 1, authority });
+    const restarted = await loadBackground({ nativeUnavailable: true, storageValues: stored });
+    await restarted.context.ensureNativeStorageReady();
+    assert.equal(restarted.context.getStorageInfo().storageMode, authority);
+    assert.equal(restarted.context.getStorageInfo().authoritativeStorageAvailable, authority === 'relay');
+  }
+  const knownHost = await loadBackground({ databasePath: '', authority: { schemaVersion: 1, authority: 'host' } });
+  await knownHost.context.ensureNativeStorageReady();
+  assert.equal(knownHost.context.getStorageInfo().storageMode, 'host');
+  assert.equal(knownHost.context.getStorageInfo().authoritativeStorageAvailable, false);
+  await assert.rejects(knownHost.context.loadState());
+});
+
+test('unknown or invalid authority cannot expose cached content until an explicit popup choice', async () => {
+  for (const authority of [null, { schemaVersion: 9, authority: 'host' }, { schemaVersion: 1, authority: 'other' }]) {
+    const h = await loadBackground({ nativeUnavailable: true, authority, localStorageState: '{"hubName":"Retained recovery"}' });
+    await h.context.ensureNativeStorageReady();
+    const info = h.context.getStorageInfo();
+    assert.equal(info.storageMode, 'unselected');
+    assert.equal(info.authoritativeStorageAvailable, false);
+    assert.equal(info.authoritySelectionRequired, true);
+    await assert.rejects(h.context.loadState());
+    const failedSave = await h.context.saveState('{"hubName":"Must not persist"}');
+    assert.equal(failedSave.ok, false);
+    assert.equal(h.storageValues.has('cyrunePortalSnapshotV1'), false);
+    assert.equal(h.storageValues.get('morpheusState'), '{"hubName":"Retained recovery"}');
+    const selected = await new Promise(resolve => h.listeners.message({ type: 'USE_RELAY_STORAGE' },
+      { id: 'test-extension', url: 'moz-extension://test/popup/popup.html' }, resolve));
+    assert.equal(selected.ok, true);
+    assert.equal(selected.storageInfo.storageMode, 'relay');
+    assert.equal(h.storageValues.get('morpheusState'), '{"hubName":"Retained recovery"}', 'Selection itself must not copy or migrate content');
+    assert.deepEqual(JSON.parse(JSON.stringify(h.storageValues.get('cyrunePortalAuthorityV1'))), { schemaVersion: 1, authority: 'relay' });
+  }
+});
+
+test('web pages cannot choose Relay storage and a known Host authority cannot be overridden', async () => {
+  const h = await loadBackground({ nativeUnavailable: true, authority: null });
+  await h.context.ensureNativeStorageReady();
+  const denied = await new Promise(resolve => h.listeners.message(
+    { type: 'USE_RELAY_STORAGE' }, { tab: { id: 10, url: 'file:///hub.html' } }, resolve));
+  assert.equal(denied?.ok, false);
+  assert.equal(h.storageValues.has('cyrunePortalAuthorityV1'), false);
+  const known = await loadBackground({ nativeUnavailable: true, authority: { schemaVersion: 1, authority: 'host' } });
+  await known.context.ensureNativeStorageReady();
+  const blocked = await new Promise(resolve => known.listeners.message({ type: 'USE_RELAY_STORAGE' },
+    { id: 'test-extension', url: 'moz-extension://test/popup/popup.html' }, resolve));
+  assert.equal(blocked.ok, false);
+  assert.equal(known.context.getStorageInfo().storageMode, 'host');
+});
+
+test('failed native writes keep Host authority with and without a loaded baseline', async () => {
+  for (const useBaseline of [false, true]) {
+    const h = await loadBackground({ nativeState: '{"hubName":"Native"}' });
+    const loaded = await h.context.loadState();
+    const baseline = useBaseline ? { expectedVersion: loaded.fileInfo.version, expectedHash: loaded.fileInfo.contentHash } : {};
+    const saving = h.context.saveState('{"hubName":"Unsaved"}', baseline);
+    while (!h.pendingWrites.length) await new Promise(resolve => setImmediate(resolve));
+    h.pendingWrites[0].resolve({ ok: false, error: 'Synthetic disk refusal' });
+    const result = await saving;
+    assert.equal(result.ok, false);
+    assert.equal(result.conflict, false);
+    assert.equal(h.storageValues.has('cyrunePortalSnapshotV1'), false);
+    assert.equal(h.context.getStorageInfo().storageMode, 'host');
+  }
+});
+
+test('Host disconnect blocks configured reads and saves without replacing authority', async () => {
+  const h = await loadBackground({ usePersistentNative: true, nativeState: '{"hubName":"Native"}' });
+  await h.context.loadState();
+  h.nativeConnections[0].disconnect();
+  const info = h.context.getStorageInfo();
+  assert.equal(info.storageMode, 'host');
+  assert.equal(info.authoritativeStorageAvailable, false);
+  assert.equal(info.authoritySelectionRequired, false);
+  await assert.rejects(h.context.loadState());
+  assert.equal((await h.context.saveState('{"hubName":"Unsaved"}')).ok, false);
+  assert.equal(h.storageValues.has('cyrunePortalSnapshotV1'), false);
+});
+
+test('queued native saves preserve their results and authority after an earlier write fails', async () => {
+  const h = await loadBackground({ nativeState: '{"hubName":"Native"}' });
+  const loaded = await h.context.loadState();
+  const baseline = { expectedVersion: loaded.fileInfo.version, expectedHash: loaded.fileInfo.contentHash };
+  const first = h.context.saveState('{"hubName":"First"}', baseline);
+  const second = h.context.saveState('{"hubName":"Second"}', baseline);
+  while (!h.pendingWrites.length) await new Promise(resolve => setImmediate(resolve));
+  h.pendingWrites[0].resolve({ ok: false, error: 'Synthetic first write refusal' });
+  assert.equal((await first).ok, false);
+  while (h.pendingWrites.length < 2) await new Promise(resolve => setImmediate(resolve));
+  h.pendingWrites[1].resolve({ ok: true, fileInfo: { version: 'v2', contentHash: 'h2' } });
+  assert.equal((await second).fileInfo.version, 'v2');
+  assert.equal(h.storageValues.has('cyrunePortalSnapshotV1'), false);
+  assert.equal(h.context.getStorageInfo().storageMode, 'host');
+});
+
+test('queued old-authority save cannot cross a confirmed database configuration change', async () => {
+  const h = await loadBackground({ nativeState: '{"hubName":"Native"}' });
+  const loaded = await h.context.loadState();
+  const baseline = { expectedVersion: loaded.fileInfo.version, expectedHash: loaded.fileInfo.contentHash };
+  const first = h.context.saveState('{"hubName":"First Host write"}', baseline);
+  while (!h.pendingWrites.length) await new Promise(resolve => setImmediate(resolve));
+  const configured = h.context.setDatabasePath('');
+  const oldQueuedSave = h.context.saveState('{"hubName":"Old Host edit"}', baseline);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(h.nativeRequests.some(request => request.type === 'PORTAL_SET_DATABASE_PATH'), false);
+  h.pendingWrites[0].resolve({ ok: true, fileInfo: { version: 'v2', contentHash: 'h2' } });
+  assert.equal((await first).ok, true);
+  assert.equal(await configured, true);
+  const rejected = await oldQueuedSave;
+  assert.equal(rejected.ok, false);
+  assert.match(rejected.error, /storage changed/i);
+  assert.equal(h.nativeWrites.length, 1);
+  assert.equal(h.storageValues.has('cyrunePortalSnapshotV1'), false);
+  assert.equal(h.context.getStorageInfo().storageMode, 'relay');
+  assert.deepEqual(JSON.parse(JSON.stringify(h.storageValues.get('cyrunePortalAuthorityV1'))), { schemaVersion: 1, authority: 'relay' });
+});
+
+test('authority queue rejects excess work without evicting accepted operations and recovers capacity', async () => {
+  const h = await loadBackground();
+  await h.context.ensureNativeStorageReady();
+  const send = h.context.browser.runtime.sendNativeMessage;
+  let statCalls = 0;
+  h.context.browser.runtime.sendNativeMessage = async (host, message) => message.type === 'PORTAL_DATABASE_STAT'
+    ? { ok: true, fileInfo: { version: `stat:${++statCalls}` } }
+    : send(host, message);
+  const held = h.context.saveState('{"hubName":"Held Host write"}');
+  while (!h.pendingWrites.length) await new Promise(resolve => setImmediate(resolve));
+  const accepted = Array.from({ length: 127 }, () => h.context.getDatabaseFileInfo());
+  await new Promise(resolve => setImmediate(resolve));
+  await assert.rejects(h.context.getDatabaseFileInfo(), /busy/i);
+  const overflowWrite = await h.context.saveState('{"hubName":"Rejected excess write"}');
+  assert.equal(overflowWrite.ok, false);
+  assert.match(overflowWrite.error, /busy/i);
+  assert.equal(statCalls, 0, 'Accepted reads must wait for the in-flight Host write');
+  assert.equal(h.nativeWrites.length, 1);
+  h.pendingWrites[0].resolve({ ok: true, fileInfo: { version: 'saved-held-write' } });
+  assert.equal((await held).fileInfo.version, 'saved-held-write');
+  const results = await Promise.all(accepted);
+  assert.deepEqual(results.map(result => result.fileInfo.version),
+    Array.from({ length: 127 }, (_, index) => `stat:${index + 1}`));
+  assert.equal((await h.context.getDatabaseFileInfo()).fileInfo.version, 'stat:128');
+  assert.equal(h.nativeWrites.length, 1, 'Rejected excess write must never reach Host');
+  assert.equal(h.storageValues.has('cyrunePortalSnapshotV1'), false);
+});
+
+test('unpersisted authority choices never announce writable storage', async () => {
+  const discovered = await loadBackground({ authority: null, authorityWriteError: true });
+  await discovered.context.ensureNativeStorageReady();
+  assert.equal(discovered.context.getStorageInfo().storageMode, 'unselected');
+  assert.equal(discovered.context.getStorageInfo().authoritativeStorageAvailable, false);
+  assert.equal((await discovered.context.saveState('{"hubName":"Unsaved"}')).ok, false);
+  const explicit = await loadBackground({ nativeUnavailable: true, authority: null, authorityWriteError: true });
+  const failed = await new Promise(resolve => explicit.listeners.message({ type: 'USE_RELAY_STORAGE' },
+    { id: 'test-extension', url: 'moz-extension://test/popup/popup.html' }, resolve));
+  assert.equal(failed.ok, false);
+  assert.equal(explicit.context.getStorageInfo().authoritativeStorageAvailable, false);
+  assert.equal(explicit.storageValues.has('cyrunePortalSnapshotV1'), false);
+  const changed = await loadBackground();
+  await changed.context.loadState();
+  const write = changed.context.browser.storage.local.set;
+  changed.context.browser.storage.local.set = values => Object.hasOwn(values, 'cyrunePortalAuthorityV1')
+    ? Promise.reject(new Error('Synthetic marker commit failure')) : write(values);
+  await assert.rejects(changed.context.setDatabasePath(''), /marker commit failure/);
+  assert.equal(changed.context.getStorageInfo().storageMode, 'unselected');
+  assert.equal(changed.context.getStorageInfo().authoritativeStorageAvailable, false);
+  assert.equal((await changed.context.saveState('{"hubName":"Unsaved"}')).ok, false);
+  assert.equal(changed.storageValues.has('cyrunePortalSnapshotV1'), false);
+});
+
+test('malformed Host storage configuration cannot select Relay authority', async () => {
+  for (const nativeConfigResponse of [{ ok: false }, { ok: true, config: null }, { ok: true, config: [] }, { ok: true, config: { databasePath: {} } }]) {
+    const h = await loadBackground({ authority: null, nativeConfigResponse });
+    await h.context.ensureNativeStorageReady();
+    assert.equal(h.context.getStorageInfo().storageMode, 'unselected', JSON.stringify(nativeConfigResponse));
+    assert.equal(h.context.getStorageInfo().authoritativeStorageAvailable, false);
+    assert.equal(h.storageValues.has('cyrunePortalAuthorityV1'), false);
+  }
 });
 
 test('durable intake queues while Portal is closed, deduplicates, and drains after registration', async () => {
@@ -1240,6 +1453,4 @@ test('native services require the exact registered Hub session', async () => {
 
   assert.equal(harness.context.joinThemePath('../escape.json'), null);
   assert.match(harness.context.joinThemePath('safe-theme.json'), /safe-theme\.json$/);
-  assert.equal(harness.context.fileUrlToPath('file:///home/user/WebHub/index.html'), '/home/user/WebHub/index.html');
-  assert.equal(harness.context.fileUrlToPath('file:///F:/WebHub/index.html'), 'F:\\WebHub\\index.html');
 });

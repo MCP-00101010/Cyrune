@@ -107,7 +107,7 @@ function _recentFilesRenderSettings(widget, container) {
     <div class="settings-row"><span>Maximum age</span><select class="settings-select" data-cfg="maxAgeHours">${[[24,'24 hours'],[72,'3 days'],[168,'7 days'],[720,'30 days'],[8760,'1 year']].map(([value,label]) => `<option value="${value}" ${widget.config.maxAgeHours === value ? 'selected' : ''}>${label}</option>`).join('')}</select></div>
     <div class="settings-row"><span>Maximum results</span><select class="settings-select" data-cfg="resultCount">${[10,20,30,50,100].map(value => `<option value="${value}" ${widget.config.resultCount === value ? 'selected' : ''}>${value}</option>`).join('')}</select></div>
     <div class="settings-row"><span>Include subfolders (3 levels)</span><label class="settings-toggle"><input type="checkbox" data-cfg="recursive" ${widget.config.recursive ? 'checked' : ''}/><span class="toggle-track"></span></label></div>
-    <div class="settings-help">Only approved roots are scanned. Enumeration is limited to 5,000 entries, three levels, three seconds, and 100 returned files. Results stay local and actions are fixed Open/Reveal operations.</div><div class="recent-files-settings-status settings-muted"></div>`;
+    <div class="recent-files-settings-status settings-muted"></div>`;
   const list = container.querySelector('.recent-files-settings-list'); const status = container.querySelector('.recent-files-settings-status');
   const renderRows = () => {
     list.innerHTML = '';

@@ -202,7 +202,7 @@ def test_api_uses_fixed_picker_and_handles_without_native_targets(tmp_path, monk
     manager, root, relocated = prepared_copy(tmp_path)
     server = native_runtime(manager, root, monkeypatch)
     if not active:
-        monkeypatch.setattr(server, "COLLECTION", tmp_path / "unrelated-active-source")
+        monkeypatch.setattr(server, "DESASTERON_COLLECTION", tmp_path / "unrelated-active-source")
     picked = []
     monkeypatch.setattr(server, "pick_path", lambda *args: picked.append(args) or {"ok": True, "path": str(relocated)})
     request = {"kind": "catalogue-reattachment", "collection_id": "spectrum"}
@@ -212,7 +212,8 @@ def test_api_uses_fixed_picker_and_handles_without_native_targets(tmp_path, monk
     assert picked == [("folder", "Select the relocated collection folder")]
     assert "path" not in selected and str(tmp_path) not in json.dumps(selected)
     reviewed = server.dispatch_arcade_api("POST", "/api/catalogue-reattachment/preview", data={"selection_token": selected["selectionToken"]})
-    server.LIBRARY = object()
+    server.Library = object
+    server.get_library()
     result = server.dispatch_arcade_api("POST", "/api/catalogue-reattachment/confirm", data={"review_token": reviewed["reviewToken"]})
     assert result == {"ok": True, "status": "committed", "entries": 1}
     assert server.LIBRARY is None

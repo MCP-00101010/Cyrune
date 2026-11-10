@@ -34,7 +34,7 @@ def test_only_successful_apply_remembers_searches_and_legacy_apply_preserves_the
     assert server.scrape_targets(['jetpac'])['games'][0]['scrape_searches'] == {}
     body['candidate'] = {'description':'Test description'}
     assert post(server, '/api/apply-scrape', body)['ok']
-    server.LIBRARY = None
+    server.get_collection_lifecycle().invalidate()
     assert server.scrape_targets(['jetpac'])['games'][0]['scrape_searches']['manual']['search_term'] == 'A better title'
     assert post(server, '/api/apply-scrape', {'game_id':'jetpac', 'candidate':{'description':'Another'}})['ok']
     assert server.scrape_targets(['jetpac'])['games'][0]['scrape_searches']['manual']['search_platform'] == 'all'
@@ -63,7 +63,7 @@ def test_legacy_spectrum_buckets_share_only_versions_and_new_editions_inherit(tm
     for row in (sibling, unrelated):
         (server.COLLECTION / row['file']).write_bytes(b'fixture')
         metadata['games'].append(row)
-    server.save_metadata(metadata); server.LIBRARY = None
+    server.save_metadata(metadata); server.get_collection_lifecycle().invalidate()
     assert server.scrape_targets(['new-edition'])['games'][0]['scrape_searches']['manual']['search_term'] == CHOICES['search_term']
     assert server.scrape_targets(['other'])['games'][0]['scrape_searches'] == {}
 

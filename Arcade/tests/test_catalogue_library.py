@@ -34,6 +34,37 @@ def test_catalogue_rejects_explicit_emulator_that_cannot_open_the_media_format(t
         resolve_plan(library, entry["catalogueId"])
 
 
+def test_repair_location_does_not_require_launchable_media(tmp_path):
+    library, _, root = fixture(tmp_path)
+    entry = library.service().search()['entries'][0]
+    expected = library.service().locate(entry['catalogueId'])
+    for media in root.glob('*.tap'):
+        media.unlink()
+    assert library.service().locate(entry['catalogueId']) == expected
+    with pytest.raises(CatalogueError):
+        resolve_plan(library, entry['catalogueId'])
+
+
+def test_invalid_unrelated_index_does_not_disable_existing_game_bindings(tmp_path):
+    library, _, _ = fixture(tmp_path)
+    entry = library.service().search()["entries"][0]
+    bad = tmp_path / 'unreadable-collection'
+    bad.mkdir()
+    write(bad / 'collection-metadata.json', {'games': {}})
+    config = read(library.config_path)
+    config['collections'].insert(0, {**config['collections'][0], 'id': 'unreadable', 'root': str(bad)})
+    write(library.config_path, config)
+    before = (bad / 'collection-metadata.json').read_bytes()
+    with library.read_snapshot():
+        plan = resolve_plan(library, entry['catalogueId'])
+        assert plan['catalogueId'] == entry['catalogueId']
+        assert {source.collection_id for source in library.service()._sources} == {config['collections'][1]['id']}
+    assert (bad / 'collection-metadata.json').read_bytes() == before
+    # Repairing the source makes it visible without restarting the service.
+    write(bad / 'collection-metadata.json', {'games': [row()]})
+    assert len(library.service().search()['entries']) == 3
+
+
 def test_versions_refresh_does_not_hold_the_index_lock(tmp_path):
     import threading
     library, _, _ = fixture(tmp_path)

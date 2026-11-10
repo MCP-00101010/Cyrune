@@ -45,7 +45,9 @@ function nativePort() {
 }
 async function main() {
   const storage = new Map(), onBackground = event();
+  const openedTabs = [];
   const browser = {
+    webRequest: { onBeforeRequest: event() },
     runtime: { id: 'workflow-fixture', getManifest: () => ({ version: 'fixture' }), getURL: value => `moz-extension://fixture/${value}`,
       onMessage: onBackground, connectNative: nativePort,
       sendNativeMessage: async (_name, message) => new Promise((resolve, reject) => {
@@ -58,6 +60,7 @@ async function main() {
       set: async values => Object.entries(values).forEach(([key, value]) => storage.set(key, clone(value))),
       remove: async keys => (Array.isArray(keys) ? keys : [keys]).forEach(key => storage.delete(key)) } },
     tabs: { query: async () => [], get: async () => sender.tab, sendMessage: async () => ({ ok: true }),
+      create: async tab => { openedTabs.push(tab); return {id: 8, ...tab}; },
       executeScript: async () => [], onRemoved: event(), onUpdated: event(), onActivated: event() },
     windows: { onFocusChanged: event() },
     alarms: { create() {}, clear: async () => true, onAlarm: event() },
@@ -65,7 +68,7 @@ async function main() {
     contextMenus: { create() {}, removeAll: async () => {}, onClicked: event() }, commands: { onCommand: event() }
   };
   const common = { console, URL, TextEncoder, TextDecoder, Uint8Array, atob, btoa, Blob, DecompressionStream,
-    crypto: webcrypto, structuredClone, setTimeout: setTimer, clearTimeout: clearTimer, AbortController };
+    crypto: webcrypto, structuredClone, setTimeout: setTimer, clearTimeout: clearTimer, setInterval() {}, AbortController };
   const background = vm.createContext({ ...common, browser });
   let backgroundSource = source('Relay/background.js');
   if (scenario === 'closed-gate') backgroundSource = backgroundSource.replace("  'arcade-catalogue': 1,", '');
@@ -118,7 +121,9 @@ async function main() {
   portal.authoritativePortalStorageReady = () => bridge.storageIsAvailable();
   portal.reloadHubData = () => assert.fail('Unexpected authoritative reload in workflow fixture');
   const app = source('Portal/source/app.js');
-  vm.runInContext(app.slice(app.indexOf('async function prepareForExternalDelivery('), app.indexOf('function resolveExternalInboxTarget(')), portal);
+  const preparation = app.match(/async function prepareForExternalDelivery\(\) \{[\s\S]*?\n\}/);
+  assert.ok(preparation, 'The workflow must execute Portal\'s actual delivery preparation');
+  vm.runInContext(preparation[0], portal);
   const destination = { boardId: 'board', tabId: 'tab', columnId: 'column' };
   const pickerApi = vm.runInContext('arcadeGamePicker', portal);
   const create = () => pickerApi.create({ session: () => bridge.catalogueSession(), uuid: () => webcrypto.randomUUID(),
@@ -138,7 +143,8 @@ async function main() {
     const cards = saved.boards[0].tabs[0].columns[0].items;
     assert.deepEqual(cards.map(card => card.systemId), ['dos']);
     assert.equal(new Set(cards.map(card => card.gameKey)).size, 1);
-    assert.doesNotMatch(JSON.stringify(cards), /targetId|engineid|scummvm.ini|fixture.exe|arguments|catalogueId/);
+    assert.doesNotMatch(JSON.stringify(cards), /targetId|engineid|scummvm.ini|fixture.exe|arguments/);
+    assert.match(cards[0].catalogueId, /^[A-Za-z0-9_-]{1,80}$/);
     assert.equal(await bridge.launchGame(cards[0].gameKey), true);
     const versions = await bridge.gameVersions(cards[0].gameKey);
     assert.equal(versions.versions.length, 2);
@@ -209,10 +215,11 @@ async function main() {
     assert.equal(card.tags.length, scenario === 'happy' ? 1 : 0);
     const status = await bridge.getGameStatus(card.gameKey); assert.equal(status.state, 'ready');
   }
-  const privateValues = [root, 'fixture.exe', 'game000.tap', 'game001.tap', 'arguments', 'catalogueId', 'entryRevision', 'sessionId'];
+  const privateValues = [root, 'fixture.exe', 'game000.tap', 'game001.tap', 'arguments', 'entryRevision', 'sessionId'];
   for (const value of privateValues) assert.ok(!JSON.stringify(cards).includes(value), value);
   const bindings = JSON.parse(fs.readFileSync(path.join(root, 'catalogue-bindings.json')));
   assert.equal(Object.keys(bindings.bindings).length, expected);
+  for (const card of cards) assert.equal(card.catalogueId, bindings.bindings[card.gameKey].catalogueId);
   if (scenario === 'happy') {
     assert.equal(await bridge.launchGame(cards[0].gameKey), true);
     const launches = fs.readFileSync(path.join(root, 'launches.jsonl'), 'utf8').trim().split('\n').map(JSON.parse);
@@ -220,11 +227,19 @@ async function main() {
     const filename = variants[1].hardwareLabel === '48K' ? 'game000.tap' : 'game001.tap';
     assert.deepEqual(launches[0].args, [path.join(root, 'fixture.exe'), '--game', path.join(root, 'spectrum', filename)]);
     assert.equal(launches[0].activeSource, 'different-active-source');
+    const missing = 'game_missing_123456789012';
+    assert.equal(await bridge.openGameInArcade(missing, {rebind: true, catalogueId: cards[0].catalogueId}), true);
+    const repair = new URL(openedTabs.at(-1).url);
+    assert.equal(repair.searchParams.get('hubRebind'), missing);
+    assert.equal(repair.searchParams.get('collection'), 'spectrum');
+    const records = JSON.parse(fs.readFileSync(path.join(root, 'spectrum/collection-metadata.json'))).games;
+    assert.ok(records.some(record => record.id === repair.searchParams.get('game')));
+    assert.equal(JSON.parse(fs.readFileSync(path.join(root, 'catalogue-bindings.json'))).bindings[missing], undefined);
   }
   const catalogueReplies = pageReplies.filter(value => value.schemaVersion === 1);
   for (const value of [root, 'fixture.exe', 'game000.tap', 'game001.tap', 'sessionId', 'arguments'])
     assert.ok(!JSON.stringify(catalogueReplies).includes(value), value);
-  assert.ok(!JSON.stringify([...storage]).includes('catalogueId'));
+  assert.doesNotMatch(JSON.stringify([...storage]), /entryRevision|catalogueRevision|artworkRef/);
   vm.runInContext('restoreStateSnapshot(' + JSON.stringify(undo[0]) + ')', portal);
   assert.equal(vm.runInContext('state.boards[0].tabs[0].columns[0].items.length', portal), 0);
   assert.equal(Object.keys(JSON.parse(fs.readFileSync(path.join(root, 'catalogue-bindings.json'))).bindings).length, expected);

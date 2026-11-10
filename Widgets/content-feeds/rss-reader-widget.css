@@ -7,19 +7,6 @@
   min-width: 0;
   color: var(--text);
 }
-.widget-rss-heading {
-  min-width: 0;
-  margin: 0 0 1px;
-  padding: 0 54px 5px 2px;
-  overflow: hidden;
-  border-bottom: 1px solid var(--border);
-  color: var(--text);
-  font-size: calc(0.88rem * var(--widget-text-scale, 1));
-  font-weight: 700;
-  line-height: 1.35;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 .widget-rss-tabs {
   display: flex;
   min-width: 0;

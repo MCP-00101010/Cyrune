@@ -199,7 +199,7 @@ test('the Cloudflare engine resolves API URLs when a file Hub has a null origin'
   );
 });
 
-test('IP Info UI exposes flag, address, change state, privacy controls, and attribution', () => {
+test('IP Info UI exposes flag, address, change state, privacy controls, and freshness', () => {
   const source = ipInfoSource;
   const styles = fs.readFileSync(path.join(__dirname, 'ip-info-widget.css'), 'utf8');
   assert.match(source, /widget-ip-info-flag/);
@@ -209,8 +209,8 @@ test('IP Info UI exposes flag, address, change state, privacy controls, and attr
   assert.match(source, /Check public IP and connection speed now/);
   assert.match(source, /Approximate city/);
   assert.match(source, /Network provider/);
-  assert.match(source, /https:\/\/ipwhois\.io\//);
-  assert.match(source, /Cloudflare connection speed test/);
+  assert.doesNotMatch(source, /widget-ip-info-footer-sources/);
+  assert.match(source, /Connection speed test/);
   assert.match(source, /runSpeed: true/);
   assert.match(source, /widget-ip-info-speed-metrics/);
   assert.match(source, /widget-ip-info-footer-status/);

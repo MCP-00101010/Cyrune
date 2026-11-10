@@ -719,9 +719,17 @@ function _mediaWatchlistRenderWikiMenu(record) {
   if (!record.wikis.length) return null;
   const menu = document.createElement('details'); menu.className = 'media-watchlist-wiki-menu';
   const summary = document.createElement('summary'); summary.textContent = `Wikis (${record.wikis.length})`; summary.title = 'Open a linked Fandom wiki'; menu.appendChild(summary);
+  menu.addEventListener('keydown', event => {
+    if (event.key !== 'Escape' || !menu.open) return;
+    event.preventDefault(); event.stopPropagation(); menu.open = false; summary.focus();
+  });
+  menu.addEventListener('focusout', event => {
+    if (!menu.contains(event.relatedTarget)) menu.open = false;
+  });
   const links = document.createElement('div'); links.className = 'media-watchlist-wiki-links';
   record.wikis.forEach(wiki => {
     const link = document.createElement('a'); link.href = wiki.pageUrl || wiki.communityUrl; link.target = '_blank'; link.rel = 'noreferrer noopener';
+    link.addEventListener('click', () => { menu.open = false; summary.focus(); });
     const label = document.createElement('span'); label.textContent = `${wiki.preferred ? '★ ' : ''}${wiki.label}`;
     const meta = document.createElement('small'); meta.textContent = [wiki.language, wiki.pageTitle || 'Community home'].filter(Boolean).join(' · ');
     link.append(label, meta); links.appendChild(link);
@@ -750,11 +758,13 @@ function _mediaWatchlistRender(widget, element, context) {
     const meta = document.createElement('div'); meta.className = 'media-watchlist-meta'; meta.textContent = `${record.type === 'series' ? 'Series' : 'Film'}${progressMeta}${record.showRating && record.rating ? ` · ★ ${record.rating}` : ''}${record.upcoming[0] ? ` · ${record.upcoming[0].date}` : ''}`;
     identity.append(titleEl, meta);
     const actions = document.createElement('div'); actions.className = 'media-watchlist-actions';
-    const watched = document.createElement('button'); watched.type = 'button'; watched.textContent = record.watched ? (record.type === 'series' ? 'Reopen' : 'Unwatch') : (record.type === 'series' ? 'Complete' : 'Watched');
-    if (record.type === 'series') watched.title = 'Set the title-level status without changing episode checkboxes.';
-    watched.addEventListener('click', () => { _mediaWatchlistPushUndo(); record.watched = !record.watched; _mediaWatchlistSave(widget); });
     const wikiMenu = _mediaWatchlistRenderWikiMenu(record); if (wikiMenu) actions.appendChild(wikiMenu);
-    actions.appendChild(watched); main.append(identity, actions); card.appendChild(main);
+    if (record.type === 'film') {
+      const watched = document.createElement('button'); watched.type = 'button'; watched.textContent = record.watched ? 'Unwatch' : 'Watched';
+      watched.addEventListener('click', () => { _mediaWatchlistPushUndo(); record.watched = !record.watched; _mediaWatchlistSave(widget); });
+      actions.appendChild(watched);
+    }
+    main.append(identity, actions); card.appendChild(main);
     const details = document.createElement('details'); const summary = document.createElement('summary'); summary.textContent = _mediaWatchlistDetailsLabel(record); details.appendChild(summary);
     details.open = seriesState ? seriesState.open : runtime.detailsOpen[record.id] === true;
     if (details.open) {
@@ -878,10 +888,9 @@ function _mediaWatchlistRenderSettings(widget, container) {
     </section>
     <section class="settings-section media-watchlist-settings-library">
       <div class="settings-section-label">Movies and series</div>
-      <div class="settings-help">Add, match, import, remove, and choose which details appear in this widget. Changes are applied only when you select Done.</div>
+
       <div class="media-watchlist-settings-manager"></div>
-    </section>
-    <div class="settings-help media-watchlist-settings-attribution">Watchlist records remain portable without TMDB. Provider responses stay in the local widget cache. TMDB attribution: this product uses the TMDB API but is not endorsed or certified by TMDB.</div>`;
+    </section>`;
   const managerHost = container.querySelector('.media-watchlist-settings-manager');
   const manager = { query: '', type: 'film', results: [], searching: false, error: '', matchRecordId: '', wikiExpanded: {}, wikiDrafts: {}, wikiSearch: {} };
   const renderManager = () => {

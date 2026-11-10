@@ -7,16 +7,16 @@
     <meta name="morpheus-emugui" content="1">
     <title>Cyrune Arcade</title>
     <link rel="icon" type="image/svg+xml" href="assets/arcade.svg">
-    <link rel="stylesheet" href="style.css?v=0.2.58">
+    <link rel="stylesheet" href="style.css?v=0.2.81">
   </head>
   <body>
     <main class="shell" id="shell">
       <aside class="sidebar" id="sidebar">
         <section class="sidebar-card menu-card">
-          <h1>Cyrune Arcade</h1>
+          <h1><img class="arcade-brand-mark" src="assets/arcade.svg" alt="" aria-hidden="true">Cyrune Arcade</h1>
           <div class="sidebar-meta-row">
             <span id="library-count">Loading library...</span>
-            <button id="arcade-version" class="arcade-version" type="button" title="Settings" aria-label="Open Arcade settings">v0.2.58</button>
+            <button id="arcade-version" class="arcade-version" type="button" title="Settings" aria-label="Open Arcade settings">v0.2.81</button>
           </div>
         </section>
         <section class="sidebar-card platforms-card">
@@ -33,6 +33,12 @@
           <h2 class="card-title">Filters</h2>
           <label class="search"><span>Search</span><input id="search" type="search" autocomplete="off" placeholder="Search games"></label>
           <label class="select-filter collection-filter"><span>Collection</span><select id="collection-select" aria-label="Collection"></select></label>
+          <div class="saved-view-controls">
+            <label class="select-filter"><span>Saved view</span><select id="saved-view" aria-label="Saved view"><option value="">Custom view</option></select></label>
+            <button id="save-view" class="secondary compact" type="button">Save view…</button>
+            <button id="manage-views" class="secondary compact" type="button">Manage…</button>
+            <span id="saved-view-status" role="status"></span>
+          </div>
         <section class="filter-group">
           <h2 class="section-title-row">View <span class="view-beacons"><span id="incoming-indicator" class="view-indicator incoming-indicator" hidden></span><span id="trash-indicator" class="view-indicator trash-indicator" hidden></span></span></h2>
           <label class="select-filter">
@@ -52,6 +58,10 @@
 
         <section class="filter-group">
           <h2>Metadata</h2>
+          <button id="compilation-catalogue" class="secondary" hidden>Update compilation catalogue…</button>
+          <label class="select-filter" data-compilation-filter hidden><span>Group</span><div id="filter-compilation_group" class="filter-combo"></div></label>
+          <label class="select-filter" data-compilation-filter hidden><span>Series</span><div id="filter-series" class="filter-combo"></div></label>
+          <label class="select-filter" data-compilation-filter hidden><span>Image condition</span><div id="filter-compilation_condition" class="filter-combo"></div></label>
           <label class="select-filter">
             <span>System</span>
             <div id="filter-system" class="filter-combo"></div>
@@ -134,13 +144,16 @@
     <script src="transport.js"></script>
     <script src="portal-theme.js"></script>
     <script src="portal-delivery.js"></script>
-    <script src="platforms.js?v=0.2.58"></script>
-    <script src="metadata-scraping.js?v=0.2.58"></script>
-    <script src="settings-ui.js?v=0.2.58"></script>
-    <script src="emulator-shortcuts.js?v=0.2.58"></script>
+    <script src="platforms.js?v=0.2.81"></script>
+    <script src="metadata-scraping.js?v=0.2.81"></script>
+    <script src="ui-foundation.js"></script>
+    <script src="settings-ui.js?v=0.2.81"></script>
+    <script src="navigation-order.js?v=0.2.81"></script>
+    <script src="emulator-shortcuts.js?v=0.2.81"></script>
     <script src="scrape-drafts.js"></script>
     <script src="scrape-views.js"></script>
     <script src="artwork.js"></script>
-    <script src="app.js?v=0.2.58"></script>
+    <script src="saved-views.js"></script>
+    <script src="app.js?v=0.2.81"></script>
   </body>
 </html>

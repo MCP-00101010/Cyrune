@@ -256,11 +256,6 @@ function collectStoredBookmarks(root = state) {
   return entries;
 }
 
-function findStoredBookmarkEntry(itemId, root = state) {
-  if (!itemId) return null;
-  return collectStoredBookmarks(root).find(entry => entry.item.id === itemId) || null;
-}
-
 function syncBookmarkActivityInventory(root = state, now = Date.now()) {
   const activity = getBookmarkActivityState();
   const liveIds = new Set();
@@ -310,10 +305,22 @@ function recordBookmarkOpen(item, openedAt = Date.now()) {
   return true;
 }
 
-function openHubBookmark(item, target = '_blank', features = 'noreferrer noopener') {
+function openHubBookmark(item, target, features = 'noreferrer noopener') {
   if (!item?.url) return null;
   recordBookmarkOpen(item);
-  return window.open(item.url, target, features);
+  if (!target && globalThis.CyruneSettings?.get()?.values?.behaviour?.externalLinks === 'current-tab') {
+    window.location.assign(item.url);
+    return null;
+  }
+  return window.open(item.url, target || '_blank', features);
+}
+
+function handleHubBookmarkClick(event, item) {
+  if (!event.ctrlKey && !event.metaKey && !event.shiftKey && !event.altKey && (event.button || 0) === 0
+    && globalThis.CyruneSettings?.get()?.values?.behaviour?.externalLinks === 'current-tab') {
+    event.preventDefault();
+    openHubBookmark(item);
+  } else recordBookmarkOpen(item);
 }
 
 function setBookmarkActivityTrackingEnabled(enabled) {

@@ -32,6 +32,15 @@ function loadAstronomyWidgets() {
   return context;
 }
 
+test('Astronomy accepts the numeric coordinates returned by location search', () => {
+  const context = loadAstronomyWidgets();
+  vm.runInContext(fs.readFileSync(path.join(root, '../Widgets/core/widget-sdk.js'), 'utf8'), context);
+  const result = vm.runInContext(`WidgetSDK.settings.validateDraft(WIDGET_REGISTRY.astronomy, {
+    config: {...WIDGET_REGISTRY.astronomy.defaultConfig, useWeatherLocation:false, latitude:55.9533, longitude:-3.1883}
+  })`, context);
+  assert.equal(result.valid, true, result.errors.join('; '));
+});
+
 test('astronomy widget is registered with local-first defaults', () => {
   const context = loadAstronomyWidgets();
   const result = vm.runInContext(`(() => {

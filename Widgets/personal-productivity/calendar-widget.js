@@ -1100,7 +1100,7 @@ function _calendarRenderSettings(widget, container) {
     <div class="settings-row"><span>Automatic refresh</span><select class="settings-select" data-cfg="refreshMinutes">
       ${[[30, '30 minutes'], [60, 'Hourly'], [180, 'Every 3 hours'], [360, 'Every 6 hours']].map(([minutes, label]) => `<option value="${minutes}" ${_calendarNormalizeRefreshMinutes(config.refreshMinutes) === minutes ? 'selected' : ''}>${label}</option>`).join('')}
     </select></div>
-    <div class="settings-help calendar-settings-help">All sources merge into one read-only calendar. Private calendar URLs stay with their source in Windows Credential Manager; provider API keys are managed globally in Settings &gt; API Keys. Click a source name above the calendar to show or hide it.</div>
+
     <div class="calendar-settings-status settings-muted">Checking secure storage…</div>`;
 
   const list = container.querySelector('.calendar-settings-source-list');
@@ -1319,12 +1319,9 @@ WIDGET_REGISTRY['protonCalendar'] = {
     header.className = 'widget-calendar-header';
     const heading = document.createElement('div');
     heading.className = 'widget-calendar-heading';
-    heading.textContent = widget.title || 'Calendar';
-    const protonLink = document.createElement('a');
-    protonLink.href = 'https://calendar.proton.me/';
-    protonLink.target = '_blank';
-    protonLink.rel = 'noreferrer noopener';
-    protonLink.textContent = 'Open Proton';
+    heading.textContent = 'Calendar';
+    heading.hidden = !!widget.title;
+
     header.appendChild(heading);
     element.appendChild(header);
 
@@ -1450,29 +1447,6 @@ WIDGET_REGISTRY['protonCalendar'] = {
       status.textContent = runtime.errors.join(' · ');
     } else if (runtime.fetchedAt) {
       status.textContent = `Updated ${new Date(runtime.fetchedAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}`;
-    }
-    const privacy = document.createElement('span');
-    privacy.textContent = sources.some(_calendarSourceUsesCredential) ? 'Read-only · credentials secured locally' : 'Read-only · public sources';
-    if (sources.some(source => source.type === 'proton')) status.append(protonLink);
-    status.append(privacy);
-    const providerLinks = {
-      ukHolidays: ['GOV.UK', 'https://www.gov.uk/bank-holidays'],
-      launches: ['Launch Library 2', 'https://thespacedevs.com/llapi'],
-      football: ['football-data.org', 'https://www.football-data.org/'],
-      pdc: ['PDC', 'https://www.pdc.tv/tournaments/calendar']
-    };
-    const providerTypes = [...new Set(sources.map(source => source.type).filter(type => providerLinks[type]))];
-    if (providerTypes.length) {
-      const attributions = document.createElement('span');
-      attributions.className = 'widget-calendar-attributions';
-      attributions.append('Sources: ');
-      providerTypes.forEach((type, index) => {
-        if (index) attributions.append(' · ');
-        const [label, url] = providerLinks[type];
-        const link = document.createElement('a'); link.href = url; link.target = '_blank'; link.rel = 'noreferrer noopener'; link.textContent = label;
-        attributions.append(link);
-      });
-      status.append(attributions);
     }
     element.appendChild(status);
   },

@@ -190,6 +190,62 @@ test('document repository falls back from Host to direct file and then to a boun
   }
 });
 
+test('document cache evicts old snapshot timestamps and caps document retention', async () => {
+  let calls = 0;
+  const repository = service.createDocumentRepository({
+    bridge: { request: async () => ({ document: { markdown: `# Version ${++calls}` } }) },
+    isAuthenticated: () => true
+  });
+  const request = { cacheKey: 'portal:todo', serviceDocument: { component: 'portal', documentType: 'todo' }, revision: 1700000000000 };
+  for (let i = 0; i < 100; i++) await repository.load({ ...request, revision: request.revision + i });
+  assert.equal(calls, 100);
+  await repository.load(request);
+  assert.equal(calls, 101); // The oldest snapshot was evicted.
+  const current = { ...request, revision: request.revision + 100 };
+  for (let i = 0; i < 40; i++) await repository.load({ ...current, cacheKey: `document:${i}` });
+  const before = calls;
+  await repository.load({ ...current, cacheKey: 'document:0' });
+  assert.equal(calls, before + 1);
+});
+
+test('late old document loads cannot replace a newer offline copy', async () => {
+  const originalStorage = global.localStorage;
+  const stored = new Map();
+  global.localStorage = { getItem: key => stored.get(key), setItem: (key, value) => stored.set(key, value) };
+  try {
+    let finishOld;
+    let calls = 0;
+    const repository = service.createDocumentRepository({ isAuthenticated: () => true,
+      bridge: { request: async () => ++calls === 1 ? new Promise(resolve => { finishOld = resolve; }) : { document: { markdown: '# New' } } }
+    });
+    const request = { cacheKey: 'portal:todo', serviceDocument: { component: 'portal', documentType: 'todo' }, revision: 10 };
+    const old = repository.load(request);
+    await repository.load({ ...request, revision: 11 });
+    finishOld({ document: { markdown: '# Old' } });
+    assert.equal(await old, '# Old');
+    assert.equal(JSON.parse([...stored.values()][0]).markdown, '# New');
+    assert.equal(await repository.load({ ...request, revision: 11 }), '# New');
+    assert.equal(calls, 2);
+  } finally { global.localStorage = originalStorage; }
+});
+
+test('document cache also bounds aggregate preview text', async () => {
+  let calls = 0;
+  const repository = service.createDocumentRepository({ isAuthenticated: () => true,
+    bridge: { request: async () => { calls++; return { document: { markdown: 'x'.repeat(500000) } }; } }
+  });
+  const request = { revision: 1, serviceDocument: { component: 'portal', documentType: 'todo' } };
+  for (let i = 0; i < 5; i++) await repository.load({ ...request, cacheKey: `large:${i}` });
+  await repository.load({ ...request, cacheKey: 'large:0' });
+  assert.equal(calls, 6);
+});
+
+test('Project exposes current architecture without the retired migration TODO', () => {
+  const source = fs.readFileSync(path.join(nexusRoot, 'source', 'app.js'), 'utf8');
+  assert.doesNotMatch(source, /CYRUNE-MONOREPO-TODO|Migration TODO|data-open-todo="project"/);
+  assert.match(source, /loadProjectDocument\('project', '\.\.\/PROJECT\.md'\)/);
+});
+
 test('settings broadcasts queue a follow-up when an authoritative refresh is already active', () => {
   const source = fs.readFileSync(path.join(nexusRoot, 'source', 'app.js'), 'utf8');
   assert.match(source, /if \(serviceRefresh\) \{[\s\S]*refreshRequestedWhileActive = true/);

@@ -1,5 +1,11 @@
 # Cyrune Host TODO
 
+- Monitor 0.2.29: conditional shortcut repair, stable public game references, exact repair preselection and explicit user approval after missing native records.
+
+- Monitor 0.2.28: explicit missing-shortcut repair preserves the Portal key and reviewed emulator/profile through Host restart; ordinary launch remains unable to create authority.
+
+- Monitor 0.2.27: stale-writer rejection on same-size/timestamp collisions and Nexus allowlisted document previews.
+
 - Monitor 0.2.26: coordinated data cutover, current protocol negotiation and first-reload browser upgrades. See `docs/architecture/suite-data-cutover.md` at repository root.
 - Cutover follow-up: the existing Portal shortcut for Impact! needs explicit rebind because its retained Atari launch fingerprint differs. Two other stale approvals are not referenced by Portal; no replacement authority was granted.
 

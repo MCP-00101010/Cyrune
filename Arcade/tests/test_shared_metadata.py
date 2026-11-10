@@ -55,7 +55,7 @@ def test_legacy_containers_keep_unrelated_games_separate_during_load_scrape_edit
     metadata['games'] = rows
     server.save_metadata(metadata)
     original = server.METADATA_FILE.read_bytes()
-    server.LIBRARY = None
+    server.get_collection_lifecycle().invalidate()
     library = server.get_library()
     assert library.get_game('afterburner').title == 'After Burner'
     assert library.get_game('afterburner').description == 'afterburner'
@@ -74,7 +74,7 @@ def test_legacy_containers_keep_unrelated_games_separate_during_load_scrape_edit
     assert library.get_game('afterburner').description == 'afterburner'
     saved = server.load_metadata()
     assert next(row for row in saved['games'] if row['id'] == 'afterburner') == rows[2]
-    server.LIBRARY = None
+    server.get_collection_lifecycle().invalidate()
     summaries = server.dispatch_arcade_api('GET', '/api/games', {'collection_id': server.active_collection()['id'], 'shape':'summary', 'groupVersions':'true'})['games']
     assert next(row for row in summaries if row['id']=='afterburner')['title'] == 'After Burner'
 
@@ -88,7 +88,7 @@ def test_old_atari_scrape_and_newly_indexed_version_share_metadata_without_rescr
     original_override = store.path.read_bytes()
     original_index = (root / 'collection-metadata.json').read_bytes()
     def check():
-        server.LIBRARY = None
+        server.get_collection_lifecycle().invalidate()
         games = server.get_library().games
         assert {g.title for g in games} == {'Correct game'}
         assert {g.description for g in games} == {'Shared description'}
@@ -123,14 +123,14 @@ def test_spectrum_old_metadata_and_manual_corrections_are_shared_on_load_and_ref
     metadata['games'].append(sibling)
     server.save_metadata(metadata)
     before = server.METADATA_FILE.read_bytes()
-    server.LIBRARY = None
+    server.get_collection_lifecycle().invalidate()
     assert server.get_library().get_game('jetpac128').description == 'Existing description'
     assert server.get_library().get_game('jetpac128').screenshot == first['screenshot']
     assert server.METADATA_FILE.read_bytes() == before
     assert post(server, '/api/update-metadata', {'game_ids':['jetpac128'], 'changes':{'description':'Manual correction'}})['ok']
     for reload in (False, True):
         if reload:
-            server.LIBRARY = None
+            server.get_collection_lifecycle().invalidate()
         for key in ('jetpac', 'jetpac128'):
             assert server.get_library().get_game(key).description == 'Manual correction'
     assert server.get_library().get_game('jetpac128').emulator_profile == 'separate-profile'

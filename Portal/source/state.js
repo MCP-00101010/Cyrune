@@ -3,7 +3,7 @@ const LOCAL_CACHE_META_KEY = 'morpheus-webhub-state-meta';
 const MAX_FAVICON_CACHE_BYTES = 2 * 1024 * 1024;
 const DEFAULT_SPEED_DIAL_SLOT_COUNT = 8;
 const COLLAPSED_SIDEBAR_WIDTH = 10;
-const EXPANDED_SIDEBAR_WIDTH = 320;
+const EXPANDED_SIDEBAR_WIDTH = 296;
 const SHARED_DISK_SAVE_DEBOUNCE_MS = 250;
 
 let isDirty = false;
@@ -75,6 +75,8 @@ const defaultSettings = {
   confirmDeleteTab: false,
   confirmDeleteSet: false,
   confirmDeleteBookmark: false,
+  confirmDeleteGame: false,
+  confirmDeleteApplication: false,
   confirmDeleteFolder: false,
   confirmDeleteTitleDivider: false,
   confirmDeleteTag: false,
@@ -215,6 +217,10 @@ let localStateMutationSequence = 0;
 let localCacheMeta = loadLocalCacheMeta();
 let localCacheQuotaNoticeShown = false;
 let lastAuthoritativeSnapshot = '';
+
+function getAuthoritativePortalSnapshot() {
+  return lastAuthoritativeSnapshot;
+}
 let inheritedTagContextCache = new WeakMap();
 let boardNavInheritedTagsCache = new Map();
 let liveBookmarkSourceCache = null;
@@ -322,10 +328,6 @@ function persistLocalCacheMeta(metaPatch = {}) {
     console.warn('Cyrune Portal: failed to persist local cache metadata', error);
   }
   return localCacheMeta;
-}
-
-function getLocalCacheMeta() {
-  return cloneData(localCacheMeta);
 }
 
 function normalizeThemeStyleSettings(style) {
@@ -543,6 +545,7 @@ function normalizeItems(items) {
       item.systemName = String(item.systemName || '').trim().slice(0, 80);
       item.emulatorName = String(item.emulatorName || '').trim().slice(0, 120);
       item.profileName = String(item.profileName || '').trim().slice(0, 120);
+      if (typeof item.catalogueId !== 'string' || !/^[A-Za-z0-9_-]{1,80}$/.test(item.catalogueId)) delete item.catalogueId;
       delete item.romPath;
       delete item.gamePath;
       delete item.emulatorPath;
@@ -797,10 +800,6 @@ function normalizeRestoredBoardItem(item) {
   const restored = cloneData(item);
   normalizeItems([restored]);
   return restored;
-}
-
-function collectSetUrls(set) {
-  return resolveSetItems(set).filter(item => item?.url).map(item => item.url);
 }
 
 function getBoardTabs(board) {
@@ -1253,16 +1252,16 @@ async function flushSharedDiskSaveQueue() {
     try {
       const result = await bridge.saveState(snapshot, { expectedVersion, expectedHash });
       if (saveGeneration !== sharedDiskSaveGeneration) break;
-      if (!result?.ok) {
-        discardSharedDiskSaveAfterAuthorityFailure(new Error(result?.error || 'Authoritative Portal storage rejected the save'));
-        break;
-      }
-      if (result.conflict) {
+      if (result?.conflict === true) {
         resolveSharedDiskSaveWaiters(Infinity, result);
         notifySharedDiskConflict({
           fileInfo: result.fileInfo || null,
           databasePath: result.databasePath || path || state.databasePath || ''
         });
+        break;
+      }
+      if (!result?.ok) {
+        discardSharedDiskSaveAfterAuthorityFailure(new Error(result?.error || 'Authoritative Portal storage rejected the save'));
         break;
       }
       if (result.fileInfo) {
@@ -1335,7 +1334,9 @@ function resolveGamePickerDestination(destination, count = 0) {
 async function persistGamePickerBatch(destination, games) {
   const column = resolveGamePickerDestination(destination, games.length);
   const cards = games.map(game => ({ id: `game-item-${crypto.randomUUID()}`, type: 'game', title: game.title,
-    systemId: game.systemId, systemName: game.systemName, gameKey: game.gameKey, tags: [], thumbnailCache: '' }));
+    systemId: game.systemId, systemName: game.systemName, gameKey: game.gameKey,
+    catalogueId: typeof game.catalogueId === 'string' && /^[A-Za-z0-9_-]{1,80}$/.test(game.catalogueId) ? game.catalogueId : '',
+    tags: [], thumbnailCache: '' }));
   pushUndoSnapshot();
   cards.forEach((card, index) => {
     card.tags = [...new Set(games[index].suggestedTags.filter(name => name.trim()))].map(name => {
@@ -1676,7 +1677,7 @@ function findBoardItemInList(list, itemId, parent = null) {
 }
 
 function findBoardItemInColumns(board, itemId) {
-  for (const column of getBoardItemContainers(board)) {
+  for (const column of getBoardTabs(board).flatMap(tab => getBoardItemContainers(board, tab))) {
     const found = findBoardItemInList(column.items, itemId);
     if (found) return found;
   }
@@ -1744,7 +1745,7 @@ function unfoldBoardItemAncestors(board, itemId) {
 
 function removeBoardItemById(itemId) {
   const board = getActiveBoard();
-  for (const column of getBoardItemContainers(board)) {
+  for (const column of getBoardTabs(board).flatMap(tab => getBoardItemContainers(board, tab))) {
     const found = findBoardItemInList(column.items, itemId);
     if (found) {
       const index = found.list.findIndex(item => item.id === itemId);
@@ -1840,8 +1841,8 @@ function addBookmark(title, url, columnId, tags = [], faviconCache = '', options
 
 function addSpeedDialBookmark(title, url, tags = [], faviconCache = '') {
   if (!isValidUrl(url)) { alert('Please enter a valid URL.'); return false; }
-  const target = getActiveBoardContainer();
-  if (!target) return false;
+  const target = getBoardForContext(contextTarget);
+  if (!target || target.locked) return false;
   const slot = Number.isInteger(contextTarget?.slot) ? contextTarget.slot : firstEmptySpeedDialSlot(target);
   if (!setSpeedDialSlot(target, slot, { id: `bm-${Date.now()}`, type: 'bookmark', title, url: normalizeUrl(url), tags, faviconCache })) {
     alert('That speed dial slot is already occupied.');
@@ -1863,16 +1864,51 @@ function addBookmarkItem(type, title, columnId, options = {}) {
 
 function getBoardForContext(ct) {
   if (ct?.boardId) {
-    const board = state.boards.find(b => b.id === ct.boardId) || getActiveBoardContainer();
+    const board = state.boards.find(b => b.id === ct.boardId);
     return board || null;
   }
   return getActiveBoardContainer();
 }
 
+// Resolve captured item identity against current state, including every tab and
+// ancestor. A removed source must never fall back to the visible board.
+function resolvePortalItemContext(ct) {
+  if (!ct?.itemId) return null;
+  if (ct.area === 'essential') {
+    const slot = state.essentials.findIndex(item => item?.id === ct.itemId);
+    return slot < 0 ? null : { ...ct, slot, item: state.essentials[slot], locked: state.essentials[slot].locked === true };
+  }
+  if (!['board-item', 'speed-dial-item'].includes(ct.area)) return null;
+  const board = getBoardForContext(ct);
+  if (!board) return null;
+  if (ct.area === 'speed-dial-item') {
+    const slot = board.speedDial.findIndex(item => item?.id === ct.itemId);
+    return slot < 0 ? null : { ...ct, boardId: board.id, slot, item: board.speedDial[slot], locked: board.locked === true || board.speedDial[slot].locked === true };
+  }
+  const walk = (list, inherited, parentId = null, depth = 0) => {
+    for (const item of list || []) {
+      const locked = inherited || item.locked === true;
+      if (item.id === ct.itemId) return { item, parentId, depth, locked };
+      const child = walk(item.children, locked, item.id, depth + 1);
+      if (child) return child;
+    }
+    return null;
+  };
+  for (const tab of getBoardTabs(board)) {
+    for (const column of getBoardItemContainers(board, tab)) {
+      const found = walk(column.items, board.locked === true || tab.locked === true || column.locked === true);
+      if (found) return { ...ct, ...found, boardId: board.id, tabId: tab.id, columnId: column.id };
+    }
+  }
+  return null;
+}
+
 function deleteBoardTarget(contextTarget) {
   if (!contextTarget || contextTarget.area !== 'board-item') return;
+  const resolved = resolvePortalItemContext(contextTarget);
+  if (!resolved || resolved.locked) return;
   const board = getBoardForContext(contextTarget);
-  for (const column of getBoardItemContainers(board)) {
+  for (const column of getBoardItemContainers(board, findBoardTabById(board, resolved.tabId))) {
     const found = findBoardItemInList(column.items, contextTarget.itemId);
     if (found) {
       const index = found.list.findIndex(item => item.id === contextTarget.itemId);
@@ -2417,9 +2453,35 @@ function pushToTrash(item, source) {
 }
 
 function restoreFromTrash(trashId) {
+  if (typeof portalReadOnlyMode !== 'undefined' && portalReadOnlyMode) return false;
   const idx = recentlyDeleted.findIndex(e => e.trashId === trashId);
   if (idx === -1) return false;
   const { item, source } = recentlyDeleted[idx];
+  let restoreBoard = null, restoreColumn = null, restoreParent = null, restoreSlot = null;
+  if (['board-item', 'speed-dial'].includes(source.area)) {
+    restoreBoard = state.boards.find(board => board.id === source.boardId);
+    const unavailable = () => {
+      if (typeof showNotice === 'function') showNotice('The original destination is unavailable, locked or full. The item remains in Recently Deleted. Restore the board or unlock the destination, then try again.');
+      return false;
+    };
+    if (!restoreBoard || restoreBoard.locked) return unavailable();
+    if (source.area === 'speed-dial') {
+      restoreSlot = source.slot;
+      if (!Number.isInteger(restoreSlot) || restoreBoard.speedDial[restoreSlot]) restoreSlot = firstEmptySpeedDialSlot(restoreBoard);
+      if (restoreSlot < 0) return unavailable();
+    } else {
+      const tab = source.columnId ? findBoardTabByColumnId(restoreBoard, source.columnId)
+        || findBoardTabByInboxId(restoreBoard, source.columnId) : getBoardTab(restoreBoard, source.tabId);
+      restoreColumn = getBoardItemContainers(restoreBoard, tab).find(column => column.id === source.columnId)
+        || (!source.columnId ? tab?.columns?.[0] : null);
+      if (!tab || tab.locked || !restoreColumn || restoreColumn.locked) return unavailable();
+      if (source.parentId) {
+        const parent = resolvePortalItemContext({area:'board-item',boardId:restoreBoard.id,itemId:source.parentId});
+        if (!parent || parent.locked || parent.columnId !== restoreColumn.id || !canInsertIntoFolder(parent.item, item?.type)) return unavailable();
+        restoreParent = parent.item;
+      }
+    }
+  }
   recentlyDeleted.splice(idx, 1);
   saveTrash();
   if (source.area === 'essential') {
@@ -2434,15 +2496,7 @@ function restoreFromTrash(trashId) {
       state.essentials[slot] = restored;
     }
   } else if (source.area === 'speed-dial') {
-    const board = state.boards.find(b => b.id === source.boardId) || state.boards.find(b => b.id === state.activeBoardId);
-    if (board) {
-      const slot = source.slot ?? firstEmptySpeedDialSlot(board);
-      const restored = normalizeRestoredBoardItem(item);
-      if (!setSpeedDialSlot(board, slot, restored)) {
-        const fallback = firstEmptySpeedDialSlot(board);
-        if (fallback !== -1) setSpeedDialSlot(board, fallback, normalizeRestoredBoardItem(item));
-      }
-    }
+    setSpeedDialSlot(restoreBoard, restoreSlot, normalizeRestoredBoardItem(item));
   } else if (source.area === 'nav-board') {
     if (item.board) state.boards.push(cloneData(item.board));
     const navItem = cloneData(item.navItem);
@@ -2478,23 +2532,10 @@ function restoreFromTrash(trashId) {
     }
     state.navItems.push(restored);
   } else if (source.area === 'board-item') {
-    const board = state.boards.find(b => b.id === source.boardId) || getActiveBoard();
-    if (board) {
-      const inboxTab = source.columnId ? findBoardTabByInboxId(board, source.columnId) : null;
-      const col = inboxTab
-        ? getBoardInbox(board, inboxTab)
-        : (getBoardColumns(board).find(c => c.id === source.columnId) || getBoardTab(board)?.columns[0] || getBoardInbox(board));
-      const restored = normalizeRestoredBoardItem(item);
-      if (source.parentId) {
-        const parent = findBoardItemInColumns(board, source.parentId)?.item;
-        if (parent?.type === 'folder' && canInsertIntoFolder(parent, restored?.type)) {
-          parent.children = parent.children || [];
-          parent.children.push(restored);
-          return true;
-        }
-      }
-      if (col) col.items.push(restored);
-    }
+    const target = restoreParent || restoreColumn;
+    const listKey = restoreParent ? 'children' : 'items';
+    target[listKey] ||= [];
+    target[listKey].push(normalizeRestoredBoardItem(item));
   } else if (source.area === 'set') {
     return restoreSetFromTrashItem(item);
   }

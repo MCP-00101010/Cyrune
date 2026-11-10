@@ -409,7 +409,10 @@ function _themeEditorUpdateActionButtons() {
     saveBtn.disabled = !_themeEditorDraft;
     saveBtn.textContent = _themeEditorCanDirectSave() ? 'Save' : 'Save As…';
   }
-  if (saveAsBtn) saveAsBtn.disabled = !_themeEditorDraft;
+  if (saveAsBtn) {
+    saveAsBtn.disabled = !_themeEditorDraft;
+    saveAsBtn.classList.toggle('hidden', !_themeEditorCanDirectSave());
+  }
 }
 
 function _themePickerBuildBadges(card, { isActive, isEdited, isBuiltin }) {
@@ -485,7 +488,7 @@ function updateThemeEditorDraftUiState() {
   const draft = _themeEditorDraft;
   const dirty = themeEditorHasUnsavedPreview();
   if (meta && draft) {
-    meta.textContent = `${draft.builtin ? 'Built-in' : 'Custom'} theme · ${dirty ? 'preview modified' : 'live preview'}`;
+    meta.textContent = dirty ? 'Unsaved preview' : `${draft.builtin ? 'Built-in' : 'Custom'} theme`;
   }
   if (revertBtn) revertBtn.disabled = !dirty;
   _themeEditorUpdateActionButtons();
@@ -630,7 +633,7 @@ function renderThemeEditor() {
   const meta = document.createElement('div');
   meta.id = 'stgThemeEditorMeta';
   meta.className = 'theme-editor-meta';
-  meta.textContent = `${draft.builtin ? 'Built-in' : 'Custom'} theme · ${themeEditorHasUnsavedPreview() ? 'preview modified' : 'live preview'}`;
+  meta.textContent = themeEditorHasUnsavedPreview() ? 'Unsaved preview' : `${draft.builtin ? 'Built-in' : 'Custom'} theme`;
   titleWrap.appendChild(meta);
 
   header.appendChild(titleWrap);
@@ -773,10 +776,8 @@ function renderThemeEditor() {
   advanced.appendChild(shadowRow);
   card.appendChild(advanced);
 
-  const note = document.createElement('div');
-  note.className = 'theme-editor-note';
-  note.textContent = 'Changes preview immediately. Use Save or Save As… to keep the current look.';
-  card.appendChild(note);
+  document.getElementById('stgSaveThemeBtn').title = 'Save the previewed theme. Unsaved theme previews are discarded when Settings closes.';
+  document.getElementById('stgSaveThemeAsBtn').title = 'Save the previewed theme as a new theme.';
 
   container.appendChild(card);
   updateThemeEditorDraftUiState();
@@ -1046,6 +1047,9 @@ async function getBridgeStorageInfo() {
   return {
     extensionReady,
     nativeReady,
+    storageMode: info?.storageMode || '',
+    storageAvailable: extensionReady && info?.authoritativeStorageAvailable === true,
+    storageError: info?.storageError || '',
     databasePath: info?.databasePath || null
   };
 }
@@ -1066,21 +1070,15 @@ async function updateDatabasePathControls() {
   browseBtn.disabled = !info.nativeReady;
   applyBtn.disabled = !info.nativeReady;
 
-  if (!info.extensionReady) {
-    statusEl.textContent = localFileExtensionPermissionMayBeBlocked()
-      ? 'Extension not detected. Firefox 153+ requires “Access local files on your computer” in the extension permissions.'
-      : 'Extension not detected. Using browser storage only.';
-    return;
-  }
-  if (!info.nativeReady) {
-    statusEl.textContent = 'Extension connected, but desktop sync is unavailable. Shared-file sync is off.';
-    return;
-  }
-  statusEl.textContent = savedPath
-    ? `Shared file active: ${savedPath}`
-    : draftPath
-      ? 'Path selected but not applied yet.'
-      : 'Desktop sync is available, but no shared data file path is set yet.';
+  const authority = info.storageMode === 'host' ? 'Host shared file' : info.storageMode === 'relay' ? 'Relay storage' : 'Not selected';
+  const availability = info.storageAvailable ? 'Available' : 'Unavailable — read-only';
+  statusEl.title = `Authority: ${authority}. ${availability}. ` + (!info.extensionReady
+    ? 'Connect Cyrune Relay and enable its local-file permission.'
+    : !info.storageAvailable ? (info.storageError || 'Reconnect Host, or explicitly select storage in the Relay popup.')
+    : info.storageMode === 'host' ? (savedPath ? `Shared file: ${savedPath}` : 'Configure the Host shared file.') : 'Managed by Cyrune Relay.');
+  statusEl.textContent = `${authority}: ${availability}`;
+  if (!info.storageAvailable) statusEl.textContent += ` — ${!info.extensionReady ? 'Connect Relay' : (info.storageError || 'Reconnect Host or select storage in Relay')}`;
+  if (draftPath) statusEl.textContent += ' — path not applied';
 }
 
 async function updateAboutBridgeStatus() {
@@ -1103,15 +1101,17 @@ async function updateAboutBridgeStatus() {
     features.push('browser backup', 'send current tab to board inbox');
     if (info.nativeReady) features.push('shared file sync', 'background image picker', 'theme file import/export');
   }
-  featuresEl.textContent = features.length
+  featuresEl.title = features.length
     ? `Available features: ${features.join(', ')}.`
     : (localFileExtensionPermissionMayBeBlocked()
       ? 'Available features: unavailable. In about:addons, open Cyrune Relay → Permissions and enable “Access local files on your computer”.'
-      : 'Available features: unavailable. The hub is running in browser-storage-only mode.');
+      : 'Available features: unavailable. Connect Cyrune Relay to access the selected storage authority.');
 
-  storageNoteEl.textContent = info.nativeReady && info.databasePath
-    ? `Primary storage is the shared file at ${info.databasePath}. Browser storage is only a local cache.`
-    : 'Without desktop sync, the hub stores data in browser storage. Use Export hub data in General to keep regular backups.';
+  featuresEl.textContent = features.length ? features.join(', ') : 'Unavailable';
+  storageNoteEl.title = `Selected authority: ${info.storageMode || 'not selected'}. `
+    + (info.storageAvailable ? 'Available.' : 'Unavailable; Portal is read-only. Reconnect Relay/Host or select storage explicitly in the Relay popup.')
+    + ' Page storage is a recovery cache only. Export data regularly for independent backups.';
+  storageNoteEl.textContent = `${info.storageMode === 'host' ? 'Host shared file' : info.storageMode === 'relay' ? 'Relay storage' : 'Not selected'}: ${info.storageAvailable ? 'Available' : 'Unavailable — read-only'}`;
 
   updateSidebarExtensionStatus(info);
 }
@@ -1133,12 +1133,14 @@ function updateServiceSecretUi(serviceName = 'nasa', status = null) {
   if (!input || !statusEl) return;
   input.value = typeof getServiceSecret === 'function' ? getServiceSecret(serviceName) : '';
   if (!status) {
-    statusEl.textContent = `Used by ${ui.usage}. Stored in Windows Credential Manager when desktop sync is available.`;
+    input.title = `Used by ${ui.usage}. Stored in Windows Credential Manager when desktop sync is available.`;
+    statusEl.textContent = 'Checking…';
     return;
   }
-  statusEl.textContent = status.available
+  input.title = status.available
     ? `Used by ${ui.usage}. Stored in Windows Credential Manager, not in the shared JSON database.`
     : `Used by ${ui.usage}. Secret storage unavailable: ${status.error || 'native host unavailable'}.`;
+  statusEl.textContent = status.available ? 'Credential Manager' : `Unavailable: ${status.error || 'connect Host'}`;
 }
 
 async function loadServiceSecretsIntoSettingsUi() {
@@ -1223,6 +1225,35 @@ async function updateSidebarExtensionStatus(info = null) {
   el.classList.toggle('is-missing', !detected);
 }
 
+function selectPortalSettingsCategory(tab, { focus = false } = {}) {
+  const panel = document.getElementById('settingsPanel');
+  const tabs = [...panel.querySelectorAll('.settings-tab')];
+  const selected = tabs.find(button => button.dataset.tab === tab) || tabs[0];
+  tabs.forEach(button => {
+    button.classList.toggle('active', button === selected);
+    if (button === selected) button.setAttribute('aria-current', 'page');
+    else button.removeAttribute('aria-current');
+  });
+  panel.querySelector('.settings-body[data-active-tab]').dataset.activeTab = selected.dataset.tab;
+  document.getElementById('settingsViewTitle').textContent = selected.textContent;
+  panel.querySelector('.settings-body').scrollTop = 0;
+  if (selected.dataset.tab === 'style') loadActiveThemeStyleControls();
+  if (focus) selected.focus();
+}
+
+function handlePortalSettingsCategoryKey(event) {
+  const buttons = [...document.querySelectorAll('#settingsPanel .settings-tab')];
+  const index = buttons.indexOf(event.currentTarget);
+  const offsets = { ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1 };
+  let next;
+  if (event.key === 'Home') next = 0;
+  else if (event.key === 'End') next = buttons.length - 1;
+  else if (Object.hasOwn(offsets, event.key)) next = (index + offsets[event.key] + buttons.length) % buttons.length;
+  else return;
+  event.preventDefault();
+  selectPortalSettingsCategory(buttons[next].dataset.tab, { focus: true });
+}
+
 function showSettingsPanel(tab = 'general') {
   document.getElementById('modalCard').classList.add('hidden');
   const panel = document.getElementById('settingsPanel');
@@ -1230,14 +1261,7 @@ function showSettingsPanel(tab = 'general') {
   elements.modalOverlay.classList.remove('hidden');
   centerPanel(panel);
   makeDraggable(panel, panel.querySelector('.settings-header'));
-  const targetTab = panel.querySelector(`.settings-tab[data-tab="${tab}"]`);
-  const body = panel.querySelector('.settings-body[data-active-tab]');
-  if (targetTab) {
-    panel.querySelectorAll('.settings-tab').forEach(t => t.classList.toggle('active', t === targetTab));
-  } else {
-    panel.querySelectorAll('.settings-tab').forEach(t => t.classList.remove('active'));
-  }
-  if (body && panel.querySelector(`[data-tab="${tab}"]`)) body.dataset.activeTab = tab;
+  selectPortalSettingsCategory(tab);
   const s = state.settings;
   ensureStyleSettings();
   document.getElementById('stgHubName').value = state.hubName || '';
@@ -1250,6 +1274,8 @@ function showSettingsPanel(tab = 'general') {
   document.getElementById('stgConfirmDeleteTab').checked = s.confirmDeleteTab;
   document.getElementById('stgConfirmDeleteSet').checked = s.confirmDeleteSet;
   document.getElementById('stgConfirmDeleteBookmark').checked = s.confirmDeleteBookmark;
+  document.getElementById('stgConfirmDeleteGame').checked = s.confirmDeleteGame;
+  document.getElementById('stgConfirmDeleteApplication').checked = s.confirmDeleteApplication;
   document.getElementById('stgConfirmDeleteFolder').checked = s.confirmDeleteFolder;
   document.getElementById('stgConfirmDeleteTitleDivider').checked = s.confirmDeleteTitleDivider;
   document.getElementById('stgConfirmDeleteTag').checked = s.confirmDeleteTag;
@@ -1463,14 +1489,20 @@ function _tagSortMenuOutside(e) {
 const TAG_SORT_LABELS = { az: 'A → Z', za: 'Z → A', count: 'Most used' };
 
 function showTagSortMenu(anchorEl, group) {
-  hideTagSortMenu();
+  hideContextMenu();
+  _contextMenuReturnFocus = document.activeElement;
   const menu = document.createElement('div');
   menu.className = 'context-menu';
+  menu.setAttribute('role', 'menu');
+  menu.addEventListener('keydown', _contextMenuKeydown);
   menu.style.cssText = 'position:fixed;z-index:9999;';
 
   ['az', 'za', 'count'].forEach(mode => {
     const btn = document.createElement('button');
     const isActive = group.tagSort === mode;
+    btn.type = 'button';
+    btn.setAttribute('role', 'menuitemradio');
+    btn.setAttribute('aria-checked', String(isActive));
     btn.style.display = 'flex';
     btn.style.alignItems = 'center';
     btn.style.gap = '8px';
@@ -1481,7 +1513,8 @@ function showTagSortMenu(anchorEl, group) {
     btn.appendChild(check);
     btn.appendChild(document.createTextNode(TAG_SORT_LABELS[mode]));
     btn.addEventListener('click', () => {
-      hideTagSortMenu();
+      hideContextMenu();
+  _contextMenuReturnFocus = document.activeElement;
       group.tagSort = (group.tagSort === mode) ? null : mode;
       saveState();
       renderTagGroups();
@@ -1495,99 +1528,63 @@ function showTagSortMenu(anchorEl, group) {
   let left = rect.left, top = rect.bottom + 2;
   menu.style.left = '0'; menu.style.top = '0';
   const mw = menu.offsetWidth, mh = menu.offsetHeight;
-  left = Math.min(left, window.innerWidth - mw - 4);
-  top = Math.min(top, window.innerHeight - mh - 4);
+  left = Math.max(4, Math.min(left, window.innerWidth - mw - 4));
+  top = Math.max(4, Math.min(top, window.innerHeight - mh - 4));
   menu.style.left = `${left}px`;
   menu.style.top = `${top}px`;
+  menu.querySelector('button')?.focus({ preventScroll: true });
   document.addEventListener('mousedown', _tagSortMenuOutside, true);
 }
 
 let _tagChipMenu = null;
 
 function hideTagChipMenu() {
+  _clearSubmenus();
   if (_tagChipMenu) { _tagChipMenu.remove(); _tagChipMenu = null; }
   document.removeEventListener('mousedown', _tagChipMenuOutside, true);
 }
 
 function _tagChipMenuOutside(e) {
-  if (_tagChipMenu && !_tagChipMenu.contains(e.target)) hideTagChipMenu();
+  if (_tagChipMenu && !_tagChipMenu.contains(e.target) && !e.target.closest('.context-submenu')) hideTagChipMenu();
 }
 
 function showTagChipContextMenu(x, y, tagId, sourceGroupId) {
-  hideTagChipMenu();
+  hideContextMenu();
+  _contextMenuReturnFocus = document.activeElement;
   const tag = getTagById(tagId);
   if (!tag) return;
   const groups = state.settings.tagGroups || [];
-  const targets = sourceGroupId ? groups.filter(g => g.id !== sourceGroupId) : [...groups];
-
+  const sourceLocked = groups.find(group => group.id === sourceGroupId)?.locked;
+  const targets = groups.filter(group => group.id !== sourceGroupId);
   const menu = document.createElement('div');
   menu.className = 'context-menu';
   menu.style.cssText = 'position:fixed;z-index:9999;';
-
-  const header = document.createElement('div');
-  header.style.cssText = 'padding:4px 12px 2px;font-size:0.72rem;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted);pointer-events:none;';
-  header.textContent = 'Move to group';
-  menu.appendChild(header);
-
-  if (sourceGroupId) {
-    const btn = document.createElement('button');
-    btn.textContent = '\u00a0Unsorted';
-    btn.addEventListener('click', () => {
-      hideTagChipMenu();
-      moveTagToGroup(tag.id, null);
-    });
-    menu.appendChild(btn);
-  }
-
-  if (!targets.length && !sourceGroupId) {
-    const empty = document.createElement('button');
-    empty.textContent = 'No groups yet';
-    empty.disabled = true;
-    menu.appendChild(empty);
-  } else {
-    targets.forEach(group => {
-      const btn = document.createElement('button');
-      btn.style.display = 'flex';
-      btn.style.alignItems = 'center';
-      btn.style.gap = '7px';
-      if (group.color) {
-        const dot = document.createElement('span');
-        dot.style.cssText = `width:8px;height:8px;border-radius:50%;background:${group.color};flex-shrink:0;`;
-        btn.appendChild(dot);
-      }
-      btn.appendChild(document.createTextNode(group.name || '(unnamed)'));
-      btn.addEventListener('click', () => {
-        hideTagChipMenu();
-        moveTagToGroup(tag.id, group.id);
-      });
-      menu.appendChild(btn);
-    });
-  }
-
-  const divider = document.createElement('div');
-  divider.style.cssText = 'height:1px;background:var(--border);margin:4px 0;';
-  menu.appendChild(divider);
-
-  const newGroupBtn = document.createElement('button');
-  newGroupBtn.textContent = 'New group from tag\u2026';
-  newGroupBtn.addEventListener('click', () => {
-    hideTagChipMenu();
-    createGroupAndMoveTag(tag.id);
+  menu.setAttribute('role', 'menu');
+  menu.addEventListener('keydown', event => {
+    if (event.key === 'Escape' || event.key === 'Tab') {
+      if (event.key === 'Escape') event.preventDefault();
+      event.stopPropagation(); hideContextMenu({ restoreFocus: event.key === 'Escape' }); return;
+    }
+    _contextMenuKeydown(event);
   });
-  menu.appendChild(newGroupBtn);
-
-  const refBtn = document.createElement('button');
-  refBtn.textContent = 'Find references\u2026';
-  refBtn.addEventListener('click', () => { hideTagChipMenu(); openSearchModal({ tagId }); });
-  menu.appendChild(refBtn);
-
+  const move = targetId => { hideTagChipMenu(); moveTagToGroup(tag.id, targetId); };
+  const destinations = [
+    ...(sourceGroupId ? [{ label: 'Unsorted', run: () => move(null) }] : []),
+    ...targets.map(group => ({ label: group.name || '(unnamed)', color: group.color, disabled: group.locked,
+      run: () => move(group.id) }))
+  ];
+  _appendContextMenuActions(menu, [
+    { label: 'Find references…', group: 'locate', run: () => { hideTagChipMenu(); openSearchModal({ tagId }); } },
+    { label: 'New group from tag…', group: 'edit', disabled: sourceLocked,
+      run: () => { hideTagChipMenu(); createGroupAndMoveTag(tag.id); } },
+    { label: 'Move to group', group: 'organize', disabled: sourceLocked || !destinations.length,
+      submenu: destinations }
+  ]);
   document.body.appendChild(menu);
   _tagChipMenu = menu;
-  menu.style.left = '0';
-  menu.style.top = '0';
-  const mw = menu.offsetWidth, mh = menu.offsetHeight;
-  menu.style.left = `${Math.min(x, window.innerWidth - mw - 4)}px`;
-  menu.style.top  = `${Math.min(y, window.innerHeight - mh - 4)}px`;
+  menu.style.left = `${Math.max(4, Math.min(x, window.innerWidth - menu.offsetWidth - 4))}px`;
+  menu.style.top = `${Math.max(4, Math.min(y, window.innerHeight - menu.offsetHeight - 4))}px`;
+  menu.querySelector('button:not(:disabled)')?.focus({ preventScroll: true });
   document.addEventListener('mousedown', _tagChipMenuOutside, true);
 }
 
@@ -2401,6 +2398,8 @@ function attachSettingsListeners() {
   boolSetting('stgConfirmDeleteTab',         'confirmDeleteTab');
   boolSetting('stgConfirmDeleteSet',         'confirmDeleteSet');
   boolSetting('stgConfirmDeleteBookmark',    'confirmDeleteBookmark');
+  boolSetting('stgConfirmDeleteGame',        'confirmDeleteGame');
+  boolSetting('stgConfirmDeleteApplication', 'confirmDeleteApplication');
   boolSetting('stgConfirmDeleteFolder',      'confirmDeleteFolder');
   boolSetting('stgConfirmDeleteTitleDivider','confirmDeleteTitleDivider');
   boolSetting('stgConfirmDeleteTag',        'confirmDeleteTag');
@@ -2527,13 +2526,10 @@ function attachSettingsListeners() {
     radio.addEventListener('change', e => { state.settings.essentialsIconSize = e.target.value; applySettings(); saveState(); });
   });
 
-  document.querySelectorAll('.settings-tab').forEach(tab => {
-    tab.addEventListener('click', () => {
-      document.querySelectorAll('.settings-tab').forEach(t => t.classList.toggle('active', t === tab));
-      const body = document.querySelector('.settings-body[data-active-tab]');
-      if (body) body.dataset.activeTab = tab.dataset.tab;
-      if (tab.dataset.tab === 'style') loadActiveThemeStyleControls();
-    });
+  const categoryButtons = [...document.querySelectorAll('#settingsPanel .settings-tab')];
+  categoryButtons.forEach(button => {
+    button.addEventListener('click', () => selectPortalSettingsCategory(button.dataset.tab));
+    button.addEventListener('keydown', handlePortalSettingsCategoryKey);
   });
 
   document.getElementById('stgNewThemeBtn').addEventListener('click', () => createNewThemeDraft());

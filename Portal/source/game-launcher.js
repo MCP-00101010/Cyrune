@@ -69,7 +69,7 @@ async function showGameVersionsModal(item) {
             }
           }
           _renderGameShortcutSurfaces(); await load(); status.textContent = 'Default saved.';
-        } catch (error) { status.textContent = error.message || 'That version could not be used.'; }
+        } catch (error) { status.textContent = getGameStatusMessage({ error: error.message }, item.title || 'This game'); }
         finally { busy = false; close.disabled = false;
           list.querySelectorAll('button').forEach(button => { button.disabled = false; }); }
       };
@@ -79,7 +79,7 @@ async function showGameVersionsModal(item) {
     }
     status.textContent = result.versions.some(row => row.isDefault) ? '' : 'The saved default is missing. Choose an available version as default.';
   };
-  try { await load(); } catch (error) { status.textContent = error.message || 'Game versions are unavailable.'; }
+  try { await load(); } catch (error) { status.textContent = getGameStatusMessage({ error: error.message }, item.title || 'This game'); }
 }
 
 const GAME_LANGUAGE_FLAGS = Object.freeze({
@@ -296,6 +296,26 @@ function getGameStatus(item) {
 }
 
 function getGameStatusMessage(status, title = 'This game') {
+  const errors = {
+    'invalid-request': 'The shortcut request could not be read. Reload Portal and try again.',
+    'unsupported-protocol': 'Update Cyrune Relay, Host and Arcade together, then reload the pages.',
+    'unauthorized': 'The launcher connection needs refreshing. Reload Cyrune Relay and Portal, then try again.',
+    'binding-limit': 'The device has reached its saved shortcut limit. Review its saved launch setups before adding another.',
+    'request-conflict': 'This shortcut request conflicts with an earlier request. Reopen the action and try again.',
+    'persistence-failed': 'The launch setup could not be saved. Check that Cyrune Host storage is writable and try again.',
+    'binding-forgotten': `${title}'s saved launch setup is missing on this device. Use Repair shortcut… to restore its launch setup.`,
+    'entry-missing': `${title} could not be found in its collection. Check or restore the collection index in Cyrune Arcade.`,
+    'source-unavailable': `${title}'s collection folder is unavailable. Reconnect its drive or folder and try again.`,
+    'media-missing': `${title}'s game file is missing. Restore it to its collection and try again.`,
+    'configuration-required': `${title}'s emulator or profile needs attention. Check its launch settings in Cyrune Arcade.`,
+    'review-required': `${title}'s saved launch setup no longer matches its files or settings. Review it in Cyrune Arcade and update this shortcut.`,
+    'entry-changed': `${title}'s game or launch settings changed. Update this shortcut from Cyrune Arcade.`,
+    'catalogue-changed': 'The collection changed during this request. Please try again.',
+    'unsupported-target': 'The selected emulator cannot open this game format. Choose a compatible emulator in Cyrune Arcade.',
+    'busy': 'The game library is busy. Please try again when its current operation finishes.',
+    'timeout': 'The game launcher did not respond in time. Check Cyrune Relay and Host before trying again.',
+    'unavailable': 'The game launcher is unavailable. Check the Cyrune Relay and Host connection.'
+  };
   const messages = {
     unbound: `${title} is not set up on this device.`,
     'library-missing': `${title}'s Cyrune Arcade library is not currently active.`,
@@ -303,28 +323,12 @@ function getGameStatusMessage(status, title = 'This game') {
     'emulator-missing': `${title}'s emulator is unavailable.`,
     'profile-missing': `${title}'s emulator profile is unavailable.`,
     incompatible: `${title}'s saved emulator configuration is incompatible.`,
-    changed: `${title}'s source configuration has changed and should be rebound.`,
+    changed: `${title}'s launch setup has changed. Use Repair shortcut… to review it.`,
     unavailable: 'Cyrune Arcade is unavailable.'
   };
-  return status?.error || messages[status?.state] || `${title} is not ready to launch.`;
-}
-
-function getGameStatusPresentation(status = {}) {
-  const labels = {
-    checking: 'Checking',
-    unbound: 'Set up',
-    'library-missing': 'Library',
-    'game-missing': 'Missing',
-    'emulator-missing': 'Emulator',
-    'profile-missing': 'Profile',
-    incompatible: 'Incompatible',
-    changed: 'Changed',
-    unavailable: 'Offline'
-  };
-  return {
-    label: status.state === 'ready' ? 'Ready' : (labels[status.state] || 'Unavailable'),
-    title: status.state === 'ready' ? 'Ready to launch' : getGameStatusMessage(status, 'This game')
-  };
+  const error = String(status?.error || '');
+  return errors[error] || errors[error.split(':').at(-1).trim()] || (/^[a-z]+(?:-[a-z]+)+$/.test(error) ? `${title} could not be launched. Check its setup in Cyrune Arcade.` : error)
+    || messages[status?.state] || `${title} could not be launched.`;
 }
 
 async function refreshGameStatus(item, options = {}) {
@@ -343,6 +347,11 @@ async function refreshGameStatus(item, options = {}) {
     if (canPersistMetadata && normalized.thumbnailCache && normalized.thumbnailCache !== item.thumbnailCache) {
       item.thumbnailCache = normalized.thumbnailCache;
       changed = true;
+      portableMetadataChanged = true;
+    }
+    if (canPersistMetadata && typeof normalized.catalogueId === 'string' && /^[A-Za-z0-9_-]{1,80}$/.test(normalized.catalogueId)
+        && normalized.catalogueId !== item.catalogueId) {
+      item.catalogueId = normalized.catalogueId;
       portableMetadataChanged = true;
     }
     for (const field of ['systemId', 'systemName', 'emulatorName', 'profileName']) {
@@ -374,9 +383,7 @@ async function launchGameShortcut(item) {
   } catch (error) {
     const status = await refreshGameStatus(item, { render: false });
     _renderGameShortcutSurfaces();
-    showNotice(status.state === 'ready'
-      ? (error?.message || `${item.title || 'The game'} could not be launched.`)
-      : getGameStatusMessage(status, item.title || 'This game'));
+    showNotice(getGameStatusMessage({ ...status, error: error?.message || status.error }, item.title || 'This game'));
     return false;
   }
 }
@@ -384,13 +391,11 @@ async function launchGameShortcut(item) {
 async function openGameShortcutInArcade(item, options = {}) {
   if (!item?.gameKey) return false;
   try {
-    await bridge.openGameInArcade(item.gameKey, { rebind: options.rebind === true });
+    await bridge.openGameInArcade(item.gameKey, { rebind: options.rebind === true, catalogueId: item.catalogueId || '' });
     return true;
   } catch (error) {
     const status = await refreshGameStatus(item, { render: false });
-    showNotice(status.state === 'ready'
-      ? (error?.message || 'The game could not be opened in Cyrune Arcade.')
-      : getGameStatusMessage(status, item.title || 'This game'));
+    showNotice(getGameStatusMessage({ ...status, error: error?.message || status.error }, item.title || 'This game'));
     return false;
   }
 }
@@ -402,9 +407,7 @@ async function revealGameShortcut(item) {
     return true;
   } catch (error) {
     const status = await refreshGameStatus(item, { render: false });
-    showNotice(status.state === 'ready'
-      ? (error?.message || 'The game file could not be revealed.')
-      : getGameStatusMessage(status, item.title || 'This game'));
+    showNotice(getGameStatusMessage({ ...status, error: error?.message || status.error }, item.title || 'This game'));
     return false;
   }
 }
@@ -419,6 +422,7 @@ async function applyExternalGameBindingUpdate(source = {}) {
     throw new Error('The updated game thumbnail is invalid.');
   }
   for (const { item } of entries) {
+    if (typeof source.catalogueId === 'string' && /^[A-Za-z0-9_-]{1,80}$/.test(source.catalogueId)) item.catalogueId = source.catalogueId;
     for (const [field, limit] of [['systemName', 80], ['emulatorName', 120], ['profileName', 120]]) {
       item[field] = String(source[field] || '').trim().slice(0, limit);
     }
@@ -430,26 +434,12 @@ async function applyExternalGameBindingUpdate(source = {}) {
   gameStatusCache.set(gameKey, status);
   const saved = await saveState();
   _renderGameShortcutSurfaces();
-  showNotice(`${entries[0].item.title || 'Game'} was rebound on this device.`);
+  showNotice(`${entries[0].item.title || 'Game'} shortcut was repaired.`);
   return { ok: saved?.ok !== false, persisted: saved?.persisted || '' };
 }
 
-async function forgetGameShortcut(item) {
-  if (!item?.gameKey) return false;
-  try {
-    await bridge.forgetGame(item.gameKey);
-    gameStatusCache.set(item.gameKey, { gameKey: item.gameKey, state: 'unbound', title: item.title || 'Game', thumbnailCache: item.thumbnailCache || '' });
-    _renderGameShortcutSurfaces();
-    showNotice(`${item.title || 'Game'} is no longer bound on this device.`);
-    return true;
-  } catch (error) {
-    showNotice(error?.message || 'The game binding could not be removed.');
-    return false;
-  }
-}
-
 function duplicateGameShortcut(context = contextTarget) {
-  const board = getBoardForContext(context) || getActiveBoard();
+  const board = getBoardForContext(context);
   let source = context?.item || null;
   let target = null;
   let insertAt = -1;

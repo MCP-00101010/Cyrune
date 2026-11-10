@@ -1,6 +1,6 @@
 /* Platform application links; executable paths and icon extraction stay native. */
 globalThis.ArcadeEmulatorShortcuts = {
-  create({container, status, api, collectionId}) {
+  create({container, status, api, collectionId, platformId, configure}) {
     let generation = 0;
     const icons = new Map();
     const launching = new Set();
@@ -21,6 +21,7 @@ globalThis.ArcadeEmulatorShortcuts = {
           for (const emulator of rows) {
             const button = document.createElement('button');
             button.type = 'button'; button.className = 'emulator-shortcut';
+            button.dataset.emulator = emulator.id;
             button.title = `Open ${emulator.name}`; button.setAttribute('aria-label', button.title);
             const image = document.createElement('img'); image.alt = '';
             const key = `${emulator.id}:${emulator.iconRevision}`;
@@ -28,6 +29,13 @@ globalThis.ArcadeEmulatorShortcuts = {
             const label = document.createElement('span');
             label.textContent = emulator.name === 'VisualBoyAdvance-M' ? 'VBA-M' : emulator.name;
             button.append(image, label); container.append(button);
+            button.addEventListener('contextmenu', event => {
+              if (!valid()) return;
+              globalThis.ArcadeMenus.show(event,[
+                {label:`Open ${emulator.name}`,group:'open',run:() => { if (valid()) button.click(); }},
+                {label:'Configure emulator & profiles…',group:'edit',run:() => { if (valid()) configure?.(emulator.id); }}
+              ]);
+            });
             button.addEventListener('click', async () => {
               if (!valid() || launching.has(emulator.id)) return;
               launching.add(emulator.id); button.disabled = true; message('');
@@ -38,6 +46,7 @@ globalThis.ArcadeEmulatorShortcuts = {
             });
             if (!icons.has(key)) images.push({image, key, emulator});
           }
+          globalThis.ArcadeNavigationOrder?.attach(container, `emulators:${platformId()}`, 'data-emulator');
           // Load one at a time so old platforms do not queue many native reads.
           for (const {image, key, emulator} of images) {
             if (!valid()) break;

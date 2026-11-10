@@ -97,10 +97,7 @@ def configure_fixture(server, tmp_path):
     server.DEFAULT_COLLECTION_ROOT = collection
     server.DESASTERON_COLLECTION = collection
     server.COLLECTIONS_BASE = tmp_path
-    server.COLLECTION = collection
-    server.REPORTS = collection / "_reports"
-    server.METADATA_FILE = collection / "collection-metadata.json"
-    server.LIBRARY = None
+    server.activate_collection("desasteron")
     server.PROFILE_SERVICE = None
     server.EMULATOR_CONFIG_SERVICE = None
     server.JOB_SERVICE = server.BackgroundJobService()

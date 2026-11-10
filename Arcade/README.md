@@ -4,6 +4,13 @@ Formerly Morpheus EmuGUI. Arcade remains authoritative for game libraries, metad
 
 Small local browser launcher and collection manager for emulator libraries.
 
+Arcade uses the compact Cyrune workspace style: continuous navigation and details
+rails around the library, with a category rail and scrolling content in Settings.
+Open Settings from the sidebar version. Save/Close stay in the header; optional
+explanations use tooltips. Collection drafts, discard review and nested editors
+retain their existing save boundaries. Committed Portal themes and text scaling
+continue to apply.
+
 ## Run
 
 With Cyrune Relay 1.0.53 or newer installed and Cyrune Host configured for this Arcade checkout, open:
@@ -20,7 +27,7 @@ Arcade consumes the fixed `arcade` Nexus settings profile through that authentic
 
 ## Send Games to Portal
 
-Check up to 100 collection games, right-click one of the checked rows, and choose **Send selected games to Portal**. The same action is available under **Bulk Actions**. Sending starts immediately; the result lists delivered, queued and unconfirmed games. If Portal is closed, Relay queues accepted games for its Inbox when it opens. Portal 0.12.9 also handles deliveries arriving during page startup. Reload both pages after updating. Single-game **Send to Portal** and **Update Portal Shortcut** retain their existing behaviour.
+Check up to 100 collection games, right-click one of the checked rows, and choose **Selected items (N) → Send selected to Portal**. The same action is available under **Bulk Actions**. Sending starts immediately; the result lists delivered, queued and unconfirmed games. If Portal is closed, Relay queues accepted games for its Inbox when it opens. Portal 0.12.9 also handles deliveries arriving during page startup. Reload both pages after updating. Single-game **Send to Portal** and **Update Portal Shortcut** retain their existing behaviour.
 
 **Stop after current game** leaves the remaining games unsent. **Retry remaining** skips accepted items and keeps the same delivery IDs, so a lost acknowledgement does not create another card on retry. An unfinished send remains available when you reopen the action in the same Arcade page; **Discard remaining** abandons those attempts without removing delivered or queued games. Finish or inspect unconfirmed sends before reloading Arcade. Game-specific emulator/profile pins are retained, with the collection default used for unpinned games. Incoming or deleted games must be added or restored to the collection first.
 
@@ -28,15 +35,25 @@ Check up to 100 collection games, right-click one of the checked rows, and choos
 
 The **Emulators** card below Platforms opens the installed emulators for the selected platform using their application icons. It does not require a selected game or apply a game's launch profile. ScummVM opens the current collection's configured library. Configure emulator locations through Settings as usual.
 
+Drag platform and emulator tiles to reorder them. A translucent tile previews the insertion position; dropping saves the order locally in this browser. Emulator ordering is independent for each platform and shared by its collections. Focus a tile and use Alt+Arrow keys to move it without a mouse. Ordering does not change the active platform, default emulator or launch settings; newly available tiles appear after saved choices.
+
+ZX Spectrum includes Fuse alongside EightyOne and Spectaculator. Its built-in location is `E:\Emulation\Systems\Sinclair\Fuse\fuse.exe`, editable in Settings. Fuse uses the generic file-launch adapter for TAP/TZX/PZX tapes, Z80/SNA/SZX snapshots and DSK/TRD/SCL disks, with its own emulator settings. Choose **Open with → Fuse** for a game or select Fuse as the collection default.
+
 Use the **Platforms** icon card to select ScummVM, ZX Spectrum or Atari ST, then choose a collection in the filter card. The Portal-style menu and filters sit beside the full-height game list; game details remain collapsible. Click the version number for **Settings**: General contains layout controls and Metadata Providers, while each platform has library folder/name settings, compatible Emulators & Profiles, and library tools. Settings tabs keep independent drafts and do not switch the game list. **Save Library Settings** saves the selected collection; **Save Layout** saves General. Cancel discards remaining drafts. Choosing another library folder does not move media; prepared roots use Reconnect Collection and existing Portal shortcuts may need reconnecting. Atari folders must already contain a valid Arcade disk-set index. Each platform remembers its last collection and its own column order, visibility and widths, seeded from the previous layout. ScummVM Publisher and Series values come from the [bundled official metadata snapshot](data/scummvm-metadata/NOTICE.md), matched by exact engine/game ID; an absent series stays blank. Series is sortable and included in search.
 
 Filter checkboxes cycle through unrestricted, include and exclude when clicked or activated with Space. A red cross hides matching editions from the list's version count, badges and edition labels. A game stays listed while any matching edition remains. Double-click still launches its saved default, including when that version is excluded; Properties and Launch Version retain all versions. Search, view and filters are remembered separately for each platform, including after reload. Clear Filters resets the current platform only. POK controls are Spectrum-only, and Edit Emulators lists only the selected platform's adapters. Atari profiles are selected in each game's Properties.
+
+Favourites applies to the grouped title: starring any edition keeps the game in Favourites, including after changing its default or filtering out that starred edition. The star and Favourites filter use the same rule. Favourites alone does not mark a default as excluded; edition filters such as system or language can still do so. Removing a grouped favourite clears its starred editions, including any currently hidden by filters.
 
 Right-click a game for **Scrape Metadata**, or check up to 100 games and choose **Scrape selected games** (also available in Bulk Actions). Atari and Spectrum scrape once per game folder and apply the shared metadata/artwork to every version in that folder. Disk sets, language, hardware, emulator and profile settings stay separate. A new scrape reconciles previously conflicting scraped metadata; existing data is not changed on startup. ScummVM expands each selected game into all its registered versions in the current library and keeps their metadata/artwork separate, searching each version's platform. Equivalent searches can be reused within the batch.
 
 Bulk results place a large cover/loading-screen preview beside each game, loading artwork as its row comes into view. Click the artwork or **View details** to inspect the selected result. **Use metadata from** shows the provider result and offers a selector only when several search results are available, with title, platform, year and publisher to distinguish them. These are provider search results, which may include different games with similar names. Each row retains editable **Search term**, **Current system / All platforms** and **Search again** controls. Correct a failed or unwanted match without leaving the batch; editing clears its old selection until a fresh search completes. Review and apply selected results together. Saved and unconfirmed rows stay locked and are never automatically replayed; stop finishes the current request. Single-game Atari/Spectrum scraping also allows an edited term and platform. These choices affect lookup only. Single and bulk scraping remember the last provider across reloads. Expansion is bounded to 1,000 versions; select fewer games if that limit is reached.
 
 Collection lists show one row per title with combined system, edition, language and country options. The System column shows available 16K/48K/128K badges for Spectrum editions and system icons for ScummVM editions. Language and country columns use local flags; explicit legacy language labels such as English are recognized without guessing unknown languages. Flags always follow normalized language/country-code order. Context menus offer only available emulators matching the game’s target kind and supported file format. Platform badges come from ScummVM’s icon collection; explicit Steam edition markers appear alongside any known platform, and unspecified platforms use a green/orange question mark. This display information does not change native platform IDs or launch targets. See [artwork attribution](web/assets/platforms/NOTICE.md). Double-click launches the default version; right-click **Launch Version…** to launch any edition once or **Use as default** to share that choice with Portal. Remakes stay separate, and Incoming/Bin continue to show individual files. Grouping preserves the underlying exact records and files.
+
+In collection rows, an accent outline marks the default version in the System column. Click a system badge to launch that system's installed version once; right-click for **Launch [system] Version** or **Make default**. The default applies to Arcade and Portal. When several editions share a system, its saved default is used if present; otherwise a chooser lists just those editions. Excluded editions stay absent from the badges, and a missing default is never marked as available. Open with and other context submenus list commands vertically.
+
+A Spectrum release labelled `48K-128K` is one dual-compatible version, shown as **48K/128K** with one default outline. It stays separate from any dedicated 48K or 128K editions, including when launching or choosing a default. The same rule applies to 16K/48K releases.
 
 - [Arcade instructions](AGENTS.md) define product ownership, transport, filesystem, metadata, launch, Portal-integration, and validation invariants.
 - [Component boundaries](../docs/architecture/component-boundaries.md) define ownership across Arcade, Portal, Relay, and Host.
@@ -134,6 +151,36 @@ Arcade 0.2.15 ScummVM integration uses your existing registered games and settin
 
 ## Atari ST collections
 
+### Compilation menus
+
+**Atari ST → Atari ST Compilations** browses numbered menus with **Group**, **Series** and **Image condition** filters. Each title groups its parts, revisions and alternate dumps. **Choose boot image…** displays exact filenames and condition labels; Launch boots that one image in drive A, while **Use as default** saves the choice for Arcade and Portal. Choose the game inside the original emulator menu. Drive B stays empty unless explicitly configured in Properties. A/B suffixes are not assumed to describe disks that should be mounted together.
+
+Unmarked images are labelled **Unverified**; `[b]` and `[corrupt menu]` images remain visible with their filename condition. An unmarked original is preferred over a marked damaged or alternate image when no default has been saved. This is filename classification, not a boot test. Ordinary game scraping and metadata editing are disabled for this collection to preserve menu identities.
+
+**Update compilation catalogue…** looks up contents from [Atari Legend](https://www.atarilegend.com/menusets), the [8bitchip / Bruno list](https://atari.8bitchip.info/MenuDG.html) and [AtariUpToDate’s Floppyshop Utility catalogue](https://www.atariuptodate.de/en/atari-pd-serie/floppyshop-utility). Prepare a preview, review the paged matches, choose whether to include unverified menu-label matches, then **Apply reviewed matches**. Image hashes take precedence; ambiguous and unmatched images retain their previous catalogue entry, if any. Coverage varies by group and revision. Source attribution and match status remain available in the catalogue update preview; Atari Legend's content uses CC BY-NC-SA 4.0. Menu artwork loads through Relay under the existing optional-network policy.
+
+SuperGAU User, Speak and Utility images also support a read-only **Disk file index**: original in-image file/folder names become searchable, with explicit provenance rather than guessed software titles. Uncheck **Use online catalogues** for a local-only preview, then opt into **Include disk file indexes** before applying. Only raw ST images with readable FAT12 directories are supported; empty or malformed directories are reported and skipped. At most 200 names per image are shown and searched, with truncation disclosed. Disk indexes never replace accepted curated matches. Restart the browser fully after upgrading the native service.
+
+The offline importer accepts `--floppyshop-pages <folder>` containing `page-1.html` through the last numbered AtariUpToDate utility page, plus `--include-files` when applying. Use `--local-only --include-files --apply` with `--arcade-config` to apply just the SuperGAU file index without downloaded sources.
+
+Search now also finds games, utilities and documents inside catalogued images. **Choose boot image…** lists each image's contents; boot the chosen image, then select the program in its original menu. Catalogue entry order is not a launch key. Accepted contents remain available offline, separately from your index and launch settings. Updates keep a previous catalogue backup under the native Arcade data folder. Restart the browser after native-code updates, then refresh Arcade.
+
+For an already downloaded export, `python -B Arcade/tools/update_compilation_catalogue.py --arcade-config CONFIG --export EXPORT.sql.gz --date YYYY-MM-DD --secondary MenuDG.html` previews local matches without network access. Add `--apply` to save hash-verified matches, and `--include-labels` to also accept menu-label references. This tool does not move or modify disk images.
+
+`python -B Arcade/tools/configure_compilations.py --arcade-config CONFIG --root COMPILATIONS` previews discovery from the repository root. Add `--apply` to register a separate collection using an already configured Atari emulator. Setup backs up configuration, validates and atomically publishes `collection-metadata.json` beside the existing group folders, and retains all emulator preferences and other collections. An interrupted registration can be rerun. Images are neither moved nor renamed. **Rebuild Index** adds new recognized images without replacing existing entries or defaults; inspect unknown filename patterns before extending discovery.
+
+Restart the browser after updating native service code, then reopen Arcade to load the new collection.
+
+### SuperGAU CD import
+
+`python Arcade/tools/import_supergau_cd.py --arcade-config CONFIG --cd-root CD_ROOT --seven-zip SEVEN_ZIP --all-series` stages and previews missing Volume 1 disk images and compares the original descriptions with existing images. Add `--apply` to publish the reviewed result. The original CD text and per-image notes remain attached to the accepted native catalogue; ordinary online updates retain these preferred CD descriptions. Contents are available after the CD is unmounted.
+
+The compilation-only **Contents** column shows software names beside each numbered disk and supports sorting. Search and per-image details use those titles; previous file listings remain collapsed in details. The details pane shows a compact Disk contents card without source, verification or usage text. Image/file evidence and original source notes remain stored in the catalogue. The importer corrects a description when unique file-content evidence identifies a different CD disk, preserving the original filename, launch identity and saved default.
+
+Missing game/demo archives are decoded from MSA into raw ST images. Take Off loose clip-art files are placed in explicitly labelled FAT12 reconstructions and reread to verify all file bytes. The six LZH archive wrapper folders are removed to match the other Take Off root layouts. Images are never executed. Existing files are never overwritten; staged complete files are published with atomic create, and the existing additive index writer retains its backup. Runtime `supergau-imports/` manifests, staged media, source lists and catalogue backups allow an interrupted run to be reviewed and rerun. Missing, unsupported or corrupt source archives are reported rather than substituted. No browser route accepts arbitrary CD or helper paths; this import is a native CLI operation.
+
+### Individual games
+
 Configure an already sorted TOSEC disk-image library with `tools/configure_atari.py --arcade-config <native-config.json> --root <games-folder> --executable <STEem.exe>`. The command previews the complete editions; add `--apply` to save the collection and a configuration backup. STEem must already have a `steem.ini` beside its executable. Use a build matching the installed Pasti DLL for STX images.
 
 Select **Atari ST** in Arcade. Complete multi-disk editions share a title row; use **Launch Version…** to choose an edition or save its default. Without saved Properties, STEem loads the first two disks into A/B; swap additional disks from the game folder in STEem. Existing TOS and machine settings are retained. TT/Falcon editions remain listed but need another emulator. The source disk set remains read-only; file maintenance is disabled. **Scrape Metadata → Apply Selected** saves presentation overrides in Arcade’s native `atari-overrides/` storage, including validated artwork references. These survive reload without changing disk images, edition identities, shared defaults or launch Properties.
@@ -161,6 +208,10 @@ Arcade follows Portal's saved theme through Relay, including colours, fonts, pan
 
 ## Scraping and loading
 
+Native catalogue lookup and batched version annotation use the catalogue interface directly; callers do not trigger a search to initialize indexes or inspect family dictionaries. Launch-plan resolution stays within the catalogue implementation and Host continues independently validating and approving exact native plans.
+
+`arcade_core/collection_lifecycle.py` owns the active collection view, library and metadata lifetime, cache dependencies, settings invalidation and selection/rebuild recovery. Selection prepares the candidate before persisting it; failed selection restores the previous view. Settings for an inactive collection do not activate it, and rebuilds reject a changed collection identity.
+
 Applying a match remembers that game's edited search term and **Current system / All platforms** choice for the selected provider. Individual and bulk scraping restore them next time, including after restarting the browser. Edit and apply again to replace them; failed searches and closing without applying retain the previous successful choices. Shared metadata versions reuse the same searches; ScummVM versions keep their own. An unfinished resumed review takes precedence over these defaults. Automatic searches remain automatic, preserving Game Boy hash lookup. Choices made before this feature need to be applied once to be remembered.
 
 Bulk scraping supports editing each search, retrying failed lookups and pausing at provider limits. Closing retains one bounded review for seven days in this browser; **Resume scrape review** in a game's context menu rechecks remaining matches. Saved and uncertain writes are never replayed automatically. **Discard review** removes those choices. Metadata provider, source platform and scrape date appear in the details, Properties and Metadata & protection views. **Newly indexed (14 days)** starts with a baseline of existing games.
@@ -170,3 +221,15 @@ Recent native libraries, parsed POKs, provider results and artwork have bounded 
 `arcade_core/tosec.py` owns filename parsing/building, `provider_metadata.py` owns provider text/media projection, and `web/scrape-views.js` owns the scraping dialogs alongside the independent `metadata-scraping.js` batch model. No build step or additional runtime framework is required.
 
 Data-format upgrades and coordinated release requirements are documented in [suite-data-cutover.md](../docs/architecture/suite-data-cutover.md). Collection indexes store explicit metadata groups; older backup/source conversion occurs at the import/index boundary.
+
+## Settings and accessible navigation
+
+Use **Save view…** beside the filters to name the current platform's search, inclusion/exclusion filters, attention/view/POK choices, sort rules and column layout. Choose it from **Saved view** to restore it. **Manage…** renames or deletes an existing view; **Save view…** with an existing selection explicitly updates its captured settings. Views are limited to 40 per browser across platforms and survive reloads. They do not switch collections, select an emulator, or alter launch defaults. Failed browser-storage writes retain the previous saved view.
+
+Use the Settings gear for interface/library settings. Unsaved sections show a dot; changing tabs or libraries retains their drafts. **Save Layout** or **Save Library Settings** commits only the visible scope. Closing with other drafts offers **Discard unsaved changes** or **Keep editing**. Child editors retain their own explicit Save/Cancel authority.
+
+Game menus group **Open with** emulator choices and **Selected items (N)** actions into keyboard-accessible submenus. Selection actions open the existing scoped review workflow; mixed Collection/Incoming/Bin selections require selecting a single view. Right-click platform cards for library/settings actions, emulator cards for open/configure, and headers for sorting/column controls. Native text-edit menus remain available in form fields.
+
+Shared interface scale and committed Portal font sizes combine in relative units. Narrow/scaled layouts expose filters and details through edge controls without replacing saved panel visibility. High contrast overrides inline palette/font colours. A **Default excluded** badge explains when the saved launch edition is hidden by filters; double-click still launches that exact default and **Launch Version…** remains the explicit alternative.
+
+Portal’s Repair shortcut… opens Arcade in an explicit review mode, preselecting the retained game when possible. Choose the intended game/emulator and click Repair Portal Shortcut to update the existing card. Merely opening the page never recreates a missing native launch record.

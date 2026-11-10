@@ -7,6 +7,18 @@ const vm = require('node:vm');
 const source = fs.readFileSync(path.join(__dirname, 'universal-search-widget.js'), 'utf8');
 function context() { const sandbox = vm.createContext({ WIDGET_REGISTRY: {}, Set, URL, console, WidgetSDK: { cache: { get: () => null, set() {}, remove() {} } }, document: {} }); vm.runInContext(source, sandbox); return sandbox; }
 
+test('Portal provider gateway preserves widget configuration and never uses widget histories', () => {
+  const sandbox = context();
+  const config = {providers:[{id:'custom',name:'Docs',alias:'docs',template:'https://example.test/?q={query}'}],defaultProviderId:'custom'};
+  const original = JSON.stringify(config);
+  sandbox.WidgetSDK.cache.get = sandbox.WidgetSDK.cache.set = () => assert.fail('Pure provider gateway cannot access widget caches');
+  const parsed = sandbox.CyruneSearchProviders.parse('@docs stars & sky',config);
+  assert.equal(parsed.query,'stars & sky');assert.equal(parsed.explicit,true);
+  assert.equal(sandbox.CyruneSearchProviders.url(parsed.provider,parsed.query),'https://example.test/?q=stars%20%26%20sky');
+  assert.equal(sandbox.CyruneSearchProviders.choices('@docs',config)[0].label,'Docs');
+  assert.equal(JSON.stringify(config),original);
+});
+
 test('search templates require HTTPS and exactly one query placeholder', () => {
   const sandbox = context();
   assert.equal(vm.runInContext(`_universalSearchTemplate('https://example.test/search?q={query}')`, sandbox), 'https://example.test/search?q={query}');

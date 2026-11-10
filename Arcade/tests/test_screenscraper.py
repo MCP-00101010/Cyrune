@@ -141,7 +141,7 @@ def test_native_artwork_request_and_metadata_survive_reload(setup, monkeypatch):
     assert query["jeuid"] == ["45280"] and query["media"] == ["ss(wor)"]
     assert query["sspassword"] == ["fixture-password"] and query["outputformat"] == ["png"]
     assert server.apply_scrape_metadata(game.id, {"publisher": "Ultimate"}, remote_assets={"screenshot": reference})["ok"]
-    server.LIBRARY = None
+    server.get_collection_lifecycle().invalidate()
     assert server.get_library().get_game(game.id).screenshot == reference
     assert server.read_arcade_asset(reference, 1024) == asset
     assert len(requests) == 1, 'A second read uses the persistent native cache'

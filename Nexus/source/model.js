@@ -7,7 +7,7 @@
 }(typeof globalThis !== 'undefined' ? globalThis : this, function createNexusModel(registry) {
   'use strict';
 
-  const NEXUS_VERSION = '0.3.1';
+  const NEXUS_VERSION = '0.3.2';
   const SETTINGS_SCHEMA_VERSION = 2;
   const PREVIEW_STORAGE_KEY = 'cyrune.nexus.settings.preview.v2';
   function upgradePreview(storage) {

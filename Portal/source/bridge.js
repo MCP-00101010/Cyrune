@@ -111,7 +111,7 @@ const bridge = (() => {
   async function _openGameInArcade(gameKey, options = {}) {
     if (!_available) await _connect({ retries: 1, delayMs: 200 });
     if (!_available || !_nativeAvailable || !_capabilities.has('emuguiService')) throw new Error('Cyrune Arcade is unavailable');
-    const res = await _send('MW_OPEN_GAME_IN_EMUGUI', { gameKey, rebind: options.rebind === true }, { timeoutMs: ARCADE_REQUEST_TIMEOUT_MS });
+    const res = await _send('MW_OPEN_GAME_IN_EMUGUI', { gameKey, rebind: options.rebind === true, catalogueId: options.catalogueId || '' }, { timeoutMs: ARCADE_REQUEST_TIMEOUT_MS });
     if (res.ok === false) throw new Error(res.error || 'The game could not be opened in Cyrune Arcade');
     return true;
   }
@@ -206,11 +206,10 @@ const bridge = (() => {
           _available = true;
           _nativeAvailable = res.nativeAvailable === true;
           _storageMode = res.storageMode || (res.nativeAvailable === true && res.databasePath ? 'host' : 'relay');
-          _authoritativeStorageAvailable = res.authoritativeStorageAvailable === true
-            || (Array.isArray(res.capabilities) && res.capabilities.includes('portalAuthority'));
+          _authoritativeStorageAvailable = res.authoritativeStorageAvailable === true;
           _extensionVersion = res.version || '';
           _capabilities = new Set(Array.isArray(res.capabilities) ? res.capabilities : []);
-          _lastError = '';
+          _lastError = res.storageError || '';
           if (recoveredAfterStartup) {
             window.dispatchEvent(new CustomEvent('morpheus:bridge-ready', {
               detail: { nativeAvailable: _nativeAvailable }
@@ -249,7 +248,7 @@ const bridge = (() => {
           clearTimeout(pending.timer);
           _pending.delete(id);
           pending.reject(Object.assign(new Error('Catalogue session ended.'), { code: 'unauthorized' }));
-        } else if (['MW_LAUNCH_GAME', 'MW_REVEAL_GAME', 'MW_OPEN_GAME_IN_EMUGUI', 'MW_FORGET_GAME'].includes(pending.request.type)
+        } else if (['MW_LAUNCH_GAME', 'MW_REVEAL_GAME', 'MW_OPEN_GAME_IN_EMUGUI'].includes(pending.request.type)
             || pending.request.type === 'MW_GAME_VERSIONS' && pending.request.action !== 'list') {
           clearTimeout(pending.timer);
           _pending.delete(id);
@@ -345,6 +344,7 @@ const bridge = (() => {
       }));
       return;
     }
+    if (e.data._productivityChanged) window.dispatchEvent(new CustomEvent('cyrune-productivity-changed'));
     if (e.data._push && e.data.type === 'MW_NOTIFICATION_EVENT') {
       window.dispatchEvent(new CustomEvent('morpheus:notification-event', {
         detail: { pushRequestId: e.data.pushRequestId || '', event: e.data.event || null }
@@ -426,13 +426,15 @@ const bridge = (() => {
         _available = true;
         _nativeAvailable = res.nativeAvailable === true;
         _storageMode = res.storageMode || (res.nativeAvailable === true && res.databasePath ? 'host' : 'relay');
-        _authoritativeStorageAvailable = res.authoritativeStorageAvailable === true
-          || (Array.isArray(res.capabilities) && res.capabilities.includes('portalAuthority'));
+        _authoritativeStorageAvailable = res.authoritativeStorageAvailable === true;
+        _lastError = res.storageError || '';
         if (Array.isArray(res.capabilities)) _capabilities = new Set(res.capabilities);
         return {
           nativeAvailable: res.nativeAvailable === true,
           authoritativeStorageAvailable: _authoritativeStorageAvailable,
           storageMode: _storageMode,
+          authoritySelectionRequired: res.authoritySelectionRequired === true,
+          storageError: res.storageError || '',
           databasePath: res.databasePath || null,
           extensionVersion: res.version || _extensionVersion,
           protocols: { ..._protocols },
@@ -455,6 +457,14 @@ const bridge = (() => {
       }
       const res = await _send('MW_GET_CYRUNE_SETTINGS');
       return { profile: res.profile || null, available: true };
+    },
+
+    async productivityRequest(payload) {
+      if (!_available) await _connect({ retries: 1, delayMs: 200 });
+      if (!_available || !_capabilities.has('productivityService')) throw new Error('Update or reconnect Cyrune Relay for Focus and Browser Activity.');
+      const result = await _send('MW_PRODUCTIVITY', { payload }, { timeoutMs: 15000 });
+      if (result?.ok !== true) throw new Error(result?.error || 'Productivity service unavailable.');
+      return result;
     },
 
     async scheduleNotification(job) {
@@ -946,13 +956,6 @@ const bridge = (() => {
       const res = await _send('MW_REVEAL_GAME', { gameKey }, { timeoutMs: ARCADE_REQUEST_TIMEOUT_MS });
       if (res.ok === false) throw new Error(res.error || 'The game file could not be revealed');
       return true;
-    },
-
-    async forgetGame(gameKey) {
-      if (!_available) await _connect({ retries: 1, delayMs: 200 });
-      if (!_available || !_nativeAvailable || !_capabilities.has('emuguiService')) throw new Error('Game launcher is unavailable');
-      const res = await _send('MW_FORGET_GAME', { gameKey }, { timeoutMs: ARCADE_REQUEST_TIMEOUT_MS });
-      return res.removed === true;
     },
 
     async secretStatus() {

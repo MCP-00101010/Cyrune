@@ -274,6 +274,28 @@ test('map teardown captures camera and compact provider attribution state', () =
   assert.equal(captured.view.attributionExpanded, true);
 });
 
+test('a changed Weather location refocuses hazards and cannot be overwritten by the old map camera', () => {
+  let location = { latitude: 51.5, longitude: -0.1, locationName: 'London' };
+  const context = createContext({ _findWeatherWidgetLocation: () => location });
+  context.widget = widget({ useWeatherLocation: true, categories: ['earthquake'], categorySchema: 2 });
+  vm.runInContext(`
+    const runtime = _globalHazardRuntimeState(widget);
+    runtime.camera = { latitude: 51.6, longitude: -0.2, zoom: 8 };
+    runtime.activeTypes = new Set(['earthquake']);
+    _globalHazardPersistRuntime(widget, runtime);
+    _globalHazardInstances.set(widget.id, {widget, runtime, watchLocationSignature: runtime.watchLocationSignature, map: {
+      getCenter: () => ({lat:51.6,lng:-0.2}),getZoom:()=>8,remove(){}
+    }});
+  `, context);
+  location = { latitude: 55.9533, longitude: -3.1883, locationName: 'Edinburgh' };
+  vm.runInContext('WIDGET_REGISTRY.globalHazards.onSettingsCommit(widget); _globalHazardDestroyMap(widget.id)', context);
+  const next = vm.runInContext('_globalHazardRuntimeState(widget)', context);
+  assert.deepEqual(JSON.parse(JSON.stringify(next.camera)), { latitude: 55.9533, longitude: -3.1883, zoom: 5 });
+  assert.deepEqual([...next.activeTypes], ['earthquake']);
+  vm.runInContext('_globalHazardRuntime.clear(); _globalHazardViewMemory.clear()', context);
+  assert.deepEqual(JSON.parse(JSON.stringify(vm.runInContext('_globalHazardRuntimeState(widget).camera', context))), { latitude: 55.9533, longitude: -3.1883, zoom: 5 });
+});
+
 test('hazard assets load after MapLibre and SDK and expose responsive map/list styling', () => {
   const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
   const css = fs.readFileSync(path.join(__dirname, 'global-hazards-widget.css'), 'utf8');

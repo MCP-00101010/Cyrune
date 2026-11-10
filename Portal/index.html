@@ -24,6 +24,7 @@
   <link rel="stylesheet" href="../Widgets/utilities/calculator-widget.css" />
   <link rel="stylesheet" href="../Widgets/utilities/translator-widget.css" />
   <link rel="stylesheet" href="../Widgets/personal-productivity/focus-session-widget.css" />
+  <link rel="stylesheet" href="../Widgets/personal-productivity/browser-activity-widget.css" />
   <link rel="stylesheet" href="../Widgets/sports/football-tracker-widget.css" />
   <link rel="stylesheet" href="../Widgets/weather-hazards/global-hazards-widget.css" />
     <link rel="stylesheet" href="../Widgets/personal-productivity/saved-sessions-widget.css" />
@@ -299,14 +300,16 @@
       <div class="sidebar-stack">
         <section class="sidebar-card sidebar-card--top">
           <div class="sidebar-header">
+            <img class="portal-brand-mark" src="assets/brand/portal.svg" alt="" aria-hidden="true" />
             <h1 id="hubNameEl">Cyrune Portal</h1>
           </div>
 
           <div class="sidebar-search">
+            <button type="button" id="quickSearchBtn" class="portal-search-button" title="Search bookmarks, games and web providers (Ctrl+F)" aria-label="Search">
+              <svg width="18" height="18" aria-hidden="true"><use href="#icon-search"/></svg>
+              <span>Find anything</span><kbd>Ctrl F</kbd>
+            </button>
             <div class="sidebar-action-row">
-              <button type="button" id="quickSearchBtn" class="icon-btn sidebar-action-btn" title="Search" aria-label="Search">
-                <svg width="18" height="18" aria-hidden="true"><use href="#icon-search"/></svg>
-              </button>
               <button type="button" id="quickTagManagerBtn" class="icon-btn sidebar-action-btn" title="Tag Manager" aria-label="Tag Manager">
                 <svg width="18" height="18" aria-hidden="true"><use href="#icon-tags"/></svg>
               </button>
@@ -333,7 +336,7 @@
 
           <div class="sidebar-meta-row">
             <span id="sidebarExtensionStatus" class="sidebar-extension-status">Checking extension…</span>
-            <button type="button" id="aboutBtn" class="sidebar-version-btn" title="Settings">v0.12.22</button>
+            <button type="button" id="aboutBtn" class="sidebar-version-btn" title="Settings" aria-label="Open Portal settings">v0.13.7</button>
           </div>
         </section>
 
@@ -603,19 +606,21 @@
       </div>
     </div>
 
-    <div id="settingsPanel" class="settings-panel hidden">
+    <div id="settingsPanel" class="settings-panel hidden" role="dialog" aria-modal="true" aria-labelledby="portalSettingsTitle">
       <div class="settings-header">
-        <input id="stgHubName" class="settings-hub-name-input" type="text" placeholder="My Cyrune Portal" />
-        <div class="settings-tabs">
-          <button type="button" class="settings-tab" data-tab="about">About</button>
-          <button type="button" class="settings-tab active" data-tab="general">General</button>
-          <button type="button" class="settings-tab" data-tab="ui">UI</button>
-          <button type="button" class="settings-tab" data-tab="api-keys">API Keys</button>
-          <button type="button" class="settings-tab" data-tab="theme">Theme</button>
-          <button type="button" class="settings-tab" data-tab="style">Style</button>
-        </div>
+        <h3 id="portalSettingsTitle">Settings</h3>
+        <button type="button" id="settingsDoneBtn" class="primary-btn">Done</button>
       </div>
+        <nav class="settings-tabs" aria-label="Settings categories">
+          <button type="button" class="settings-tab active" data-tab="general">General</button>
+          <button type="button" class="settings-tab" data-tab="ui">Interface</button>
+          <button type="button" class="settings-tab" data-tab="theme">Appearance</button>
+          <button type="button" class="settings-tab" data-tab="style">Typography</button>
+          <button type="button" class="settings-tab" data-tab="api-keys">API keys</button>
+          <button type="button" class="settings-tab" data-tab="about">About</button>
+        </nav>
       <div class="settings-body" data-active-tab="general">
+        <h3 id="settingsViewTitle">General</h3>
 
         <div class="settings-section span-full" data-tab="theme">
           <div class="settings-section-label">Theme</div>
@@ -631,8 +636,8 @@
         </div>
 
         <div class="settings-section span-full style-global-section" data-tab="style">
-          <div class="settings-section-label">Theme Defaults</div>
-          <div class="settings-help">These text settings belong to the active theme. Switch themes to edit a different style profile.</div>
+          <div class="settings-section-label" title="These text settings belong to the active theme. Switch themes to edit a different style profile. Turn this on to customize specific interface areas without changing the theme defaults above." aria-description="These text settings belong to the active theme. Switch themes to edit a different style profile. Turn this on to customize specific interface areas without changing the theme defaults above." tabindex="0">Theme Defaults</div>
+
           <div class="settings-row">
             <span>Base text size</span>
             <div class="icon-size-radios">
@@ -658,7 +663,7 @@
             </select>
           </div>
           <div class="settings-row">
-            <span>Use theme accent color</span>
+            <span>Use theme text colour</span>
             <label class="settings-toggle">
               <input id="stgGlobalThemeColor" type="checkbox" />
               <span class="toggle-track"></span>
@@ -671,19 +676,19 @@
               <span class="toggle-track"></span>
             </label>
           </div>
-          <div class="settings-help">Turn this on to customize specific interface areas without changing the theme defaults above.</div>
+
         </div>
 
         <div class="settings-section span-full style-advanced-intro" data-tab="style">
-          <div class="settings-section-label">Section Overrides</div>
-          <div class="settings-help">These cards let you fine-tune individual parts of the interface for the current theme.</div>
+          <div class="settings-section-label" title="These cards let you fine-tune individual parts of the interface for the current theme." aria-description="These cards let you fine-tune individual parts of the interface for the current theme." tabindex="0">Section Overrides</div>
+
         </div>
 
         <div class="settings-section style-advanced-section" data-tab="style" data-style-section="hubName">
-          <div class="settings-section-label settings-section-label--row">Hub Title
+          <div class="settings-section-label settings-section-label--row" title="Controls the main Portal title shown at the top of the sidebar." aria-description="Controls the main Portal title shown at the top of the sidebar." tabindex="0">Hub Title
             <label class="settings-override-toggle"><input type="checkbox" data-style-override="hubName" /> Use custom</label>
           </div>
-          <div class="settings-help">Controls the main Portal title shown at the top of the sidebar.</div>
+
           <div class="settings-row">
             <span>Text size</span>
             <div class="settings-number-group settings-number-group--stepper">
@@ -726,10 +731,10 @@
         </div>
 
         <div class="settings-section style-advanced-section" data-tab="style" data-style-section="board">
-          <div class="settings-section-label settings-section-label--row">Board Links
+          <div class="settings-section-label settings-section-label--row" title="Applies to board items in the sidebar navigation." aria-description="Applies to board items in the sidebar navigation." tabindex="0">Board Links
             <label class="settings-override-toggle"><input type="checkbox" data-style-override="board" /> Use custom</label>
           </div>
-          <div class="settings-help">Applies to board items in the sidebar navigation.</div>
+
           <div class="settings-row">
             <span>Text size</span>
             <div class="settings-number-group settings-number-group--stepper">
@@ -772,10 +777,10 @@
         </div>
 
         <div class="settings-section style-advanced-section" data-tab="style" data-style-section="boardTitle">
-          <div class="settings-section-label settings-section-label--row">Board Headers
+          <div class="settings-section-label settings-section-label--row" title="Applies to the main board heading text inside the content area." aria-description="Applies to the main board heading text inside the content area." tabindex="0">Board Headers
             <label class="settings-override-toggle"><input type="checkbox" data-style-override="boardTitle" /> Use custom</label>
           </div>
-          <div class="settings-help">Applies to the main board heading text inside the content area.</div>
+
           <div class="settings-row">
             <span>Text size</span>
             <div class="settings-number-group settings-number-group--stepper">
@@ -818,10 +823,10 @@
         </div>
 
         <div class="settings-section style-advanced-section" data-tab="style" data-style-section="bookmark">
-          <div class="settings-section-label settings-section-label--row">Bookmarks
+          <div class="settings-section-label settings-section-label--row" title="Applies to bookmark labels wherever bookmarks are shown." aria-description="Applies to bookmark labels wherever bookmarks are shown." tabindex="0">Bookmarks
             <label class="settings-override-toggle"><input type="checkbox" data-style-override="bookmark" /> Use custom</label>
           </div>
-          <div class="settings-help">Applies to bookmark labels wherever bookmarks are shown.</div>
+
           <div class="settings-row">
             <span>Text size</span>
             <div class="settings-number-group settings-number-group--stepper">
@@ -864,10 +869,10 @@
         </div>
 
         <div class="settings-section style-advanced-section" data-tab="style" data-style-section="folder">
-          <div class="settings-section-label settings-section-label--row">Folders
+          <div class="settings-section-label settings-section-label--row" title="Applies to folder names in both the sidebar and board content." aria-description="Applies to folder names in both the sidebar and board content." tabindex="0">Folders
             <label class="settings-override-toggle"><input type="checkbox" data-style-override="folder" /> Use custom</label>
           </div>
-          <div class="settings-help">Applies to folder names in both the sidebar and board content.</div>
+
           <div class="settings-row">
             <span>Text size</span>
             <div class="settings-number-group settings-number-group--stepper">
@@ -910,10 +915,10 @@
         </div>
 
         <div class="settings-section style-advanced-section" data-tab="style" data-style-section="title">
-          <div class="settings-section-label settings-section-label--row">Titles &amp; Dividers
+          <div class="settings-section-label settings-section-label--row" title="Applies to title rows and the divider line that can appear with them." aria-description="Applies to title rows and the divider line that can appear with them." tabindex="0">Titles &amp; Dividers
             <label class="settings-override-toggle"><input type="checkbox" data-style-override="title" /> Use custom</label>
           </div>
-          <div class="settings-help">Applies to title rows and the divider line that can appear with them.</div>
+
           <div class="settings-row">
             <span>Text size</span>
             <div class="settings-number-group settings-number-group--stepper">
@@ -973,7 +978,11 @@
         </div>
 
         <div class="settings-section span-full" data-tab="general">
-          <div class="settings-section-label">General</div>
+          <div class="settings-section-label">Workspace</div>
+          <label class="settings-row" for="stgHubName">
+            <span>Name</span>
+            <input id="stgHubName" class="settings-text-input" type="text" placeholder="My Cyrune Portal" />
+          </label>
           <div class="settings-row">
             <span>Warn before closing with unsaved changes</span>
             <label class="settings-toggle">
@@ -1001,6 +1010,14 @@
                 <label class="settings-toggle"><input id="stgConfirmDeleteBookmark" type="checkbox" /><span class="toggle-track"></span></label>
               </div>
               <div class="confirm-delete-item">
+                <span>Games</span>
+                <label class="settings-toggle"><input id="stgConfirmDeleteGame" type="checkbox" aria-label="Confirm deleting game shortcuts" /><span class="toggle-track"></span></label>
+              </div>
+              <div class="confirm-delete-item">
+                <span>Applications</span>
+                <label class="settings-toggle"><input id="stgConfirmDeleteApplication" type="checkbox" aria-label="Confirm deleting application shortcuts" /><span class="toggle-track"></span></label>
+              </div>
+              <div class="confirm-delete-item">
                 <span>Folders</span>
                 <label class="settings-toggle"><input id="stgConfirmDeleteFolder" type="checkbox" /><span class="toggle-track"></span></label>
               </div>
@@ -1017,13 +1034,13 @@
         </div>
 
         <div class="settings-section span-full" data-tab="api-keys">
-          <div class="settings-section-label">API Keys</div>
+          <div class="settings-section-label" title="Nexus Mods permits personal API keys for personal or testing use. Register a public-facing release with Nexus Mods before distributing it to end users." aria-description="Nexus Mods permits personal API keys for personal or testing use. Register a public-facing release with Nexus Mods before distributing it to end users." tabindex="0">API Keys</div>
           <div class="settings-row settings-row--top">
             <span>NASA</span>
             <div class="tz-picker-group">
               <input id="stgApiKeyNasa" type="password" class="settings-text-input" placeholder="Paste your NASA API key" autocomplete="off" />
               <div class="tz-hint-row">
-                <span id="stgApiKeyNasaStatus" class="tz-hint">Used by the NASA APOD widget. Stored in Windows Credential Manager when desktop sync is available.</span>
+                <span id="stgApiKeyNasaStatus" class="tz-hint">Checking…</span>
                 <a href="https://api.nasa.gov/" target="_blank" rel="noreferrer noopener" class="widget-apod-settings-link">Get key</a>
               </div>
             </div>
@@ -1033,7 +1050,7 @@
             <div class="tz-picker-group">
               <input id="stgApiKeyTmdb" type="password" class="settings-text-input" placeholder="Paste your TMDB API Read Access Token" autocomplete="off" />
               <div class="tz-hint-row">
-                <span id="stgApiKeyTmdbStatus" class="tz-hint">Used by every Media Watchlist widget.</span>
+                <span id="stgApiKeyTmdbStatus" class="tz-hint">Checking…</span>
                 <a href="https://www.themoviedb.org/settings/api" target="_blank" rel="noreferrer noopener" class="widget-apod-settings-link">Get token</a>
               </div>
             </div>
@@ -1043,7 +1060,7 @@
             <div class="tz-picker-group">
               <input id="stgApiKeyFootballData" type="password" class="settings-text-input" placeholder="Paste your football-data.org API token" autocomplete="off" />
               <div class="tz-hint-row">
-                <span id="stgApiKeyFootballDataStatus" class="tz-hint">Used by Football sources in Calendar widgets.</span>
+                <span id="stgApiKeyFootballDataStatus" class="tz-hint">Checking…</span>
                 <a href="https://www.football-data.org/client/register" target="_blank" rel="noreferrer noopener" class="widget-apod-settings-link">Get token</a>
               </div>
             </div>
@@ -1053,7 +1070,7 @@
             <div class="tz-picker-group">
               <input id="stgApiKeySportmonks" type="password" class="settings-text-input" placeholder="Paste your Sportmonks API token" autocomplete="off" />
               <div class="tz-hint-row">
-                <span id="stgApiKeySportmonksStatus" class="tz-hint">Used for Scottish Premiership data in Football Tracker widgets.</span>
+                <span id="stgApiKeySportmonksStatus" class="tz-hint">Checking…</span>
                 <a href="https://my.sportmonks.com/register" target="_blank" rel="noreferrer noopener" class="widget-apod-settings-link">Get token</a>
               </div>
             </div>
@@ -1063,7 +1080,7 @@
             <div class="tz-picker-group">
               <input id="stgApiKeyApiFootball" type="password" class="settings-text-input" placeholder="Paste your API-Football key" autocomplete="off" />
               <div class="tz-hint-row">
-                <span id="stgApiKeyApiFootballStatus" class="tz-hint">Used only for competitions unavailable from Football Data and Sportmonks.</span>
+                <span id="stgApiKeyApiFootballStatus" class="tz-hint">Checking…</span>
                 <a href="https://dashboard.api-football.com/register" target="_blank" rel="noreferrer noopener" class="widget-apod-settings-link">Get key</a>
               </div>
             </div>
@@ -1073,23 +1090,23 @@
             <div class="tz-picker-group">
               <input id="stgApiKeyNexusMods" type="password" class="settings-text-input" placeholder="Paste your personal Nexus Mods API key" autocomplete="off" />
               <div class="tz-hint-row">
-                <span id="stgApiKeyNexusModsStatus" class="tz-hint">Used by every Nexus Mods Tracker widget. Personal keys are for personal/testing use; public releases require Nexus Mods registration.</span>
+                <span id="stgApiKeyNexusModsStatus" class="tz-hint">Checking…</span>
                 <a href="https://www.nexusmods.com/users/myaccount?tab=api+access" target="_blank" rel="noreferrer noopener" class="widget-apod-settings-link">Get key</a>
               </div>
             </div>
           </div>
-          <div class="settings-help">Nexus Mods permits personal API keys for personal or testing use. Register a public-facing release with Nexus Mods before distributing it to end users.</div>
+
         </div>
 
         <div class="settings-section span-full" data-tab="general">
-          <div class="settings-section-label">Data</div>
-          <div class="settings-help">Use a shared data file when desktop sync is available. Otherwise the hub stays local to this browser.</div>
+          <div class="settings-section-label" title="Relay owns the selected storage authority: Host shared file or Relay storage. Page storage is a recovery cache only. Change authority in the Relay popup; configure the Host shared file below." aria-description="Relay owns the selected storage authority: Host shared file or Relay storage. Page storage is a recovery cache only. Change authority in the Relay popup; configure the Host shared file below." tabindex="0">Data</div>
+
           <div class="settings-row">
             <span>Shared data file path</span>
             <input id="stgDatabasePath" type="text" class="settings-text-input" placeholder="C:\Path\cyrune-portal.json" />
           </div>
           <div class="settings-row">
-            <span id="stgDatabasePathStatus" class="settings-muted">Browser-only storage.</span>
+            <span id="stgDatabasePathStatus" class="settings-muted">Checking selected storage authority…</span>
             <div class="fmt-btns">
               <button type="button" id="stgDatabasePathBrowse" class="secondary-btn" style="font-size:0.8rem;padding:4px 10px;">Browse…</button>
               <button type="button" id="stgDatabasePathApply" class="secondary-btn" style="font-size:0.8rem;padding:4px 10px;">Apply path</button>
@@ -1109,10 +1126,7 @@
           </div>
           <div class="settings-row">
             <span>Reload saved data</span>
-            <button type="button" id="stgReloadHubBtn" class="secondary-btn" style="font-size:0.8rem;padding:4px 10px;">Reload Now</button>
-          </div>
-          <div class="settings-row">
-            <span id="stgReloadHint" class="settings-muted">Reloads from the shared file when available, otherwise from browser storage.</span>
+            <button type="button" id="stgReloadHubBtn" class="secondary-btn" title="Reload from the selected storage authority. If it is unavailable, Portal stays read-only; reconnect Relay or Host." style="font-size:0.8rem;padding:4px 10px;">Reload now</button>
           </div>
           <div class="settings-row">
             <span>Show shared-file sync note</span>
@@ -1124,8 +1138,8 @@
         </div>
 
         <div class="settings-section" data-tab="ui">
-          <div class="settings-section-label">Bookmarks</div>
-          <div class="settings-help">Controls bookmark hover details and the tag chips shown on bookmarks and folders.</div>
+          <div class="settings-section-label" title="Controls bookmark hover details and the tag chips shown on bookmarks and folders." aria-description="Controls bookmark hover details and the tag chips shown on bookmarks and folders." tabindex="0">Bookmarks</div>
+
           <div class="settings-row">
             <span>Show bookmark tooltips</span>
             <label class="settings-toggle">
@@ -1150,8 +1164,8 @@
         </div>
 
         <div class="settings-section" data-tab="ui">
-          <div class="settings-section-label">Essentials</div>
-          <div class="settings-help">Changing visible slots only affects how many essentials are shown, not what is saved.</div>
+          <div class="settings-section-label" title="Changing visible slots only affects how many essentials are shown, not what is saved." aria-description="Changing visible slots only affects how many essentials are shown, not what is saved." tabindex="0">Essentials</div>
+
           <div class="settings-row">
             <span>Show essentials</span>
             <label class="settings-toggle">
@@ -1179,8 +1193,8 @@
         </div>
 
         <div class="settings-section" data-tab="ui">
-          <div class="settings-section-label">UI Opacity</div>
-          <div class="settings-help">Manual opacity only applies when matching the active tab is turned off.</div>
+          <div class="settings-section-label" title="Manual opacity only applies when matching the active tab is turned off." aria-description="Manual opacity only applies when matching the active tab is turned off." tabindex="0">UI Opacity</div>
+
           <div class="settings-row">
             <span>Match active tab opacity</span>
             <label class="settings-toggle">
@@ -1198,8 +1212,8 @@
         </div>
 
         <div class="settings-section" data-tab="ui">
-          <div class="settings-section-label">Speed Dial</div>
-          <div class="settings-help">Controls the icon scale used by quick-launch tiles.</div>
+          <div class="settings-section-label" title="Controls the icon scale used by quick-launch tiles." aria-description="Controls the icon scale used by quick-launch tiles." tabindex="0">Speed Dial</div>
+
           <div class="settings-row">
             <span>Icon size</span>
             <div class="icon-size-radios">
@@ -1211,8 +1225,8 @@
         </div>
 
         <div class="settings-section" data-tab="ui">
-          <div class="settings-section-label">Bookmark Activity</div>
-          <div class="settings-help">Usage counts and recent-open history stay only in this browser and are never written to the shared Hub database.</div>
+          <div class="settings-section-label" title="Usage counts and recent-open history stay only in this browser and are never written to the shared Hub database." aria-description="Usage counts and recent-open history stay only in this browser and are never written to the shared Hub database." tabindex="0">Bookmark Activity</div>
+
           <div class="settings-row">
             <span>Track bookmarks opened through the Hub</span>
             <label class="settings-toggle">
@@ -1230,8 +1244,7 @@
         </div>
 
         <div class="settings-section span-full" data-tab="about">
-          <div class="about-version" id="aboutVersionLine">Version 0.12.22</div>
-          <p>A local-first bookmark manager. Runs entirely in your browser — no dependencies, no server, no telemetry.</p>
+          <div class="about-version" id="aboutVersionLine">Version 0.13.7</div>
           <div class="settings-row">
             <span>Browser extension</span>
             <span id="aboutExtensionStatus" class="settings-muted">Checking...</span>
@@ -1244,13 +1257,10 @@
             <span>Shared file path</span>
             <span id="aboutDatabasePath" class="settings-muted">Checking...</span>
           </div>
-          <p id="aboutExtensionFeatures" class="about-note">Extension features: checking...</p>
-          <p id="aboutStorageNote" class="about-note">Checking storage mode...</p>
+          <div class="settings-row"><span>Features</span><span id="aboutExtensionFeatures" class="settings-muted">Checking…</span></div>
+          <div class="settings-row"><span>Storage</span><span id="aboutStorageNote" class="settings-muted">Checking…</span></div>
         </div>
 
-      </div>
-      <div class="form-actions">
-        <button type="button" id="settingsDoneBtn" class="primary-btn">Done</button>
       </div>
     </div>
 
@@ -1317,6 +1327,7 @@
       </div>
       <div id="wstgBody"></div>
       <div class="form-actions">
+        <button type="button" id="wstgTemplatesBtn" class="secondary-btn">Templates</button>
         <button type="button" id="wstgCancelBtn" class="secondary-btn">Cancel</button>
         <button type="button" id="wstgDoneBtn" class="primary-btn">Done</button>
       </div>
@@ -1459,6 +1470,7 @@
     <div id="inboxPanelBody" class="inbox-panel-body"></div>
     <div class="form-actions utility-panel-footer">
       <button type="button" id="inboxPanelDoneBtn" class="primary-btn">Done</button>
+      <button type="button" id="inboxReviewBtn" class="secondary-btn">Review Inbox…</button>
     </div>
   </div>
 
@@ -1628,6 +1640,7 @@
   <script src="../Widgets/core/widget-response.js" defer></script>
   <script src="../Widgets/core/widget-sdk.js" defer></script>
   <script src="../Widgets/space-astronomy/nasa-apod-widget.js" defer></script>
+  <script src="../Widgets/weather-hazards/location-search.js" defer></script>
   <script src="../Widgets/weather-hazards/weather-widget.js" defer></script>
   <script src="../Widgets/weather-hazards/weather-map-widget.js" defer></script>
   <script src="../Widgets/space-astronomy/iss-tracker-widget.js" defer></script>
@@ -1639,6 +1652,7 @@
   <script src="../Widgets/utilities/calculator-widget.js" defer></script>
   <script src="../Widgets/utilities/translator-widget.js" defer></script>
   <script src="../Widgets/personal-productivity/focus-session-widget.js" defer></script>
+  <script src="../Widgets/personal-productivity/browser-activity-widget.js" defer></script>
   <script src="../Widgets/sports/football-tracker-widget.js" defer></script>
   <script src="../Widgets/weather-hazards/global-hazards-widget.js" defer></script>
     <script src="../Widgets/personal-productivity/saved-sessions-widget.js" defer></script>
@@ -1656,6 +1670,8 @@
   <script src="source/game-launcher.js" defer></script>
   <script src="source/game-picker.js" defer></script>
   <script src="source/game-picker-ui.js" defer></script>
+  <script src="source/search-placement.js" defer></script>
+  <script src="source/unified-search.js" defer></script>
   <script src="source/render-items.js" defer></script>
   <script src="source/render.js" defer></script>
   <script src="source/sets.js" defer></script>
@@ -1667,6 +1683,7 @@
   <script src="source/credential-upgrade.js"></script>
   <script src="source/settings.js" defer></script>
   <script src="source/import.js" defer></script>
+  <script src="source/external-deliveries.js" defer></script>
   <script src="source/bookmark-tools.js" defer></script>
   <script src="source/phase2-tools.js" defer></script>
   <script src="source/command-palette.js" defer></script>

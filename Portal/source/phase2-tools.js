@@ -10,6 +10,8 @@ let phaseTwoSelectedBackup = '';
 let phaseTwoPendingBundle = null;
 let phaseTwoEditingRuleId = null;
 let phaseTwoAutomationBuilderGoal = 'tag';
+let phaseTwoReviewScope = 'inbox';
+let phaseTwoReviewLimit = 30;
 
 function phaseTwoId(prefix) {
   return `${prefix}-${globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`}`;
@@ -72,6 +74,7 @@ function evaluateAutomationRules(records, rules, options = {}) {
     const tagNames = (item.tags || []).map(tagNameFor).map(value => String(value).toLowerCase());
     const proposed = { title: item.title || originalUrl, url: originalUrl, addTags: [], routeBoardId: '', routeTabId: '', rejected: false };
     const matchedRules = [];
+    const explanations = [];
     for (const rule of normalizedRules) {
       const condition = rule.conditions;
       let hostname = '';
@@ -84,6 +87,8 @@ function evaluateAutomationRules(records, rules, options = {}) {
         && (condition.duplicate === 'any' || (condition.duplicate === 'yes') === duplicate);
       if (!matches) continue;
       matchedRules.push(rule.id);
+      explanations.push({ruleId:rule.id, name:rule.name, reason:describeAutomationRule(rule),
+        matchedTitle:proposed.title, matchedUrl:proposed.url, duplicate, stops:rule.stop});
       if (rule.actions.titleReplacement) proposed.title = rule.actions.titleReplacement;
       if (rule.actions.titlePrefix) proposed.title = `${rule.actions.titlePrefix}${proposed.title}`;
       if (rule.actions.normalizeUrl) proposed.url = phaseTwoNormalizeUrl(proposed.url);
@@ -96,33 +101,34 @@ function evaluateAutomationRules(records, rules, options = {}) {
       if (rule.stop) break;
     }
     const conflicts = [];
-    if (item.locked) conflicts.push('Item is locked');
+    if (item.locked || record.locked) conflicts.push('Item is locked');
     if (proposed.routeTabId && typeof options.destinationExists === 'function' && !options.destinationExists(proposed.routeBoardId, proposed.routeTabId)) conflicts.push('Destination is missing');
-    return { record, duplicate, matchedRules, proposed: { ...proposed, addTags: [...new Set(proposed.addTags)] }, conflicts };
+    return { record, duplicate, matchedRules, explanations, proposed: { ...proposed, addTags: [...new Set(proposed.addTags)] }, conflicts };
   });
 }
 
-function phaseTwoWalkItems(items, source, output, parent = items) {
+function phaseTwoWalkItems(items, source, output, parent = items, locked = false, meta = {}) {
   for (const item of (items || [])) {
     if (!item) continue;
-    if (item.type === 'bookmark') output.push({ item, parent, source });
-    if (Array.isArray(item.children)) phaseTwoWalkItems(item.children, source, output, item.children);
+    const inheritedLock = locked || item.locked === true;
+    if (item.type === 'bookmark') output.push({ item, parent, source, locked:inheritedLock, meta:{...meta,itemId:item.id} });
+    if (Array.isArray(item.children)) phaseTwoWalkItems(item.children, source, output, item.children, inheritedLock, meta);
   }
   return output;
 }
 
 function phaseTwoCollectAutomationRecords(scope = 'inbox') {
   const records = [];
-  if (scope === 'import-manager') return phaseTwoWalkItems(state.importManager?.items || [], 'import-manager', records);
+  if (scope === 'import-manager') return phaseTwoWalkItems(state.importManager?.items || [], 'import-manager', records, state.importManager?.items || [], false, {area:'import-manager-item'});
   const board = typeof getActiveBoard === 'function' ? getActiveBoard() : state.boards?.find(entry => entry.id === state.activeBoardId);
   const tab = typeof getBoardTab === 'function' ? getBoardTab(board, state.activeTabId) : board?.tabs?.find(entry => entry.id === state.activeTabId);
   const inbox = typeof getBoardInbox === 'function' ? getBoardInbox(board, tab) : tab?.inbox;
-  return phaseTwoWalkItems(inbox?.items || [], 'inbox', records);
+  return phaseTwoWalkItems(inbox?.items || [], 'inbox', records, inbox?.items || [], !!(board?.locked || tab?.locked || inbox?.locked), {area:'board-item',boardId:board?.id,tabId:tab?.id,columnId:inbox?.id});
 }
 
 function phaseTwoDestinationExists(boardId, tabId) {
   const board = state.boards?.find(entry => entry.id === boardId);
-  return !!board?.tabs?.some(tab => tab.id === tabId && !tab.locked);
+  return !board?.locked && !!board?.tabs?.some(tab => tab.id === tabId && !tab.locked && !tab.inbox?.locked);
 }
 
 function phaseTwoKnownUrls(excludedItems = new Set()) {
@@ -461,6 +467,81 @@ function describeAutomationRule(rawRule) {
   return `When ${conditions.length ? conditions.join(' and ') : 'any bookmark arrives'}, ${actions.length ? actions.join(' and ') : 'leave it unchanged'}.`;
 }
 
+// Recommendations use existing organised links as evidence, never an automatic
+// rule or a new history store. Exact hosts avoid surprising cross-site matches.
+function phaseTwoSuggestedDestinations(item) {
+  let hostname;
+  try { hostname = new URL(item.url).hostname.toLowerCase(); } catch { return []; }
+  if (!hostname || typeof searchPlacementChoices !== 'function') return [];
+  const placements = searchPlacementChoices('bookmark',false);
+  return placements.flatMap(choice => {
+    const destination = choice.destination;
+    if (typeof isInboxColumnId === 'function' && isInboxColumnId(destination.columnId)) return [];
+    const {list} = resolveSearchPlacement(destination,'bookmark');
+    const count = list.filter(existing => {
+      if (existing.type !== 'bookmark' || existing.id === item.id) return false;
+      try { return new URL(existing.url).hostname.toLowerCase() === hostname; } catch { return false; }
+    }).length;
+    return count ? [{...choice,count,reason:`${count} ${hostname} link${count === 1 ? '' : 's'} already here`}] : [];
+  }).sort((a,b) => b.count - a.count || a.label.localeCompare(b.label)).slice(0,3);
+}
+
+function phaseTwoRenderReview(container, scope) {
+  const results = phaseTwoPreviewAutomation(scope);
+  const heading = document.createElement('h4');
+  const unmatched = results.filter(result => !result.matchedRules.length);
+  heading.textContent = `Review intake · ${unmatched.length} unmatched / ${results.length} bookmarks`;
+  container.append(heading);
+  const filter = phaseTwoSelect([['unmatched','Unmatched bookmarks'],['all','All bookmarks']]);
+  filter.setAttribute('aria-label','Intake review filter');
+  const list = document.createElement('div'); list.className = 'phase2-intake-review';
+  let moving = false;
+  const draw = () => {
+    list.replaceChildren();
+    const visible = filter.value === 'all' ? results : unmatched;
+    if (!visible.length) list.textContent = results.length ? 'Every bookmark matched a rule. Select All bookmarks to inspect why.' : 'This intake is empty.';
+    for (const result of visible.slice(0,phaseTwoReviewLimit)) {
+      const row = document.createElement('article'); row.className = 'phase2-card';
+      const title = document.createElement('strong'); title.textContent = result.record.item.title || result.record.item.url;
+      const detail = document.createElement('p'); detail.textContent = result.conflicts.join(' · ') || (result.matchedRules.length ? `${result.matchedRules.length} matching rule(s); preview only` : 'No rule matched. Choose a destination to file this bookmark.');
+      row.append(title,detail);
+      if (result.explanations.length) {
+        const details = document.createElement('details'), summary = document.createElement('summary'); summary.textContent = 'Why did this match?'; details.append(summary);
+        result.explanations.forEach(explanation => {
+          const line = document.createElement('p'); line.textContent = `${explanation.name}: ${explanation.reason} Matched title: ${explanation.matchedTitle}. ${explanation.duplicate ? 'Duplicate URL detected.' : 'Unique URL.'} ${explanation.stops ? 'Later rules were not checked.' : 'Continued to the next rule.'}`; details.append(line);
+        }); row.append(details);
+      }
+      if (!result.conflicts.length) {
+        const actions = document.createElement('div'); actions.className = 'phase2-row';
+        const move = async destination => {
+          if (moving) return;
+          moving = true;
+          list.querySelectorAll('button,select').forEach(control => { control.disabled = true; });
+          try {
+            const moved = await moveSearchItem(result.record.meta,result.record.item.id,destination);
+            if (moved) _phaseOneSetToolsStatus('Bookmark filed. Undo is available.');
+            renderHubToolsPanel();
+          } catch (error) { showNotice(error.message); }
+          finally { moving = false; list.querySelectorAll('button,select').forEach(control => { control.disabled = false; }); }
+        };
+        for (const suggestion of phaseTwoSuggestedDestinations(result.record.item)) {
+          const action = phaseTwoButton(`Move to ${suggestion.label}`,() => void move(suggestion.destination));
+          action.dataset.reviewSuggested = suggestion.destination.folderId || suggestion.destination.columnId;
+          action.title = suggestion.reason; actions.append(action);
+        }
+        const choices = searchPlacementChoices('bookmark',false);
+        const target = phaseTwoSelect([['','Choose another destination…'],...choices.map((choice,index) => [String(index),choice.label])]);
+        target.setAttribute('aria-label',`Destination for ${result.record.item.title || 'bookmark'}`);
+        actions.append(target,phaseTwoButton('Move',() => { const choice = target.value === '' ? null : choices[Number(target.value)]; if (choice) void move(choice.destination); }));
+        row.append(actions);
+      }
+      list.append(row);
+    }
+    if (visible.length > phaseTwoReviewLimit) list.append(phaseTwoButton('Show more',() => { phaseTwoReviewLimit += 30; draw(); }));
+  };
+  filter.addEventListener('change',draw); container.append(filter,list); draw();
+}
+
 // --- Phase 2 UI ---
 
 function phaseTwoDownloadJson(data, filename) {
@@ -515,6 +596,12 @@ function phaseTwoSectionNav(container) {
 }
 
 function phaseTwoRenderAutomation(container) {
+  const reviewScope = phaseTwoSelect([['inbox','Active Tab Inbox'],['import-manager','Import Manager']]);
+  reviewScope.value = phaseTwoReviewScope;
+  reviewScope.setAttribute('aria-label','Review intake source');
+  reviewScope.addEventListener('change',() => { phaseTwoReviewScope = reviewScope.value; phaseTwoReviewLimit = 30; renderHubToolsPanel(); });
+  container.append(reviewScope);
+  phaseTwoRenderReview(container,phaseTwoReviewScope);
   const intro = document.createElement('div');
   intro.className = 'phase2-automation-intro';
   const introTitle = document.createElement('strong'); introTitle.textContent = 'What should happen to incoming bookmarks?';
@@ -662,13 +749,21 @@ function phaseTwoRenderAutomation(container) {
   const testText = document.createElement('div'); const testTitle = document.createElement('strong'); testTitle.textContent = 'Test before changing anything'; const testHelp = document.createElement('span'); testHelp.textContent = 'Preview shows exactly which current bookmarks match. Applying creates one Undo step.'; testText.append(testTitle, testHelp);
   const toolbar = document.createElement('div'); toolbar.className = 'phase2-row';
   const scope = phaseTwoSelect([['inbox', 'Active Tab Inbox'], ['import-manager', 'Import Manager']]);
+  scope.value = phaseTwoReviewScope;
+  scope.addEventListener('change',() => { phaseTwoReviewScope = scope.value; phaseTwoReviewLimit = 30; renderHubToolsPanel(); });
   const previewBox = document.createElement('div'); previewBox.className = 'phase2-preview hidden';
   const renderPreview = () => {
     const results = phaseTwoPreviewAutomation(scope.value); previewBox.innerHTML = ''; previewBox.classList.remove('hidden');
     const matched = results.filter(result => result.matchedRules.length);
     if (!results.length) previewBox.textContent = 'The selected intake is empty.';
     else if (!matched.length) previewBox.textContent = `${results.length} bookmark${results.length === 1 ? '' : 's'} checked; none matched.`;
-    else matched.forEach(result => { const row = document.createElement('div'); row.textContent = `${result.record.item.title || result.record.item.url} → ${result.proposed.rejected ? 'discard duplicate' : result.proposed.routeTabId ? 'move to another Inbox' : 'update'}${result.conflicts.length ? ` (${result.conflicts.join(', ')})` : ''}`; previewBox.appendChild(row); });
+    else matched.forEach(result => {
+      const row = document.createElement('details'), summary = document.createElement('summary');
+      summary.textContent = `${result.record.item.title || result.record.item.url} → ${result.proposed.rejected ? 'discard duplicate' : result.proposed.routeTabId ? 'move to another Inbox' : 'update'}${result.conflicts.length ? ` (${result.conflicts.join(', ')})` : ''}`;
+      row.append(summary);
+      for (const explanation of result.explanations) { const why = document.createElement('p'); why.textContent = `${explanation.name}: ${explanation.reason}${explanation.stops ? ' Later rules were not checked.' : ''}`; row.append(why); }
+      previewBox.appendChild(row);
+    });
   };
   toolbar.append(scope, phaseTwoButton('Preview Matches', renderPreview), phaseTwoButton('Apply to Current Items', () => { const count = phaseTwoApplyAutomation(scope.value); _phaseOneSetToolsStatus(`Automation updated ${count} item${count === 1 ? '' : 's'}`); renderHubToolsPanel(); }, true));
   testPanel.append(testText, toolbar, previewBox); container.appendChild(testPanel);

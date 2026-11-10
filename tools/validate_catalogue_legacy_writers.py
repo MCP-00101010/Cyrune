@@ -61,7 +61,7 @@ def main():
                     target.parent.mkdir(parents=True, exist_ok=True)
                     target.write_bytes(files.read(member))
         host = load("current_host", REPO / "Host/morpheus_host.py")
-        arcade = host._load_emugui_module()
+        host._load_emugui_module()
         transport = host.get_catalogue_transport()
         opened = transport.handle({"type": "ARCADE_CATALOGUE_OPEN_SESSION", "protocol": 1, "role": "portal",
             "tabId": 7, "pageUrl": (REPO / "Portal/index.html").as_uri()})

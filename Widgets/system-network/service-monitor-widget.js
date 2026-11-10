@@ -240,7 +240,7 @@ function _serviceMonitorRenderSettings(widget, container) {
   const endpoints = _serviceMonitorEndpoints(widget);
   container.innerHTML = `<div class="service-monitor-settings-list"></div><button type="button" class="secondary-btn service-monitor-add">Add endpoint</button>
     <div class="settings-row"><span>Outage notifications</span><label class="settings-toggle"><input type="checkbox" data-cfg="notifications" ${widget.config.notifications === true ? 'checked' : ''}/><span class="toggle-track"></span></label></div>
-    <div class="settings-help">Checks accept HTTPS only and never send cookies or credentials. Status history remains in this browser.</div>`;
+    `;
   const list = container.querySelector('.service-monitor-settings-list');
   const renderRows = () => {
     list.innerHTML = '';

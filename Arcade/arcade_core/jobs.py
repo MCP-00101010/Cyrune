@@ -18,11 +18,13 @@ class BackgroundJobService:
         self,
         thread_factory: Callable[..., threading.Thread] = threading.Thread,
         max_jobs: int = 100,
+        max_running: int = 4,
     ) -> None:
         self._lock = threading.Lock()
         self._jobs: dict[str, dict[str, object]] = {}
         self._thread_factory = thread_factory
         self._max_jobs = max(1, max_jobs)
+        self._max_running = max(1, min(max_running, self._max_jobs))
 
     def _prune_finished_locked(self) -> None:
         overflow = len(self._jobs) - self._max_jobs
@@ -39,6 +41,8 @@ class BackgroundJobService:
         job_id = uuid.uuid4().hex[:12]
         created_at = dt.datetime.now(dt.UTC).isoformat(timespec="seconds")
         with self._lock:
+            if sum(job['status'] == 'running' for job in self._jobs.values()) >= self._max_running:
+                raise ValueError('Too many background jobs are running. Wait for one to finish and retry.')
             self._jobs[job_id] = {
                 "id": job_id,
                 "status": "running",

@@ -173,12 +173,8 @@ function _commandPaletteRunBookmarkAction(entry, action) {
     showNotice('This bookmark or its board is locked.');
     return;
   }
-  if (entry.boardId) {
-    state.activeBoardId = entry.boardId;
-    if (entry.tabId) state.activeTabId = entry.tabId;
-    renderAll();
-  }
-  contextTarget = target;
+  contextTarget = _refreshContextSource(target, { allowLocked: action === 'open' });
+  if (!contextTarget) { showNotice('The source is locked or no longer available.'); return; }
   if (action === 'open') openHubBookmark(entry.item);
   else if (action === 'edit') _showEditBookmarkModal(target);
   else if (action === 'tag') _showEditBookmarkModal(target, { title: 'Edit Bookmark Tags' });
@@ -197,12 +193,9 @@ function _commandPaletteLocateBookmark(entry) {
 
 function _commandPaletteRunApplicationAction(entry, action = 'launch') {
   if (!entry?.item) return;
-  if (entry.boardId) {
-    state.activeBoardId = entry.boardId;
-    if (entry.tabId) state.activeTabId = entry.tabId;
-    renderAll();
-  }
   contextTarget = { area: entry.area || 'board-item', boardId: entry.boardId, tabId: entry.tabId, columnId: entry.columnId, slot: entry.slot, itemId: entry.item.id, item: entry.item };
+  contextTarget = _refreshContextSource(contextTarget, { allowLocked: ['launch', 'open'].includes(action) });
+  if (!contextTarget) { showNotice('The source is locked or no longer available.'); return; }
   if (action === 'launch' || action === 'open') void launchApplicationShortcut(entry.item);
   else if (action === 'edit' || action === 'tag') _showEditApplicationModal(contextTarget, action === 'tag' ? { title: 'Edit Application Tags' } : {});
   else if (action === 'move' || action === 'inbox') _showMoveToBoardModal(contextTarget, 'Move application to Tab Inbox');

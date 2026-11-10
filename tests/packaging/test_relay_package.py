@@ -74,7 +74,7 @@ def test_current_relay_matches_the_historic_eight_file_package_boundary():
         "popup/popup.html",
         "popup/popup.js",
     )
-    assert PACKAGE._validate_source(REPO / "Relay")["version"] == "1.1.13"
+    assert PACKAGE._validate_source(REPO / "Relay")["version"] == VERSIONS.validate(REPO)["Relay"]
 
 
 def test_unsigned_build_is_deterministic_across_paths_with_spaces_and_unicode(tmp_path):
@@ -171,7 +171,9 @@ def test_independent_component_versions_are_validated_without_forcing_equality(t
 
 
 def test_current_component_versions_and_changelogs_align():
-    assert VERSIONS.validate(REPO) == {"Portal": "0.12.22", "Widgets": "0.2.18", "Arcade": "0.2.58", "Relay": "1.1.13", "Host": "0.2.26", "Nexus": "0.3.1"}
+    # validate() checks manifests against source, displayed versions, registry and
+    # changelogs. Releases must not require updating a second version catalogue.
+    assert set(VERSIONS.validate(REPO)) == {"Portal", "Widgets", "Arcade", "Relay", "Host", "Nexus"}
 
 
 def test_current_relay_source_builds_and_round_trips_exactly(tmp_path):
@@ -180,6 +182,6 @@ def test_current_relay_source_builds_and_round_trips_exactly(tmp_path):
         Path(result["path"]),
         kind="unsigned",
         source=REPO / "Relay",
-        expected_version="1.1.13",
+        expected_version=VERSIONS.validate(REPO)["Relay"],
     )
     assert verified["sha256"] == result["sha256"]

@@ -23,7 +23,7 @@ async function showBulkScrapeModal(games) {
       <button data-bulk-apply disabled>Apply matches</button>
       <button class="secondary" data-bulk-close>Close</button>
     </footer></section>`;
-  document.body.appendChild(overlay);
+  ArcadeDialogs.mount(overlay);
   const el = key => overlay.querySelector('[data-bulk-' + key + ']');
   let batch = null, running = false, error = '', providers = [], plannedGames = [];
   const undoGroup = 'batch-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2);
@@ -249,7 +249,7 @@ async function showBulkMatchPreview(row, previousFocus) {
     if (event.key === 'Escape') {event.preventDefault(); dismiss();}
     if (event.key === 'Tab') {event.preventDefault(); overlay.querySelector('[data-close-preview]').focus();}
   });
-  document.body.appendChild(overlay);
+  ArcadeDialogs.mount(overlay);
   overlay.querySelector('[data-close-preview]').focus();
   await prepareArtworkAssets(Object.values(row.match.remote_assets || {}));
   if (overlay.isConnected) overlay.querySelector('[data-bulk-artwork]').innerHTML = renderScrapePreview(payload);
@@ -290,7 +290,7 @@ async function showScrapePreviewModal() {
       <div class="message error" id="scrape-error"></div>
     </div>
   `;
-  document.body.appendChild(overlay);
+  ArcadeDialogs.mount(overlay);
   overlay.querySelector('[data-protection]')?.addEventListener('click', () => showMetadataCareModal(game));
   const providerSelect = overlay.querySelector("#scrape-provider");
   const searchInput = overlay.querySelector("#scrape-search-term");
@@ -528,7 +528,7 @@ async function showMetadataCareModal(game) {
     <h2>${escapeHtml(game.title)}</h2><p>Protected fields keep their values when scraping. Edited fields are protected automatically.</p>
     <p class="meta" data-care-provenance></p><div data-care-fields>Loading metadata…</div><p data-care-error role="status"></p>
     <footer class="modal-actions"><button data-care-save disabled>Save</button><button class="secondary" data-care-close>Cancel</button></footer></section>`;
-  document.body.appendChild(overlay);
+  ArcadeDialogs.mount(overlay);
   const el = key => overlay.querySelector(`[data-care-${key}]`);
   let busy = false;
   const dismiss = () => { if (!busy) overlay.remove(); };

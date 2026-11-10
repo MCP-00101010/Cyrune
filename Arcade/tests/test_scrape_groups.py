@@ -32,7 +32,7 @@ def test_spectrum_folder_scrape_is_shared_and_retains_exact_launch_fields(tmp_pa
         file.write_bytes(b'fixture')
     metadata['games'].extend([sibling, separate])
     server.save_metadata(metadata)
-    server.LIBRARY = None
+    server.get_collection_lifecycle().invalidate()
     before = {row.id: deepcopy(row) for row in server.get_library().games}
     plan = post(server, '/api/scrape-targets', {'game_ids': ['jetpac', 'jetpac128', 'other']})
     assert len(plan['games']) == 2
@@ -44,7 +44,7 @@ def test_spectrum_folder_scrape_is_shared_and_retains_exact_launch_fields(tmp_pa
                       'system': 'STe', 'languages': ['de'], 'emulator_profile': 'forged'},
         'remote_assets': {'screenshot': 'scraper-artwork/screenscraper/76/42/ss/wor'}})
     assert result['ok'] and result['updated_count'] == 2
-    server.LIBRARY = None
+    server.get_collection_lifecycle().invalidate()
     for key in group['target_ids']:
         updated = server.get_library().get_game(key)
         assert updated.title == 'Jetpac!' and updated.description == 'Shared description'
@@ -85,10 +85,10 @@ def test_atari_existing_folder_artwork_stays_shared_when_provider_omits_it(atari
     anchor, sibling = metadata['games']
     sibling['screenshot'] = 'scraper-artwork/screenscraper/42/42/ss/wor'
     (root / 'collection-metadata.json').write_text(json.dumps(metadata))
-    server.LIBRARY = None
+    server.get_collection_lifecycle().invalidate()
     result = post(server, '/api/apply-scrape', {'game_id': anchor['id'], 'candidate': {'title': 'Shared'}})
     assert result['ok']
-    server.LIBRARY = None
+    server.get_collection_lifecycle().invalidate()
     assert {game.screenshot for game in server.get_library().games} == {sibling['screenshot']}
 
 
@@ -126,7 +126,7 @@ def test_spectrum_missing_sibling_prevents_partial_folder_metadata_write(tmp_pat
     file.write_bytes(b'fixture')
     metadata['games'].append(sibling)
     server.save_metadata(metadata)
-    server.LIBRARY = None
+    server.get_collection_lifecycle().invalidate()
     server.get_library()
     before = server.METADATA_FILE.read_bytes()
     file.unlink()
@@ -148,7 +148,7 @@ def test_spectrum_scrape_keeps_existing_family_and_shared_default(tmp_path):
     defaults.save(family, old.base['catalogueId'], 'existing-approval')
     before = defaults.path.read_bytes()
     assert post(server, '/api/apply-scrape', {'game_id': 'jetpac', 'candidate': {'title': 'Jetpac!'}})['ok']
-    server.LIBRARY = None
+    server.get_collection_lifecycle().invalidate()
     catalogue.search({})
     updated = next(entry for entry in catalogue._entries if entry.legacy_id == 'jetpac')
     assert updated.base['title'] == 'Jetpac!'

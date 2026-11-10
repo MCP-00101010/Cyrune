@@ -140,8 +140,8 @@ def native_runtime(manager, root, monkeypatch):
     monkeypatch.setattr(server, "DATA", manager.runtime)
     monkeypatch.setattr(server, "CONFIG_FILE", manager.config_path)
     monkeypatch.setattr(server, "STATE_FILE", manager.runtime / "state.json")
-    monkeypatch.setattr(server, "COLLECTION", root)
-    monkeypatch.setattr(server, "METADATA_FILE", root / "collection-metadata.json")
+    monkeypatch.setattr(server, "DESASTERON_COLLECTION", root)
+
     monkeypatch.setattr(server, "init_state", lambda: None)
     monkeypatch.setattr(server, "discover_collections", lambda: [])
     return server

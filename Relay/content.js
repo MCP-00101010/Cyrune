@@ -1,6 +1,137 @@
 'use strict';
 
 (() => {
+// Ordinary web pages get only this isolated QoL handler, never the client bridge.
+if (/^https?:$/.test(window.location.protocol)
+    && !['localhost', '127.0.0.1'].includes(window.location.hostname)) {
+  if (globalThis.__cyruneNativeContextMenuLoaded) return;
+  globalThis.__cyruneNativeContextMenuLoaded = true;
+  let enabled = false;
+  let utilities = {};
+  let selectionStyle = null;
+  let dirty = false;
+  let revision = 0;
+  let utilityRevision = 0;
+  function applySelectionStyle() {
+    if (utilities.restoreSelection) {
+      if (!selectionStyle && document.documentElement) {
+        selectionStyle = document.createElement('style');
+        selectionStyle.textContent = '*:not(input):not(textarea):not(select):not(button) { user-select: text !important; -moz-user-select: text !important; }';
+        document.documentElement.appendChild(selectionStyle);
+      }
+    } else {
+      selectionStyle?.remove();
+      selectionStyle = null;
+    }
+  }
+  async function refreshUtilities() {
+    const request = ++utilityRevision;
+    try {
+      const result = await browser.runtime.sendMessage({ type: 'CYRUNE_WEB_UTILITIES_STATE' });
+      if (request === utilityRevision) utilities = result || {};
+    } catch {
+      if (request === utilityRevision) utilities = {};
+    }
+    applySelectionStyle();
+  }
+  function selectedLinks() {
+    const selection = window.getSelection();
+    if (!selection || selection.isCollapsed) return { links: [] };
+    if (selection.rangeCount > 32) return { error: 'Choose a smaller selection.' };
+    const anchors = new Set();
+    for (let index = 0; index < selection.rangeCount; index++) {
+      const range = selection.getRangeAt(index);
+      const node = range.commonAncestorContainer;
+      const root = node.nodeType === 1 ? node : node.parentElement;
+      if (!root) continue;
+      const descendants = root.querySelectorAll('a[href]');
+      if (descendants.length > 10000) return { error: 'Choose a smaller selection.' };
+      const candidates = [...(root.matches('a[href]') ? [root] : []), ...descendants];
+      for (const anchor of candidates) if (range.intersectsNode(anchor)) anchors.add(anchor);
+    }
+    const links = [], seen = new Set();
+    const ordered = [...anchors].sort((a, b) => a.compareDocumentPosition(b) & 2 ? 1 : -1);
+    for (const anchor of ordered) {
+      let url;
+      try { url = new URL(anchor.href); } catch { continue; }
+      if (!/^https?:$/.test(url.protocol) || url.username || url.password || url.href.length > 4096 || seen.has(url.href)) continue;
+      seen.add(url.href);
+      links.push({ url: url.href, title: (anchor.textContent || anchor.getAttribute('aria-label') || url.href).slice(0, 2000).replace(/\s+/g, ' ').trim().slice(0, 500) });
+      if (links.length > 200) return { error: 'Choose at most 200 links.' };
+    }
+    return { links };
+  }
+  async function refreshNativeMenu() {
+    const request = ++revision;
+    try {
+      const result = await browser.runtime.sendMessage({ type: 'CYRUNE_NATIVE_MENU_STATE' });
+      if (request === revision) enabled = result?.enabled === true;
+    } catch {
+      if (request === revision) enabled = false;
+    }
+  }
+  window.addEventListener('contextmenu', event => {
+    // Leave Firefox's default action intact, including its target-specific items.
+    if (enabled && event.isTrusted) event.stopImmediatePropagation();
+  }, { capture: true });
+  for (const [eventName, setting] of [['selectstart', 'restoreSelection'], ['copy', 'restoreCopy'], ['paste', 'restorePaste']]) {
+    window.addEventListener(eventName, event => {
+      if (utilities[setting] === true && event.isTrusted) event.stopImmediatePropagation();
+    }, { capture: true });
+  }
+  function markDirty() {
+    if (dirty) return;
+    dirty = true;
+    void browser.runtime.sendMessage({ type: 'CYRUNE_UTILITY_FORM_EDITED' }).catch(() => {});
+  }
+  function existingDraft() {
+    // A late injection has missed input events. Protect existing text drafts,
+    // but do not mistake app-controlled selects, sliders or editor markup for edits.
+    const fields = document.querySelectorAll('input,textarea');
+    if (fields.length > 2000) return true;
+    return [...fields].some(field => {
+      if (field.tagName !== 'TEXTAREA' && !['text', 'search', 'url', 'tel', 'email', 'password', 'file', 'number'].includes(field.type)) return false;
+      if (field.type === 'file') return field.files.length > 0;
+      return field.value !== field.defaultValue;
+    });
+  }
+  for (const name of ['input', 'change']) window.addEventListener(name, event => {
+    if (event.isTrusted) markDirty();
+  }, { capture: true });
+  let titleMarker = '', markerTimer;
+  function clearTitleMarker() {
+    clearTimeout(markerTimer);
+    if (titleMarker && document.title.startsWith(titleMarker)) document.title = document.title.slice(titleMarker.length);
+    titleMarker = '';
+  }
+  browser.runtime.onMessage.addListener((message, sender) => {
+    if (sender?.id !== browser.runtime.id) return;
+    if (message?.type === 'CYRUNE_UTILITY_LINKS') return Promise.resolve(selectedLinks());
+    if (message?.type === 'CYRUNE_UTILITY_DIRTY') return Promise.resolve({ dirty });
+    if (message?.type === 'CYRUNE_UTILITY_FEEDBACK') {
+      clearTitleMarker();
+      if (['unloaded', 'reloaded'].includes(message.mode)) {
+        titleMarker = message.mode === 'unloaded' ? '💤 ' : '↻ ';
+        document.title = titleMarker + document.title;
+        if (message.mode === 'reloaded') markerTimer = setTimeout(clearTitleMarker, 3000);
+      }
+      return Promise.resolve({ ok: true });
+    }
+  });
+  document.addEventListener('DOMContentLoaded', applySelectionStyle, { once: true });
+  browser.storage.onChanged.addListener((changes, area) => {
+    if (area === 'local' && Object.hasOwn(changes, 'cyruneNativeContextMenuV1')) void refreshNativeMenu();
+    if (area === 'local' && Object.hasOwn(changes, 'cyruneBrowserUtilitiesV1')) void refreshUtilities();
+  });
+  window.addEventListener('pageshow', () => {
+    void refreshNativeMenu(); void refreshUtilities();
+    if (dirty) void browser.runtime.sendMessage({ type: 'CYRUNE_UTILITY_FORM_EDITED' }).catch(() => {});
+  });
+  void refreshNativeMenu();
+  void refreshUtilities();
+  if (document.readyState === 'complete' && existingDraft()) markDirty();
+  return;
+}
 if (globalThis.__morpheusWebHubRelayLoaded) return;
 globalThis.__morpheusWebHubRelayLoaded = true;
 
@@ -210,6 +341,10 @@ if (IS_MORPHEUS) {
     }
     if (msg.type === 'MW_OPEN_COMMAND_PALETTE') {
       return relayPushToPage({ type: 'MW_OPEN_COMMAND_PALETTE' });
+    }
+    if (msg.type === 'MW_PRODUCTIVITY_CHANGED') {
+      window.postMessage({ _mw: true, _productivityChanged: true, revision: msg.revision }, '*');
+      return;
     }
     if (msg.type === 'MW_NOTIFICATION_EVENT') {
       return relayPushToPage({ type: 'MW_NOTIFICATION_EVENT', event: msg.event || null });

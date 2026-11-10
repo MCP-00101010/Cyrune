@@ -641,7 +641,7 @@ function _translatorRenderWidget(widget, element, context = 'column') {
       if (modelStatus.installed) {
         status.textContent = runtime.durationMs
           ? `Private and offline · ${Math.round(runtime.durationMs)} ms`
-          : 'Private and offline · Mozilla Bergamot';
+          : 'Ready';
       } else if (!_translatorCanDownloadModels()) {
         status.textContent = 'The current Firefox extension is required to install this model.';
       } else {
@@ -686,7 +686,7 @@ function _translatorRenderWidget(widget, element, context = 'column') {
     translate.disabled = true;
     install.disabled = true;
     status.classList.remove('is-error');
-    status.textContent = _translatorEngine.pair === pair ? 'Translating locally…' : 'Loading the local Bergamot engine…';
+    status.textContent = _translatorEngine.pair === pair ? 'Translating locally…' : 'Loading translation engine…';
     try {
       const result = await _translatorTranslate(pair, text, detail => {
         if (element.isConnected) status.textContent = detail;
@@ -823,7 +823,7 @@ WIDGET_REGISTRY['translator'] = {
       </select></label>
       <div class="settings-row"><span>Remember text locally</span><label class="settings-toggle"><input type="checkbox" data-cfg="rememberText" ${widget.config.rememberText === true ? 'checked' : ''} /><span class="toggle-track"></span></label></div>
       <div class="settings-row"><span>Show recent translations</span><label class="settings-toggle"><input type="checkbox" data-cfg="showHistory" ${widget.config.showHistory === true ? 'checked' : ''} /><span class="toggle-track"></span></label></div>
-      <p class="settings-hint">Remembered text and history stay in this browser and are never written to the shared Hub database. Translation is manual and entirely offline after model installation.</p>`;
+`;
     _translatorRenderModelManager(container);
   }
 };

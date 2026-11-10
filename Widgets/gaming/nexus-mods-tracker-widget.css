@@ -20,8 +20,8 @@ a.nexus-mods-item-title:hover{color:var(--accent);text-decoration:underline}
 .nexus-mods-badge{flex:0 0 auto;padding:1px 5px;border:1px solid color-mix(in srgb,#d86b9d 65%,var(--border));border-radius:999px;color:#e38ab4;font-size:calc(8px * var(--widget-text-scale, 1));line-height:1.2;text-transform:uppercase;letter-spacing:.05em}
 .nexus-mods-state{padding:10px;border:1px solid var(--border);border-radius:8px;color:var(--text-muted);font-size:calc(10px * var(--widget-text-scale, 1));text-align:center}
 .nexus-mods-state.is-warning{border-color:color-mix(in srgb,#d99b42 55%,var(--border));color:color-mix(in srgb,#e8b05d 82%,var(--text))}
-.nexus-mods-footer{color:var(--text-muted);font-size:calc(9px * var(--widget-text-scale, 1));text-align:right}
-.nexus-mods-footer a{color:var(--accent);text-decoration:none}
+
+
 .nexus-mods-game-picker{display:flex;flex-direction:column;gap:7px}
 .nexus-mods-game-add{display:grid;grid-template-columns:minmax(180px,1fr) auto;gap:6px}
 .nexus-mods-game-picker-status.is-error{color:color-mix(in srgb,#e56b6f 82%,var(--text))}

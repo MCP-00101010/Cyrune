@@ -51,15 +51,22 @@ test('committed Portal theme projects colours/styles without media, boards or na
 
 test('Arcade applies live theme changes and ignores out-of-order responses', async () => {
   const pending = [], listeners = {}, values = {};
-  const context = vm.createContext({ document:{documentElement:{style:{setProperty:(k,v)=>values[k]=v},dataset:{}}},
+  const probes = [];
+  const context = vm.createContext({ document:{documentElement:{style:{setProperty:(k,v)=>values[k]=v},dataset:{}},
+      createElement:() => {const probe={style:{},remove(){}}; probes.push(probe); return probe;},body:{appendChild(){}}},
+    getComputedStyle:() => ({color:'rgb(255, 230, 0)'}),
     ArcadeTransport:{request:()=>new Promise(resolve=>pending.push(resolve))},
     window:{addEventListener:(name,fn)=>listeners[name]=fn} });
   vm.runInContext(read('Arcade/web/portal-theme.js'),context);
   listeners['cyrune:portal-theme-changed']();
-  pending[1]({ok:true,theme:{schemaVersion:1,colorScheme:'light',variables:{'--bg':'#ffffff'}}});
+  pending[1]({ok:true,theme:{schemaVersion:1,colorScheme:'light',variables:{'--bg':'#ffffff','--accent':'#ffe600','--base-font-size':'16px','--bookmark-font-size':'24px'}}});
   for (let i=0; i<10; i++) await Promise.resolve();
   pending[0]({ok:true,theme:{schemaVersion:1,colorScheme:'dark',variables:{'--bg':'#111111'}}});
   for (let i=0; i<10; i++) await Promise.resolve();
   assert.equal(values['--bg'],'#ffffff');
   assert.equal(context.document.documentElement.style.colorScheme,'light');
+  assert.equal(values['--arcade-base-font-size'],'1rem');
+  assert.equal(values['--arcade-bookmark-font-size'],'1.5rem');
+  assert.equal(values['--primary-foreground'],'#000');
+  assert.equal(probes[0].style.color,'#ffe600','Contrast uses the committed accent even while high contrast masks root variables');
 });

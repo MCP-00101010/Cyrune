@@ -1,4 +1,5 @@
 from arcade_core.jobs import BackgroundJobService
+import pytest
 
 
 class ImmediateThread:
@@ -64,3 +65,23 @@ def test_background_jobs_report_thread_start_failures():
 
     assert service.get(job_id)["status"] == "error"
     assert service.get(job_id)["error"] == "threads unavailable"
+
+
+def test_background_jobs_bound_unfinished_work_and_reopen_admission():
+    pending = []
+
+    class DeferredThread(ImmediateThread):
+        def start(self):
+            pending.append(self.target)
+
+    service = BackgroundJobService(thread_factory=DeferredThread, max_jobs=3, max_running=2)
+    first = service.start('First', lambda _progress: None)
+    second = service.start('Second', lambda _progress: None)
+    with pytest.raises(ValueError, match='Too many background jobs'):
+        service.start('Rejected', lambda _progress: None)
+    assert len(pending) == 2
+    assert service.get(first)['status'] == service.get(second)['status'] == 'running'
+    pending.pop(0)()
+    third = service.start('Third', lambda _progress: None)
+    assert service.get(third)['status'] == 'running'
+    assert len(pending) == 2

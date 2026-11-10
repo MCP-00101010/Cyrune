@@ -1,5 +1,13 @@
 # Cyrune Portal–Arcade Integration Contract
 
+## Unified Search placement — 2026-10-22
+
+Portal Search composes portable Portal records, the Widgets-owned pure web-provider engine and transient bounded catalogue pages. It reuses catalogue capability v1 without new Relay/Host operations. Search text, pages and unapproved entries never enter portable state. Local completed-search history is optional, bounded and browser-local.
+
+Explicit destination choice or drag/drop may place an exact approved catalogue entry into a regular column, tab Inbox, ordinary folder/subfolder or empty Essentials/Speed Dial slot. Portal revalidates the captured board, tab, container, folder ancestry, capacity, locks and authoritative storage before binding and again before saving. Source moves likewise resolve the exact current identity and inherited locks. A missing destination does not substitute the active view; occupied launcher slots are not overwritten. Binding/saving is one explicit operation, with one Undo baseline and no automatic replay after an uncertain outcome. Games remain excluded from Sets and bulk activation.
+
+The existing batch Add Game picker remains a complementary multi-selection flow. Arcade continues to own catalogue, metadata and launch policy; Host owns binding authority. No search or review feature gains collection mutation, native path or command access.
+
 The [2026-09-09 suite data cutover](suite-data-cutover.md) supersedes historical legacy-binding coexistence and older runtime protocol descriptions below. Current game approvals use one schema-5 store.
 
 This document defines the durable security, data, and ownership rules for Portal/Arcade integration. Historical implementation steps remain in `docs/history/portal-arcade-integration-plan.md`.
@@ -20,7 +28,7 @@ Portal does not scan collections, scrape or mutate game metadata, manage Arcade 
 - A matching compatibility meta tag does not grant authority. Relay binds each client to its exact tab, role, page URL, and opaque session token, and rejects stale or navigated registrations.
 - Discovery may renew a Portal registration only by presenting its current token for the same tab and URL. Renewal preserves that session; a fresh document registration rotates it. Pending renewal completes before content forwards page requests. Discovery replies and pings cannot replace a newer registration with an old token.
 - Renewal of the same token does not emit a new relay-ready event: Portal must not replay storage requests or invalidate catalogue work merely because its tab was rediscovered.
-- Portal currently receives narrow status, launch, reveal, rebind, forget, and open-in-Arcade capabilities for approved bindings. Catalogue capability v1 adds only the explicitly defined read and selected-entry binding operations below.
+- Portal currently receives narrow status, launch, reveal, repair, and open-in-Arcade capabilities for approved bindings. Catalogue capability v1 adds only the explicitly defined read and selected-entry binding operations below.
 - Arcade receives its own bounded collection, metadata, artwork, scraper, profile, maintenance, job, and launcher capabilities.
 - Portal can never call Arcade rename, delete, scrape, import, collection-maintenance, profile-management, or arbitrary filesystem operations.
 - Arcade business logic and its canonical HTML/CSS/JavaScript remain outside Relay. Frontend changes take effect after an ordinary page reload without rebuilding or reinstalling Relay.
@@ -36,6 +44,7 @@ A Portal game item contains bounded presentation data and an opaque device bindi
   type: "game",
   title: "Jetpac",
   gameKey: "game_opaque_device_binding",
+  catalogueId: "stable_public_game_reference",
   systemId: "zx-spectrum",
   systemName: "ZX Spectrum",
   tags: ["Games"],
@@ -43,7 +52,7 @@ A Portal game item contains bounded presentation data and an opaque device bindi
 }
 ```
 
-Optional public library/game identities may assist an explicit rebind workflow, but never grant launch authority. Portable data must not contain ROM/disk/manifest/game-directory paths, emulator/helper/profile/working-directory paths, command strings, argument templates, environment variables, scraper credentials, or complete Arcade metadata records.
+The optional public `catalogueId` is a string matching `[A-Za-z0-9_-]{1,80}`. It identifies the selected exact entry for repair navigation and never grants launch authority. Current game sends and picker placement retain it; successful presentation refreshes backfill it on existing cards when Portal storage is writable. Missing or invalid references remain repairable through explicit game selection. Portable data must not contain ROM/disk/manifest/game-directory paths, emulator/helper/profile/working-directory paths, command strings, argument templates, environment variables, scraper credentials, or complete Arcade metadata records.
 
 Thumbnails must use supported image formats, bounded dimensions and bytes, and the existing portable cache-exclusion controls. Imported or cross-device game items receive a fresh unbound state until the user explicitly approves a local binding.
 
@@ -54,7 +63,9 @@ Host owns the opaque `gameKey` mapping to stable library/game/emulator/profile i
 - Repeated sends of the same approved combination normally reuse a binding; multiple Portal cards may reference it.
 - Renames and moves in Arcade continue resolving when the stable game identity is retained.
 - Missing or changed libraries, games, emulators, profiles, and incompatible resources produce explicit recoverable states instead of silently selecting another executable.
-- Forgetting or rebinding is explicit. A public identity never automatically adopts an existing device approval.
+- Ordinary game menus expose Repair shortcut only for a broken saved setup, and never expose Forget device binding. The retired Portal forget-game page route is unavailable. Native revocation remains internal; a public reference never adopts or creates an approval automatically.
+- Explicit repair may open Arcade without a preselected target when an approval is missing. A retained `catalogueId` preselects the exact collection/game using metadata-only native lookup, even when media cannot launch. Missing entries leave selection explicit. The user reviews the game and launch choices, then Repair Portal Shortcut independently validates and saves the replacement under the existing opaque key. Normal launch and passive status checks never recreate a missing approval.
+- Portal does not show per-game readiness badges or gate clicks on a cached background status. Background reads supply optional presentation; actual launch validates native resources and reports actionable errors.
 
 ## Delivery and Runtime
 

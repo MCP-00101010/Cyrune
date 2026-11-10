@@ -110,6 +110,9 @@ def validated_rows(value):
                 or any(d.casefold() in media for d in disks) or row.get('system') not in SYSTEMS):
             raise CatalogueError('review-required')
         media.update(d.casefold() for d in disks)
+        if value.get('collectionKind') == 'atari-compilations-v1' or 'compilation' in row:
+            from arcade_core.compilations import validate
+            validate(row)
         metadata(row)
         result[row['id']] = {**row, 'disks': disks}
     return result
@@ -124,7 +127,12 @@ def refresh_index(root, parse_name):
     with _writer_lock(path):
         before = read_object(path, 32 * 1024 * 1024)
         rows = validated_rows(before)
-        found, rejected = discover(root, parse_name, exclude=[d for r in rows.values() for d in r['disks']])
+        excluded = [d for r in rows.values() for d in r['disks']]
+        if before.get('collectionKind') == 'atari-compilations-v1':
+            from arcade_core.compilations import discover as discover_compilations
+            found, rejected = discover_compilations(root, exclude=excluded)
+        else:
+            found, rejected = discover(root, parse_name, exclude=excluded)
         from arcade_core.index_schema import index_document, assign_groups
         after = {**before, 'games': [*before['games'], *found['games']]}
         assign_groups(after['games'])

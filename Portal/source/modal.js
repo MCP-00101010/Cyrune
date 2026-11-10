@@ -2,7 +2,7 @@
 
 function getContextBoardAndTab(contextTarget) {
   const board = contextTarget?.boardId
-    ? state.boards.find(b => b.id === contextTarget.boardId) || getActiveBoard()
+    ? state.boards.find(b => b.id === contextTarget.boardId)
     : getActiveBoard();
   if (!board) return { board: null, tab: null };
 
@@ -455,7 +455,7 @@ function _submitBookmarkModal(mode, { value1, value2, tags, ignoreInheritedTags,
   if (mode === 'add') {
     if (area === 'speed-dial' || area === 'speed-dial-item') {
       if (!isValidUrl(value2)) { alert('Please enter a valid URL.'); return 'abort'; }
-      const target = getActiveBoardContainer();
+      const target = getBoardForContext(contextTarget);
       if (!target) return 'abort';
       const slot = Number.isInteger(contextTarget?.slot) ? contextTarget.slot : firstEmptySpeedDialSlot(target);
       if (slot === -1 || target.speedDial?.[slot]) {
@@ -516,7 +516,7 @@ function _submitBookmarkModal(mode, { value1, value2, tags, ignoreInheritedTags,
 
   if (area === 'speed-dial-item') {
     if (!isValidUrl(value2)) { alert('Please enter a valid URL.'); return 'abort'; }
-    const board = getActiveBoard();
+    const board = getBoardForContext(contextTarget);
     const sdItem = board.speedDial.find(i => i?.id === contextTarget?.itemId);
     if (!sdItem) return 'abort';
     ensureUndo();
@@ -607,7 +607,7 @@ function _submitCollectionModal(mode, { value1, tags, sharedTagsFromModal, ensur
 
 function _submitMoveToBoardModal(ensureUndo) {
   const { board: targetBoard, tab: targetTab } = getModalBoardTabTarget();
-  if (!targetBoard || !targetTab) return 'abort';
+  if (!targetBoard || !targetTab || targetBoard.locked || targetTab.locked) return 'abort';
   const area = contextTarget.area;
   const targetInbox = getBoardInbox(targetBoard, targetTab);
   if (!targetInbox) return 'abort';
@@ -635,7 +635,7 @@ function _submitMoveToBoardModal(ensureUndo) {
     capturedItem = cloneData(contextTarget.item);
     if (!capturedItem.tags) capturedItem.tags = [];
     if (area === 'speed-dial-item') {
-      const board = getActiveBoard();
+      const board = getBoardForContext(contextTarget);
       removeSpeedDialItemById(board, contextTarget.itemId);
     } else if (area === 'essential') {
       removeEssential(contextTarget.slot);
@@ -655,6 +655,7 @@ function _submitMoveToBoardModal(ensureUndo) {
 }
 
 function _submitBulkAddTagsModal(value3, ensureUndo) {
+  if (!_portalSelectionIsWritable()) { showNotice('The selection is locked or unavailable.'); return 'abort'; }
   const newTags = value3 ? value3.split(/\s+/).filter(Boolean) : [];
   if (!newTags.length) {
     hideModal();
@@ -684,8 +685,9 @@ function _submitBulkAddTagsModal(value3, ensureUndo) {
 }
 
 function _submitBulkMoveToBoardModal(ensureUndo) {
+  if (!_portalSelectionIsWritable()) { showNotice('The selection is locked or unavailable.'); return 'abort'; }
   const { board: targetBoard, tab: targetTab } = getModalBoardTabTarget();
-  if (!targetBoard || !targetTab) return 'abort';
+  if (!targetBoard || !targetTab || targetBoard.locked || targetTab.locked) return 'abort';
   const targetInbox = getBoardInbox(targetBoard, targetTab);
   if (!targetInbox) return 'abort';
   if (selectionContext === 'import-manager') {
@@ -719,6 +721,11 @@ function _submitBulkMoveToBoardModal(ensureUndo) {
 
 async function handleModalSubmit(event) {
   event.preventDefault();
+  if (['board-item', 'speed-dial-item', 'speed-dial', 'essential'].includes(contextTarget?.area)) {
+    const current = _refreshContextSource();
+    if (!current) { showNotice('The source is locked or no longer available.'); return; }
+    contextTarget = current;
+  }
   const value1 = elements.modalInput1.value.trim();
   const value2 = elements.modalInput2.value.trim();
   const value3 = elements.modalInput3.value.trim();
@@ -1137,6 +1144,11 @@ function hideFolderModal() {
 }
 
 function handleFolderModalSubmit() {
+  if (contextTarget?.area === 'board-item') {
+    const current = _refreshContextSource();
+    if (!current) { showNotice('The source is locked or no longer available.'); return; }
+    contextTarget = current;
+  }
   const name = document.getElementById('fmName').value.trim();
   if (!name) { document.getElementById('fmName').focus(); return; }
   const tags = document.getElementById('fmTags').value.trim().split(/\s+/).filter(Boolean);

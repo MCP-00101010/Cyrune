@@ -514,6 +514,6 @@ WIDGET_REGISTRY['savedSessions'] = {
       </select></div>
       <div class="settings-row"><span>Preview favicons</span><input class="settings-text-input" type="number" min="1" max="8" step="1" data-cfg="previewIcons" value="${previews}" /></div>
       <div class="settings-row"><span>Restore tab groups when supported</span><label class="settings-toggle"><input type="checkbox" data-cfg="recreateGroups" ${widget.config.recreateGroups !== false ? 'checked' : ''} /><span class="toggle-track"></span></label></div>
-      <div class="settings-help">Session titles, URLs, pin state, and group labels/colours are portable. Browser tab and window IDs are never stored.</div>`;
+      `;
   }
 };

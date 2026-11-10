@@ -60,38 +60,24 @@ from arcade_core.screenscraper import (
     ScreenScraperRedirectHandler,
     RequestQuota,
     artwork_parts as screenscraper_artwork_parts,
-    media_reference as screenscraper_media_reference,
     system_id as screenscraper_system_id,
 )
 from arcade_core.secrets import SCRAPER_SECRET_FIELDS, ScraperSecretService
 from arcade_core.service import ReadOnlyArcadeService, ServiceContractError
 
 from arcade_core.tosec import (
-    ARTICLE_PREFIXES,
-    ARTICLE_SUFFIX_TO_PREFIX,
     COUNTRY_NAMES,
-    COUNTRY_TO_DEFAULT_LANGUAGE,
-    LANGUAGE_ALIASES,
     LANGUAGE_NAMES,
     article_sort_title,
     build_tosec_file_name,
-    build_tosec_flags,
-    build_tosec_tags,
     clean_file_name,
     clean_metadata_text,
     dedupe,
-    display_title_from_tosec,
     folder_letter,
     format_languages,
-    is_country_token,
-    is_language_token,
-    is_metadata_tag,
-    is_placeholder_metadata_value,
     normalize_code_values,
     normalize_text_list,
     normalize_title,
-    parse_country_tag,
-    parse_language_tag,
     parse_report_language,
     parse_system_tag,
     parse_tosec_name,
@@ -99,10 +85,7 @@ from arcade_core.tosec import (
 )
 
 from arcade_core.provider_metadata import (
-    choose_genre,
-    choose_localized_text,
     extract_year,
-    gameYear_py,
     nested_text,
     screenscraper_assets,
     screenscraper_candidate,
@@ -133,27 +116,22 @@ COLLECTIONS_BASE = Path(
     os.environ.get("CYRUNE_ARCADE_COLLECTIONS_BASE")
     or str(DESASTERON_COLLECTION.parent)
 ).expanduser()
-COLLECTION = DESASTERON_COLLECTION
-REPORTS = COLLECTION / "_reports"
 WEB = LAUNCHER / "web"
 DATA = default_runtime_data_root()
 EMULATOR_PROFILE_DIR = DATA / "emulator-profiles"
 STATE_FILE = DATA / "state.json"
 LOG_FILE = DATA / "logs" / "launcher.log"
 CONFIG_FILE = DATA / "config.json"
-METADATA_FILE = COLLECTION / "collection-metadata.json"
 DEFAULT_EMULATORS = load_emulator_defaults(LAUNCHER / "defaults" / "emulators.json")
 
-from arcade_core.collection_cache import CollectionCache
 from arcade_core.file_cache import FileCache
 from arcade_core.summary_snapshots import SummarySnapshots
 SUMMARY_SNAPSHOTS = SummarySnapshots()
-COLLECTION_CACHE = CollectionCache()
 POK_CACHE = FileCache()
 from arcade_core.scrape_jobs import ScrapeJobs
 SCRAPE_JOBS = ScrapeJobs()
 JOB_SERVICE = BackgroundJobService()
-METADATA_SERVICE: MetadataService | None = None
+COMPILATION_CATALOGUES = {}
 COLLECTION_JOB_LOCK = threading.RLock()
 TGDB_LOOKUP_CACHE: dict[tuple[str, str], dict[str, str]] = {}
 SCREENSCRAPER_LOCK = threading.Lock()
@@ -243,7 +221,7 @@ def _catalogue_serialized(function):
         with COLLECTION_JOB_LOCK:
             lifecycle = get_catalogue_lifecycle()
             if lifecycle is not None:
-                with lifecycle.mutation(COLLECTION):
+                with lifecycle.mutation(get_collection_lifecycle().current().root):
                     return function(*args, **kwargs)
             return function(*args, **kwargs)
     return invoke
@@ -252,7 +230,7 @@ def _catalogue_serialized(function):
 def before_catalogue_move(source, destination):
     lifecycle = get_catalogue_lifecycle()
     if lifecycle is not None:
-        lifecycle.stage_move(COLLECTION, source, destination)
+        lifecycle.stage_move(get_collection_lifecycle().current().root, source, destination)
 
 
 def _maintenance_serialized(function):
@@ -267,8 +245,8 @@ def _maintenance_serialized(function):
 def prepare_catalogue_source(collection_id, *, dry_run=True):
     """Native maintenance only; deliberately absent from all API dispatchers."""
     result = get_catalogue_lifecycle(create=True).prepare_source(collection_id, dry_run=dry_run)
-    if not dry_run and LIBRARY is not None:
-        LIBRARY.rebuild()
+    if not dry_run and get_collection_lifecycle().current().library is not None:
+        get_collection_lifecycle().current().library.rebuild()
     return result
 
 
@@ -284,8 +262,8 @@ def catalogue_preparation_request(data, *, confirm=False):
         lifecycle = get_catalogue_lifecycle(create=True)
         if confirm:
             result = lifecycle.confirm_preparation(data["collection_id"], data["review_token"])
-            if LIBRARY is not None:
-                LIBRARY.rebuild()
+            if get_collection_lifecycle().current().library is not None:
+                get_collection_lifecycle().current().library.rebuild()
             return {"ok": True, "status": result["status"], "entries": result["entries"]}
         return {"ok": True, **lifecycle.review_preparation(data["collection_id"])}
     except (CatalogueError, OSError, ValueError) as error:
@@ -304,16 +282,16 @@ def catalogue_preparation_request(data, *, confirm=False):
 @_maintenance_serialized
 def reattach_catalogue_source(collection_id, root, *, dry_run=True):
     result = get_catalogue_lifecycle(create=True).reattach_source(collection_id, root, dry_run=dry_run)
-    if not dry_run and LIBRARY is not None:
-        LIBRARY.rebuild()
+    if not dry_run and get_collection_lifecycle().current().library is not None:
+        get_collection_lifecycle().current().library.rebuild()
     return result
 
 
 @_maintenance_serialized
 def recover_catalogue_transaction(*, direction="forward", dry_run=True):
     result = get_catalogue_lifecycle(create=True).recover(direction=direction, dry_run=dry_run)
-    if not dry_run and LIBRARY is not None:
-        LIBRARY.rebuild()
+    if not dry_run and get_collection_lifecycle().current().library is not None:
+        get_collection_lifecycle().current().library.rebuild()
     return result
 
 
@@ -350,13 +328,7 @@ def catalogue_recovery_request(action, data):
 
 
 def reset_catalogue_library(old_root=None, new_root=None):
-    global LIBRARY, METADATA_SERVICE, COLLECTION, REPORTS, METADATA_FILE
-    LIBRARY = None
-    METADATA_SERVICE = None
-    if old_root is not None and COLLECTION.resolve() == old_root:
-        COLLECTION = new_root
-        REPORTS = COLLECTION / "_reports"
-        METADATA_FILE = COLLECTION / "collection-metadata.json"
+    get_collection_lifecycle().invalidate(old_root=old_root, new_root=new_root)
 
 
 def catalogue_reattachment_request(action, data):
@@ -432,14 +404,7 @@ VERSION_APPROVE = None  # Explicit default selection only; Host owns approvals.
 
 
 def catalogue_game_entry(collection_id, game_id):
-    service = get_catalogue_service()
-    service.search({"includeScummvm": True, "pageSize": 1})
-    entry = next((entry for entry in service._entries
-                  if entry.collection_id == collection_id and entry.legacy_id == game_id), None)
-    if entry is None:
-        from arcade_core.catalogue_identity import CatalogueError
-        raise CatalogueError("entry-missing")
-    return entry
+    return get_catalogue_service().game_entry(collection_id, game_id)
 
 
 def set_game_version_default(anchor_id, catalogue_id, entry_revision):
@@ -465,35 +430,13 @@ def set_game_version_default(anchor_id, catalogue_id, entry_revision):
 
 
 def game_version_summaries(games):
-    service = get_catalogue_service()
-    service.search({"includeScummvm": True, "pageSize": 1})
-    collection_id = active_collection()["id"]
-    indexed = {entry.legacy_id: entry for entry in service._entries if entry.collection_id == collection_id}
-    defaults = service.version_defaults()
-    for game in games:
-        entry = indexed.get(game["id"])
-        if not entry or game.get("view") in {"incoming", "trash"}:
-            continue
-        group = service._entry_families[entry.base["catalogueId"]]
-        members = service._families[group]
-        default_id = defaults.get(group, {}).get("catalogueId", members[0].base["catalogueId"])
-        default = next((row for row in members if row.base["catalogueId"] == default_id), None)
-        game.update(version_group=group, version_count=len(members),
-                    default_version=default.legacy_id if default else "",
-                    catalogue_id=entry.base["catalogueId"], entry_revision=entry.base["entryRevision"])
-    return games
+    return get_catalogue_service().annotate_games(active_collection()['id'], games)
 
 
 def resolve_scummvm_game_plan(collection_id, game_id, emulator_id="", profile_id=""):
     from arcade_core.catalogue_identity import CatalogueError
     with catalogue_read_snapshot():
-        service = get_catalogue_service()
-        service.search({"includeScummvm": True, "pageSize": 1})
-        entry = next((entry for entry in service._entries
-                      if entry.collection_id == collection_id and entry.legacy_id == game_id
-                      and entry.base["targetKind"] == "scummvm-game"), None)
-        if entry is None:
-            raise CatalogueError("entry-missing")
+        entry = get_catalogue_service().game_entry(collection_id, game_id, target_kind='scummvm-game')
         plan = resolve_catalogue_launch_plan(entry.base["catalogueId"])
         if profile_id or emulator_id and emulator_id != plan["emulatorId"]:
             raise CatalogueError("configuration-required")
@@ -513,15 +456,8 @@ def resolve_atari_game_plan(collection_id, game_id, emulator_id="", profile_id="
 
 def resolve_catalogue_launch_plan(catalogue_id, entry_revision=None, *, atari_emulator_override='', selection=None):
     """Private Host adapter, never exposed through Arcade API dispatchers."""
-    from arcade_core.catalogue_identity import CatalogueError
-    from arcade_core.catalogue_launch import resolve_plan
-    lifecycle = get_library_catalogue()
-    try:
-        return resolve_plan(lifecycle, catalogue_id, entry_revision, atari_emulator_override=atari_emulator_override, selection=selection)
-    except CatalogueError:
-        raise
-    except Exception:
-        raise CatalogueError("configuration-required") from None
+    return get_library_catalogue().resolve_plan(
+        catalogue_id, entry_revision, atari_emulator_override=atari_emulator_override, selection=selection)
 
 
 def launch_catalogue_plan(plan, *, launch_process, copy_profile, atari_emulator_override='', selection=None):
@@ -544,8 +480,7 @@ class Library(GameLibrary):
 
     def rebuild(self, progress=None):
         with COLLECTION_JOB_LOCK:
-            COLLECTION_CACHE.invalidate(collection_cache_key())
-            invalidate_catalogue()
+            get_collection_lifecycle().invalidate_cache()
             result = super().rebuild(progress)
             remember_library(self)
             return result
@@ -568,8 +503,7 @@ class Library(GameLibrary):
             games = load_metadata_games(self.poks_by_title_memory, load_favourites(), items=shared)
             if {game.id for game in games} != ids:
                 return self.rebuild()
-            invalidate_catalogue()
-            COLLECTION_CACHE.invalidate(collection_cache_key())
+            get_collection_lifecycle().invalidate_cache()
             with self._lock:
                 replacements = {game.id: game for game in games}
                 self.games = [replacements.get(game.id, game) for game in self.games]
@@ -583,7 +517,8 @@ def init_state() -> None:
     if not STATE_FILE.exists():
         save_state({"favourites": [], "recent": []})
     init_config()
-    activate_collection(load_active_collection_id())
+    if get_collection_lifecycle().current().collection is None:
+        activate_collection(get_collection_service().active()["id"])
 
 
 def load_state() -> dict:
@@ -829,7 +764,7 @@ def scrapers_payload() -> dict[str, object]:
 
 
 def collection_asset_root() -> Path:
-    return COLLECTION / "_assets" / "scraped"
+    return get_collection_lifecycle().current().root / "_assets" / "scraped"
 
 
 def normalize_scraper_base_url(value: object, fallback: str) -> str:
@@ -1064,28 +999,18 @@ def add_collection(root: str, name: str = "", writable: bool = False, auto_metad
 
 
 def collection_settings(method, data):
-    global LIBRARY
-    from arcade_core.collection_settings import settings_record, validate_settings
-    from arcade_core.catalogue_identity import _writer_lock
-    with COLLECTION_JOB_LOCK, _writer_lock(CONFIG_FILE):
-        config = load_config()
-        collection = next((row for row in config['collections'] if row['id'] == data.get('collection_id')), None)
-        if collection is None:
-            raise ValueError('Unknown collection')
-        if method == 'GET':
+    from arcade_core.collection_settings import settings_record
+    if method == 'GET':
+        with COLLECTION_JOB_LOCK:
+            collection = next((row for row in load_config()['collections'] if row['id'] == data.get('collection_id')), None)
+            if collection is None:
+                raise ValueError('Unknown collection')
             return {'ok': True, 'settings': settings_record(collection)}
-        updated = validate_settings(config, data, DATA, Path(__file__).resolve().parents[1])
-        if updated != collection:
-            config['collections'][config['collections'].index(collection)] = updated
-            save_config(config)
-            if active_collection()['id'] == updated['id']:
-                activate_collection(updated['id'])
-                LIBRARY = None
-        return {'ok': True, 'settings': settings_record(updated)}
+    return {'ok': True, 'settings': get_collection_lifecycle().update_settings(data)}
 
 
 def active_collection() -> dict:
-    return get_collection_service().active()
+    return get_collection_lifecycle().active()
 
 
 def load_active_collection_id() -> str:
@@ -1093,14 +1018,7 @@ def load_active_collection_id() -> str:
 
 
 def activate_collection(collection_id: str) -> dict:
-    global COLLECTION, REPORTS, METADATA_FILE, METADATA_SERVICE
-    selected = get_collection_service().resolve(collection_id)
-    root = Path(str(selected.get("root", DESASTERON_COLLECTION))).resolve()
-    COLLECTION = root
-    REPORTS = COLLECTION / "_reports"
-    METADATA_FILE = COLLECTION / "collection-metadata.json"
-    METADATA_SERVICE = None
-    return selected
+    return get_collection_lifecycle().activate(collection_id)
 
 
 def current_collection_writable() -> bool:
@@ -1129,89 +1047,20 @@ def get_job(job_id: str) -> dict[str, object]:
     return JOB_SERVICE.get(job_id)
 
 
-def collection_cache_key():
-    return (str(DATA.resolve()), str(COLLECTION.resolve()), active_collection()['id'])
-
-
 def remember_library(library):
-    from arcade_core.game_properties import properties_path
-    collection = active_collection()
-    paths = [CONFIG_FILE, METADATA_FILE, COLLECTION, DATA / 'catalogue-transaction.json',
-             DATA / 'catalogue-proofs.json', properties_path(DATA, collection)]
-    if collection.get('adapter') == 'scummvm-config-v1':
-        from arcade_core.scummvm_overrides import ScummvmOverrides
-        paths.extend([collection['scummvm_config'], ScummvmOverrides(DATA, collection).path])
-    elif collection.get('adapter') == 'atari-st-disks-v1':
-        from arcade_core.atari_overrides import AtariOverrides
-        paths.append(AtariOverrides(DATA, collection).path)
-    paths.extend(Path(game.path).parent for game in library.games)
-    paths.extend(Path(pok.get('output_path', '')).parent for pok in library.pok_by_id.values())
-    paths.extend(COLLECTION / name for name in ('incoming', '_Deleted', 'Games', 'POKs'))
-    COLLECTION_CACHE.put(collection_cache_key(), library, paths)
+    get_collection_lifecycle().remember(library)
 
 
 def start_select_collection_job(collection_id: str) -> str:
-    from arcade_core.catalogue_identity import CatalogueError
-    config = load_config()
-    target = next((item for item in config.get("collections", []) if item.get("id") == collection_id), None)
-    title = f"Switching to {target.get('name')}" if target else "Switching Collection"
-    def work(progress) -> None:
-        global LIBRARY
-        with COLLECTION_JOB_LOCK:
-            if target is None:
-                raise ValueError(f"Unknown collection: {collection_id}")
-            previous_id = load_active_collection_id()
-            previous_library = LIBRARY
-            selected = activate_collection(collection_id)
-            update_state(lambda state: state.update({"active_collection_id": selected.get("id", "desasteron")}))
-            try:
-                cached = COLLECTION_CACHE.get(collection_cache_key())
-                if cached is not None:
-                    LIBRARY = cached
-                    favourites = load_favourites()
-                    for game in cached.games:
-                        game.favourite = game.id in favourites
-                    progress('cached', 0, 0, 'Loading saved library view...')
-                else:
-                    LIBRARY = None
-                    get_library()
-                progress('versions', 0, 0, 'Loading game versions...')
-                try:
-                    game_version_summaries([])
-                except CatalogueError as error:
-                    if error.code != 'unavailable':
-                        raise
-            except Exception:
-                activate_collection(previous_id)
-                LIBRARY = previous_library
-                update_state(lambda state: state.update({"active_collection_id": previous_id}))
-                try:
-                    get_library().rebuild()
-                except Exception as rollback_error:
-                    log(f"Collection rollback rebuild failed: {rollback_error}")
-                raise
-
-    return start_index_job(title, work)
+    target = next((item for item in load_config().get('collections', []) if item['id'] == collection_id), None)
+    title = f"Switching to {target.get('name')}" if target else 'Switching Collection'
+    return start_index_job(title, lambda progress: get_collection_lifecycle().select(collection_id, progress))
 
 
 def start_rebuild_job() -> str:
     active = active_collection()
-
-    def work(progress) -> None:
-        with COLLECTION_JOB_LOCK:
-            if active_collection()['id'] != active['id']:
-                raise ValueError('The selected collection changed. Rebuild it again.')
-            if active.get('adapter') == 'atari-st-disks-v1':
-                from arcade_core.atari import refresh_index
-                progress('discovering', 0, 0, 'Checking for added disk images…')
-                refresh_index(active['root'], parse_tosec_name)
-            if active.get('adapter') == 'gameboy-cartridges-v1':
-                from arcade_core.gameboy import refresh_index
-                progress('discovering', 0, 0, 'Checking for added cartridges…')
-                refresh_index(active['root'], parse_tosec_name)
-            get_library().rebuild(progress)
-
-    return start_index_job(f"Rebuilding {active.get('name', 'Collection')}", work)
+    return start_index_job(f"Rebuilding {active.get('name', 'Collection')}",
+                           lambda progress: get_collection_lifecycle().rebuild(active['id'], progress))
 
 
 def load_favourites() -> set[str]:
@@ -1221,10 +1070,10 @@ def load_favourites() -> set[str]:
 def load_poks() -> dict[tuple[str, str], list[dict[str, str]]]:
     if active_collection().get("adapter") in {"scummvm-config-v1", "atari-st-disks-v1", "gameboy-cartridges-v1"}:
         return {}
-    if METADATA_FILE.exists():
+    if get_collection_lifecycle().current().metadata_file.exists():
         return load_metadata_poks()
 
-    report = REPORTS / "poks-selected.csv"
+    report = get_collection_lifecycle().current().reports / "poks-selected.csv"
     poks: dict[tuple[str, str], list[dict[str, str]]] = {}
     if not report.exists():
         return poks
@@ -1235,8 +1084,8 @@ def load_poks() -> dict[tuple[str, str], list[dict[str, str]]]:
                 continue
             output_path = row.get("output_path", "")
             try:
-                absolute = resolve_within(COLLECTION.parent, output_path, require_exists=True)
-                relative_to_root(COLLECTION, absolute)
+                absolute = resolve_within(get_collection_lifecycle().current().root.parent, output_path, require_exists=True)
+                relative_to_root(get_collection_lifecycle().current().root, absolute)
             except (FileNotFoundError, PathConfinementError):
                 continue
             row = dict(row)
@@ -1255,13 +1104,21 @@ def load_metadata() -> dict:
     lifecycle = get_catalogue_lifecycle()
     if lifecycle is not None:
         lifecycle.ensure_settled()
-    metadata = read_json_object(METADATA_FILE, {"version": 1, "games": [], "poks": []})
-    if not isinstance(metadata.get("games"), list):
-        metadata["games"] = []
-    if not isinstance(metadata.get("poks"), list):
-        metadata["poks"] = []
+    path = get_collection_lifecycle().current().metadata_file
     from arcade_core.index_schema import index_document
-    return index_document(metadata)
+    from arcade_core.catalogue_identity import CatalogueError
+    try:
+        metadata = json.loads(path.read_bytes())
+    except FileNotFoundError:
+        return index_document({"version": 1, "games": [], "poks": []})
+    except (OSError, ValueError):
+        raise ValueError('The collection index is unreadable. Restore a verified backup before rebuilding or editing the library.') from None
+    try:
+        if not isinstance(metadata, dict) or not isinstance(metadata.get('games'), list) or not isinstance(metadata.get('poks', []), list):
+            raise ValueError()
+        return index_document(metadata)
+    except (CatalogueError, ValueError, KeyError, TypeError):
+        raise ValueError('The collection index is unreadable. Restore a verified backup before rebuilding or editing the library.') from None
 
 
 def save_metadata(metadata: dict) -> None:
@@ -1270,14 +1127,14 @@ def save_metadata(metadata: dict) -> None:
     metadata = index_document(metadata)
     metadata["updated_at"] = dt.datetime.now(dt.UTC).isoformat(timespec="seconds")
     lifecycle = get_catalogue_lifecycle()
-    if lifecycle is not None and lifecycle.save_metadata(COLLECTION, metadata):
+    if lifecycle is not None and lifecycle.save_metadata(get_collection_lifecycle().current().root, metadata):
         return
-    atomic_write_json(METADATA_FILE, metadata)
+    atomic_write_json(get_collection_lifecycle().current().metadata_file, metadata)
     invalidate_catalogue()
 
 
 def collection_relative(path: Path) -> str:
-    return str(relative_to_root(COLLECTION, path)).replace("\\", "/")
+    return str(relative_to_root(get_collection_lifecycle().current().root, path)).replace("\\", "/")
 
 
 def normalize_rel_path(path: object) -> str:
@@ -1287,7 +1144,7 @@ def normalize_rel_path(path: object) -> str:
 def load_metadata_poks() -> dict[tuple[str, str], list[dict[str, str]]]:
     poks: dict[tuple[str, str], list[dict[str, str]]] = {}
     metadata = load_metadata()
-    collection_paths = ConfinedRoot(COLLECTION)
+    collection_paths = ConfinedRoot(get_collection_lifecycle().current().root)
     link_counts: dict[str, int] = {}
     for game in metadata.get("games", []):
         for rel_path in game.get("poks", []):
@@ -1375,11 +1232,12 @@ def load_games(poks: dict[tuple[str, str], list[dict[str, str]]], favourites: se
     if collection.get('adapter') == 'atari-st-disks-v1':
         from arcade_core.atari import read_rows
         from arcade_core.atari_overrides import AtariOverrides
-        rows = read_rows(COLLECTION)
+        rows = read_rows(get_collection_lifecycle().current().root)
         overrides = AtariOverrides(DATA, collection).load()
         shared = AtariOverrides.shared_values(rows, overrides)
         from arcade_core.game_properties import read_properties
         properties = read_properties(DATA, collection)['games']
+        catalogue_entries = compilation_catalogue_store().presentations(rows) if collection.get('kind') == 'atari-compilations-v1' else {}
         games = load_metadata_games({}, favourites, items=[
             {**row, **shared[game_id]}
             for game_id, row in rows.items()])
@@ -1389,6 +1247,17 @@ def load_games(poks: dict[tuple[str, str], list[dict[str, str]]], favourites: se
             game.section = 'Atari ST'
             game.platform = 'atari-st'
             game.platform_options = (row['system'],)
+            compilation = row.get('compilation', {})
+            game.compilation_group = compilation.get('group', '')
+            game.compilation_condition = compilation.get('condition', '')
+            game.compilation_part = compilation.get('part', '')
+            if compilation:
+                catalogue_entry = catalogue_entries.get(game.id, {})
+                game.compilation_catalogue = catalogue_entry.get('menu', {})
+                game.compilation_titles = tuple(item['title'] for item in game.compilation_catalogue.get('contents', []))
+                game.compilation_catalogue_status = {'hash': 'Verified image', 'label': 'Menu label match', 'files': 'Disk file index', 'content': 'CD contents checked'}.get(catalogue_entry.get('status'), 'Not catalogued')
+                if game.compilation_catalogue.get('screenshots'):
+                    game.screenshot = game.compilation_catalogue['screenshots'][0]
             game.language = format_languages(game.languages)
             game.default_emulator = properties.get(game.id, {}).get('emulatorId', collection.get('default_emulator', ''))
             game.emulator_profile = properties.get(game.id, {}).get('profileId', '')
@@ -1398,7 +1267,7 @@ def load_games(poks: dict[tuple[str, str], list[dict[str, str]]], favourites: se
         from arcade_core.import_scummvm import scummvm_manifest, platform_presentation, PLATFORMS
         from arcade_core.scummvm_metadata import game_metadata
         from arcade_core.scummvm_overrides import ScummvmOverrides
-        manifest = scummvm_manifest(collection["id"], COLLECTION, Path(collection["scummvm_config"]))
+        manifest = scummvm_manifest(collection["id"], get_collection_lifecycle().current().root, Path(collection["scummvm_config"]))
         overrides = ScummvmOverrides(DATA, collection).load()
         games = []
         for row in manifest["entries"]:
@@ -1410,7 +1279,7 @@ def load_games(poks: dict[tuple[str, str], list[dict[str, str]]], favourites: se
             games.append(Game(id=row["id"], title=title, title_key=normalize_title(title),
                 sort_title=article_sort_title(title), tosec_title=title, memory=label, system=platform_options[0],
                 section="ScummVM", category="", type="ScummVM", language=format_languages(metadata["languages"]),
-                extension="", path=str(COLLECTION / target["directory"]), file_name=target["targetId"],
+                extension="", path=str(get_collection_lifecycle().current().root / target["directory"]), file_name=target["targetId"],
                 letter=folder_letter(title), platform=platform, platform_options=platform_options, version=metadata["editionLabel"],
                 languages=tuple(metadata["languages"]),
                 **{**game_metadata(target['engineId'], target['gameId']),
@@ -1418,7 +1287,7 @@ def load_games(poks: dict[tuple[str, str], list[dict[str, str]]], favourites: se
                 default_emulator=collection.get("default_emulator", ""), favourite=row["id"] in favourites))
         return games
     loader = CollectionLoader(
-        metadata_path=lambda: METADATA_FILE,
+        metadata_path=lambda: get_collection_lifecycle().current().metadata_file,
         load_metadata_games=load_metadata_games,
         load_incoming_games=load_incoming_games,
         load_trash_games=load_trash_games,
@@ -1442,7 +1311,7 @@ def import_match_summary(game: Game) -> dict[str, object]:
 
 def load_metadata_games(poks: dict[tuple[str, str], list[dict[str, str]]], favourites: set[str], *, root=None, items=None) -> list[Game]:
     from arcade_core.index_paths import IndexPaths
-    with IndexPaths(COLLECTION if root is None else root) as paths:
+    with IndexPaths(get_collection_lifecycle().current().root if root is None else root) as paths:
         return _load_metadata_games(poks, favourites, root=root, items=items, _paths=paths)
 
 
@@ -1541,7 +1410,7 @@ def _load_metadata_games(poks: dict[tuple[str, str], list[dict[str, str]]], favo
 
 
 def save_metadata_from_games(games: list[Game], poks: dict[tuple[str, str], list[dict[str, str]]]) -> None:
-    if METADATA_FILE.exists():
+    if get_collection_lifecycle().current().metadata_file.exists():
         return
     pok_files_by_key = {
         key: [collection_relative(Path(row["path"])) for row in rows if row.get("path")]
@@ -1642,7 +1511,7 @@ def load_official_games(
     favourites: set[str],
     reported_paths: set[str],
 ) -> list[Game]:
-    report = REPORTS / "selected-games.csv"
+    report = get_collection_lifecycle().current().reports / "selected-games.csv"
     games: list[Game] = []
     if not report.exists():
         return games
@@ -1668,7 +1537,7 @@ def load_homebrew_games(
     favourites: set[str],
     reported_paths: set[str],
 ) -> list[Game]:
-    report = REPORTS / "homebrew-scene-selected.csv"
+    report = get_collection_lifecycle().current().reports / "homebrew-scene-selected.csv"
     games: list[Game] = []
     if not report.exists():
         return games
@@ -1700,9 +1569,9 @@ def load_scanned_collection_games(
     progress=None,
 ) -> list[Game]:
     games: list[Game] = []
-    roots = [root for root in (COLLECTION / "Games", COLLECTION / "48K", COLLECTION / "128K", COLLECTION / "Homebrew & Scene") if root.exists()]
+    roots = [root for root in (get_collection_lifecycle().current().root / "Games", get_collection_lifecycle().current().root / "48K", get_collection_lifecycle().current().root / "128K", get_collection_lifecycle().current().root / "Homebrew & Scene") if root.exists()]
     if not roots:
-        roots = [COLLECTION]
+        roots = [get_collection_lifecycle().current().root]
     paths: list[Path] = []
     discovered = 0
     for root in roots:
@@ -1722,7 +1591,7 @@ def load_scanned_collection_games(
     if progress:
         progress("indexing", 0, len(paths), f"Indexed 0 of {len(paths):,} files")
     for index, path in enumerate(paths, start=1):
-        game = make_scanned_game(path, COLLECTION, "collection", poks, favourites)
+        game = make_scanned_game(path, get_collection_lifecycle().current().root, "collection", poks, favourites)
         if game:
             games.append(game)
         if progress and (index == len(paths) or index % 100 == 0):
@@ -1732,7 +1601,7 @@ def load_scanned_collection_games(
 
 def should_skip_scan_path(path: Path) -> bool:
     try:
-        rel = path.resolve().relative_to(COLLECTION.resolve())
+        rel = path.resolve().relative_to(get_collection_lifecycle().current().root.resolve())
     except ValueError:
         return False
     skip_roots = {"_launcher", "_tools", "_reports", "_deleted", "incoming", "poks", "cheats & poks"}
@@ -1744,7 +1613,7 @@ def load_language_review_games(
     favourites: set[str],
 ) -> list[Game]:
     games: list[Game] = []
-    root = COLLECTION / "_Non EN-DE Review"
+    root = get_collection_lifecycle().current().root / "_Non EN-DE Review"
     if not root.exists():
         return games
     for path in root.rglob("*"):
@@ -1762,7 +1631,7 @@ def load_incoming_games(
 ) -> list[Game]:
     if not current_collection_writable():
         return []
-    root = COLLECTION / "incoming"
+    root = get_collection_lifecycle().current().root / "incoming"
     if not root.exists() or not root.is_dir():
         return []
     games: list[Game] = []
@@ -1781,7 +1650,7 @@ def load_trash_games(
 ) -> list[Game]:
     if not current_collection_writable():
         return []
-    root = COLLECTION / "_Deleted"
+    root = get_collection_lifecycle().current().root / "_Deleted"
     if not root.exists() or not root.is_dir():
         return []
     games: list[Game] = []
@@ -1806,8 +1675,8 @@ def make_game(
     if not output_path:
         return None
     try:
-        absolute = resolve_within(COLLECTION.parent, output_path, require_exists=True)
-        relative_to_root(COLLECTION, absolute)
+        absolute = resolve_within(get_collection_lifecycle().current().root.parent, output_path, require_exists=True)
+        relative_to_root(get_collection_lifecycle().current().root, absolute)
     except (FileNotFoundError, PathConfinementError):
         return None
     parsed = parse_tosec_name(absolute.name)
@@ -1918,19 +1787,40 @@ def stable_id(text: str) -> str:
     return hashlib.sha1(text.lower().encode("utf-8")).hexdigest()[:16]
 
 
-LIBRARY: Library | None = None
-LIBRARY_LOCK = threading.Lock()
+COLLECTION_LIFECYCLE = None
+COLLECTION_LIFECYCLE_KEY = None
+
+
+def get_collection_lifecycle():
+    global COLLECTION_LIFECYCLE, COLLECTION_LIFECYCLE_KEY
+    key = (DATA.resolve(), CONFIG_FILE.resolve(), DESASTERON_COLLECTION.resolve())
+    if COLLECTION_LIFECYCLE is None or COLLECTION_LIFECYCLE_KEY != key:
+        from arcade_core.collection_lifecycle import CollectionLifecycle
+        COLLECTION_LIFECYCLE = CollectionLifecycle(
+            default_root=DESASTERON_COLLECTION, runtime=DATA, config_path=CONFIG_FILE,
+            checkout=LAUNCHER.parent, lock=COLLECTION_JOB_LOCK,
+            collections=get_collection_service, load_config=lambda: load_config(),
+            save_config=lambda config: save_config(config), update_state=lambda change: update_state(change),
+            load_favourites=lambda: load_favourites(), build_library=lambda: Library(),
+            prepare_versions=lambda: game_version_summaries([]),
+            invalidate_catalogue=lambda: invalidate_catalogue(), parse_tosec_name=parse_tosec_name)
+        COLLECTION_LIFECYCLE_KEY = key
+    return COLLECTION_LIFECYCLE
 
 
 def get_library() -> Library:
     """Build the collection index only when a runtime transport needs it."""
-    global LIBRARY
-    if LIBRARY is None:
-        # Match mutation/rebuild lock order, including first-use construction.
-        with COLLECTION_JOB_LOCK, LIBRARY_LOCK:
-            if LIBRARY is None:
-                LIBRARY = Library()
-    return LIBRARY
+    return get_collection_lifecycle().library()
+
+
+def __getattr__(name):
+    # Native diagnostic readers may inspect the active context. There are no
+    # independent writable copies of these lifecycle-owned fields.
+    fields = {'COLLECTION': 'root', 'REPORTS': 'reports', 'METADATA_FILE': 'metadata_file',
+              'LIBRARY': 'library', 'METADATA_SERVICE': 'metadata'}
+    if name in fields:
+        return getattr(get_collection_lifecycle().current(), fields[name])
+    raise AttributeError(name)
 
 
 ARCADE_READ_SERVICE = ReadOnlyArcadeService(
@@ -1968,6 +1858,44 @@ def game_properties_service():
     return GAME_PROPERTIES_SERVICE
 
 
+def compilation_catalogue_store():
+    from arcade_core.compilation_catalogue import CompilationCatalogue
+    collection = active_collection()
+    key = (str(DATA.resolve()), collection['id'], str(Path(collection['root']).resolve()))
+    if key not in COMPILATION_CATALOGUES:
+        for old_key, store in list(COMPILATION_CATALOGUES.items()):
+            if len(COMPILATION_CATALOGUES) < 2:
+                break
+            if not store.running:
+                del COMPILATION_CATALOGUES[old_key]
+        COMPILATION_CATALOGUES[key] = CompilationCatalogue(DATA, collection)
+    return COMPILATION_CATALOGUES[key]
+
+
+def compilation_catalogue_request(data):
+    from arcade_core.atari import read_rows
+    try:
+        store = compilation_catalogue_store()
+        action = data.get('action')
+        if action == 'prepare':
+            local_only = data.get('local_only') is True
+            if not local_only and not OPTIONAL_NETWORK_ALLOWED():
+                raise ValueError('Optional network access is disabled in Cyrune settings')
+            rows = read_rows(store.root)
+            job = JOB_SERVICE.start('Compilation catalogue', lambda progress:
+                store.prepare(rows, lambda: bool(OPTIONAL_NETWORK_ALLOWED()), progress, local_only=local_only))
+            return {'ok': True, 'job_id': job}
+        if action == 'preview':
+            return store.preview(data.get('offset', 0))
+        if action == 'apply':
+            result = store.apply(read_rows(store.root), data.get('token'), data.get('include_labels') is True, data.get('include_files') is True)
+            get_library().rebuild()
+            return result
+        raise ValueError('Invalid compilation catalogue action')
+    except (OSError, ValueError) as error:
+        return {'ok': False, 'error': str(error)}
+
+
 def dispatch_arcade_api(method: object, path: object, query: object = None, data: object = None) -> dict[str, object]:
     """Route the existing UI API without coupling it to HTTP transport."""
     verb = str(method or "").strip().upper()
@@ -1999,6 +1927,8 @@ def dispatch_arcade_api(method: object, path: object, query: object = None, data
 
 def _dispatch_current_arcade_api(verb, route, query, data):
     """Internal dispatcher; scoped public requests arrive under the collection lock."""
+    if verb == 'POST' and route == '/api/compilation-catalogue':
+        return compilation_catalogue_request(data)
     recovery_routes = {f"/api/catalogue-recovery/{action}": action for action in ("status", "preview", "confirm")}
     if verb == "POST" and route in recovery_routes:
         return catalogue_recovery_request(recovery_routes[route], data)
@@ -2042,11 +1972,11 @@ def _dispatch_current_arcade_api(verb, route, query, data):
                     # Launch settings do not change files, metadata or POK links.
                     # Update the loaded row; catalogue policy stamps still refresh
                     # independently before binding/default selection and launch.
-                    if LIBRARY is not None and active_collection()['id'] == data['collectionId']:
-                        game = LIBRARY.get_game(data['gameId'])
+                    if get_collection_lifecycle().current().library is not None and active_collection()['id'] == data['collectionId']:
+                        game = get_collection_lifecycle().current().library.get_game(data['gameId'])
                         if game:
                             from dataclasses import replace
-                            LIBRARY.update_game_record(replace(game, default_emulator=result['settings']['emulatorId'],
+                            get_collection_lifecycle().current().library.update_game_record(replace(game, default_emulator=result['settings']['emulatorId'],
                                 emulator_profile=result['settings']['profileId']))
                     return result
                 raise ValueError('Invalid properties operation')
@@ -2064,40 +1994,29 @@ def _dispatch_current_arcade_api(verb, route, query, data):
                     with _writer_lock(care.journal.path):
                         care_state = care.journal.settle()
                         get_library().rebuild()
-                        if METADATA_SERVICE is not None:
-                            METADATA_SERVICE.clear_history()
+                        if get_collection_lifecycle().current().metadata is not None:
+                            get_collection_lifecycle().current().metadata.clear_history()
                 view = _api_query_value(query, "view", "collection")
-                games = get_library().list_game_summaries(view)
+                library = get_library()
+                games = library.list_game_summaries(view)
                 try:
                     game_version_summaries(games)
                 except CatalogueError as error:
                     if error.code != 'unavailable':
                         return {'ok': False, 'error': 'Game versions could not be loaded.', 'code': error.code}
-                newly_indexed = metadata_notes().observe(row.id for row in get_library().games if row.view == 'collection')
+                newly_indexed = metadata_notes().observe(row.id for row in library.games if row.view == 'collection')
                 reviews = care_state.get('reviews', {})
                 for row in games:
-                    game = get_library().get_game(row['id'])
+                    game = library.get_game(row['id'])
                     row['newly_indexed'] = row['id'] in newly_indexed
                     row['cleanup'] = {'artwork': not bool(game.screenshot or game.loading_screen),
                                       'description': not bool(game.description.strip()),
                                       'review': bool(reviews.get(game.id))}
-                scope = (str(DATA.resolve()), str(COLLECTION.resolve()), active_collection()['id'], view)
+                scope = (str(DATA.resolve()), str(get_collection_lifecycle().current().root.resolve()), active_collection()['id'], view)
                 return {**SUMMARY_SNAPSHOTS.response(scope, games, _api_query_value(query, 'since')), 'collection_id':active_collection()['id']}
         if route == "/api/game-versions":
             entry = catalogue_game_entry(active_collection()["id"], _api_query_value(query, "game_id"))
-            service = get_catalogue_service()
-            result = service.versions(entry.base["catalogueId"])
-            # File labels belong to the Arcade-only view, never the portable catalogue.
-            for version in result['versions']:
-                indexed = service._by_id[version['catalogueId']]
-                version['gameId'] = indexed.legacy_id
-                version['collectionId'] = indexed.collection_id
-                if indexed.base['targetKind'] == 'disk-set':
-                    source = next(s for s in service._sources if s.collection_id == indexed.collection_id)
-                    version['imageFiles'] = [Path(p).name for p in source.rows[indexed.legacy_id]['disks']]
-                elif indexed.base['targetKind'] == 'media-file':
-                    version['imageFiles'] = [Path(indexed.relative_path).name]
-            return result
+            return get_catalogue_service().versions(entry.base["catalogueId"], native=True)
         if route == "/api/game":
             game = get_library().get_game(_api_query_value(query, "game_id"))
             result = asdict(game) if game else None
@@ -2230,7 +2149,7 @@ def read_arcade_asset(relative_path: object, max_bytes: object = 4 * 1024 * 1024
     relative = unquote(str(relative_path or "")).replace("\\", "/").lstrip("/")
     if not relative or "\x00" in relative:
         raise ServiceContractError("Asset path is invalid")
-    root = COLLECTION.resolve()
+    root = get_collection_lifecycle().current().root.resolve()
     try:
         target = resolve_within(root, relative, require_exists=True)
     except (FileNotFoundError, PathConfinementError) as exc:
@@ -2437,7 +2356,7 @@ def get_launch_service() -> GameLaunchService:
         find_running_window=find_running_emulator_window,
         focus_emulator=focus_launched_emulator,
         bring_to_front=bring_window_to_front,
-        collection_root=lambda: COLLECTION,
+        collection_root=lambda: get_collection_lifecycle().current().root,
         check_immediate_exit=should_check_immediate_exit,
     )
 
@@ -2511,10 +2430,11 @@ def rename_game(game_id: str, name: str) -> dict:
 
 
 def get_metadata_service() -> MetadataService:
-    global METADATA_SERVICE
-    if METADATA_SERVICE is not None:
-        return METADATA_SERVICE
-    METADATA_SERVICE = MetadataService(
+    return get_collection_lifecycle().metadata(create_metadata_service)
+
+
+def create_metadata_service() -> MetadataService:
+    return MetadataService(
         library_provider=get_library,
         ensure_metadata_file=ensure_metadata_file,
         load_metadata=load_metadata,
@@ -2534,7 +2454,6 @@ def get_metadata_service() -> MetadataService:
         dedupe=dedupe,
         before_move=before_catalogue_move,
     )
-    return METADATA_SERVICE
 
 
 def metadata_notes():
@@ -2550,6 +2469,9 @@ def metadata_care():
 @_catalogue_serialized
 def apply_scrape_metadata(game_id: str, candidate: object, assets: object | None = None, remote_assets: object | None = None,
                           target_ids: object = None, mode='replace', undo_group='', search_options=None) -> dict:
+    if active_collection().get('kind') == 'atari-compilations-v1':
+        from arcade_core.compilations import SCRAPE_ERROR
+        return {'ok': False, 'error': SCRAPE_ERROR}
     from arcade_core.metadata_care import MetadataCareError
     from arcade_core.scrape_preferences import ScrapePreferences, validate
     try:
@@ -2575,6 +2497,9 @@ def apply_scrape_metadata(game_id: str, candidate: object, assets: object | None
 
 @_catalogue_serialized
 def metadata_care_request(data):
+    if active_collection().get('kind') == 'atari-compilations-v1':
+        from arcade_core.compilations import SCRAPE_ERROR
+        return {'ok': False, 'error': SCRAPE_ERROR}
     try:
         care = metadata_care()
         if data.get('action') == 'undo':
@@ -2582,8 +2507,8 @@ def metadata_care_request(data):
             count = care.journal.undo()
             metadata_notes().clear(reverted)
             get_library().rebuild()
-            if METADATA_SERVICE is not None:
-                METADATA_SERVICE.clear_history()
+            if get_collection_lifecycle().current().metadata is not None:
+                get_collection_lifecycle().current().metadata.clear_history()
             return {'ok': True, 'restored_count': count}
         return care.protection(str(data.get('game_id', '')), data.get('protected_fields'), data.get('changes'))
     except (ValueError, OSError) as error:
@@ -2609,6 +2534,9 @@ def undo_game_metadata() -> dict:
 
 
 def start_scrape_preview(data):
+    if active_collection().get('kind') == 'atari-compilations-v1':
+        from arcade_core.compilations import SCRAPE_ERROR
+        return {'ok': False, 'error': SCRAPE_ERROR}
     from arcade_core.scrape_groups import folder_members
     from arcade_core.scrape_text import review
     import hashlib
@@ -2617,16 +2545,16 @@ def start_scrape_preview(data):
         return {'ok':False, 'error':'Unknown game'}
     game = deepcopy(game)
     collection_id = active_collection()['id']
-    members = [row.id for row in folder_members(get_library(), COLLECTION, game)]
+    members = [row.id for row in folder_members(get_library(), get_collection_lifecycle().current().root, game)]
     providers = deepcopy(configured_scrapers())
     provider_id = str(data.get('provider', 'manual'))
     provider = providers.get(provider_id, {})
     # Hash configuration only in memory; no credential-bearing cache keys or raw responses persist.
     from arcade_core.collection_cache import stamp
     media_revision = stamp(game.path) if game.type == 'Game Boy' else None
-    cache_key = hashlib.sha256(json.dumps([media_revision, provider, collection_id, str(COLLECTION.resolve()), sorted(members), game.id, game.title, game.year, game.publisher, game.platform,
+    cache_key = hashlib.sha256(json.dumps([media_revision, provider, collection_id, str(get_collection_lifecycle().current().root.resolve()), sorted(members), game.id, game.title, game.year, game.publisher, game.platform,
         data.get('search_term'), data.get('search_platform', 'current')], sort_keys=True).encode()).hexdigest()
-    provider['_collection_root'] = str(COLLECTION.resolve())
+    provider['_collection_root'] = str(get_collection_lifecycle().current().root.resolve())
     adapters = get_scraper_service()._adapters
     def work():
         service = ScraperService(get_game=lambda _:game, provider_config=lambda:providers, adapters=adapters,
@@ -2644,11 +2572,11 @@ def start_scrape_preview(data):
 
 def cached_artwork_path(reference):
     from arcade_core.entry_artwork import target, location
-    found = target(COLLECTION, DATA, {'loading_screen':reference})
+    found = target(get_collection_lifecycle().current().root, DATA, {'loading_screen':reference})
     if not found:
         return None
     try:
-        path = location(COLLECTION, DATA, found[0])[1]
+        path = location(get_collection_lifecycle().current().root, DATA, found[0])[1]
         return path if 0 < path.stat().st_size <= 4 * 1024 * 1024 else None
     except OSError:
         return None
@@ -2676,11 +2604,14 @@ def scrape_job_result(query):
 
 def scrape_preview(game_id: str, provider_id: str = "manual", search_term: object = None,
                    search_platform: object = "current") -> dict:
+    if active_collection().get('kind') == 'atari-compilations-v1':
+        from arcade_core.compilations import SCRAPE_ERROR
+        return {'ok': False, 'error': SCRAPE_ERROR}
     from arcade_core.scrape_groups import folder_members
     game = get_library().get_game(game_id)
     if not game:
         return {'ok': False, 'error': 'Unknown game'}
-    members = folder_members(get_library(), COLLECTION, game)
+    members = folder_members(get_library(), get_collection_lifecycle().current().root, game)
     result = get_scraper_service().preview(game_id, provider_id, search_term, search_platform)
     result['target_ids'] = [row.id for row in members]
     if len(members) > 1:
@@ -2700,6 +2631,9 @@ def scrape_preview(game_id: str, provider_id: str = "manual", search_term: objec
 @_catalogue_serialized
 def scrape_targets(game_ids):
     """Plan bounded review rows without exposing folder or registration authority."""
+    if active_collection().get('kind') == 'atari-compilations-v1':
+        from arcade_core.compilations import SCRAPE_ERROR
+        return {'ok': False, 'error': SCRAPE_ERROR}
     from arcade_core.scrape_groups import folder_members, MAX_SCRAPE_TARGETS
     if (not isinstance(game_ids, list) or not 1 <= len(game_ids) <= 100 or
             any(not isinstance(key, str) for key in game_ids)):
@@ -2720,7 +2654,7 @@ def scrape_targets(game_ids):
     for game in selected:
         if game.id in seen:
             continue
-        members = folder_members(library, COLLECTION, game)
+        members = folder_members(library, get_collection_lifecycle().current().root, game)
         seen.update(row.id for row in members)
         targets.append({**{key: getattr(game, key) for key in ('id', 'title', 'type', 'system', 'platform', 'language', 'version', 'year', 'publisher')},
                         'target_ids': [row.id for row in members], 'scrape_count': len(members),
@@ -3246,7 +3180,7 @@ def metadata_change_labels(changes: dict) -> list[str]:
 
 
 def ensure_metadata_file() -> None:
-    if METADATA_FILE.exists():
+    if get_collection_lifecycle().current().metadata_file.exists():
         return
     save_metadata_from_games(get_library().games, get_library().poks_by_title_memory)
 
@@ -3388,7 +3322,7 @@ def apply_metadata_changes(game: Game, item: dict, changes: dict, rename_files: 
     item["flags"] = list(parsed["brackets"])
     final_path = Path(str(item.get("file", source)))
     if not final_path.is_absolute():
-        final_path = COLLECTION / final_path
+        final_path = get_collection_lifecycle().current().root / final_path
     return {
         "ok": True, "warnings": warnings,
         "source_path": str(source), "target_path": str(final_path),
@@ -3414,7 +3348,7 @@ def metadata_edit_warnings(
 def build_metadata_target_path(source: Path, item: dict, old_title: str) -> Path:
     rel = relative_collection_path(source)
     if rel.parts and rel.parts[0].lower() == "games":
-        directory = COLLECTION / "Games" / folder_letter(str(item.get("title", old_title)))
+        directory = get_collection_lifecycle().current().root / "Games" / folder_letter(str(item.get("title", old_title)))
     else:
         directory = source.parent
     return directory / build_tosec_file_name(source, item, old_title)
@@ -3428,17 +3362,17 @@ def build_collection_import_target_path(source: Path, item: dict, old_title: str
 def collection_import_directory(item: dict, old_title: str, metadata: dict | None = None) -> Path:
     title = str(item.get("title") or old_title)
     letter = folder_letter(title)
-    games_root = COLLECTION / "Games"
+    games_root = get_collection_lifecycle().current().root / "Games"
     if has_letter_folder_structure(games_root):
         return games_root / letter
-    if has_letter_folder_structure(COLLECTION):
-        return COLLECTION / letter
+    if has_letter_folder_structure(get_collection_lifecycle().current().root):
+        return get_collection_lifecycle().current().root / letter
     observed = observed_import_directory(letter, metadata)
     if observed:
         return observed
     if games_root.exists():
         return games_root / letter
-    return COLLECTION
+    return get_collection_lifecycle().current().root
 
 
 def has_letter_folder_structure(root: Path) -> bool:
@@ -3451,7 +3385,7 @@ def has_letter_folder_structure(root: Path) -> bool:
 
 def observed_import_directory(letter: str, metadata: dict | None = None) -> Path | None:
     counts: dict[Path, int] = {}
-    metadata = metadata or (load_metadata() if METADATA_FILE.exists() else {})
+    metadata = metadata or (load_metadata() if get_collection_lifecycle().current().metadata_file.exists() else {})
     for item in metadata.get("games", []):
         rel_file = str(item.get("file", ""))
         if not rel_file:
@@ -3469,7 +3403,7 @@ def observed_import_directory(letter: str, metadata: dict | None = None) -> Path
         return None
     rel = max(counts.items(), key=lambda item: item[1])[0]
     try:
-        return resolve_within(COLLECTION, rel)
+        return resolve_within(get_collection_lifecycle().current().root, rel)
     except PathConfinementError:
         return None
 
@@ -3515,7 +3449,7 @@ def delete_games(game_ids: object) -> dict[str, object]:
     if not ids:
         return {"ok": False, "error": "No games selected"}
     library = get_library()
-    trash_root = COLLECTION / "_Deleted"
+    trash_root = get_collection_lifecycle().current().root / "_Deleted"
     reserved: set[Path] = set()
     plan: list[tuple[Game, Path, Path]] = []
     errors: list[dict[str, str]] = []
@@ -3542,7 +3476,7 @@ def delete_games(game_ids: object) -> dict[str, object]:
     if errors:
         return {"ok": False, "error": "No files were moved because the selection is invalid", "errors": errors}
 
-    metadata_exists = METADATA_FILE.exists()
+    metadata_exists = get_collection_lifecycle().current().metadata_file.exists()
     metadata = load_metadata() if metadata_exists else {"games": []}
     original_metadata = deepcopy(metadata)
     by_id = {str(item.get("id", "")): item for item in metadata.get("games", [])}
@@ -3575,7 +3509,7 @@ def delete_games(game_ids: object) -> dict[str, object]:
 
     for game, source, _target in plan:
         if game.view == "incoming":
-            cleanup_empty_parents(source.parent, (COLLECTION / "incoming").resolve())
+            cleanup_empty_parents(source.parent, (get_collection_lifecycle().current().root / "incoming").resolve())
     deleted = [{"id": game.id, "name": target.name, "path": str(target)} for game, _source, target in plan]
     return {"ok": True, "deleted": deleted, "count": len(deleted)}
 
@@ -3620,7 +3554,7 @@ def import_incoming_game_item(game_id: str, metadata: dict) -> dict:
     if game.view != "incoming":
         raise ValueError("Only incoming files can be imported")
     source = Path(game.path)
-    incoming = (COLLECTION / "incoming").resolve()
+    incoming = (get_collection_lifecycle().current().root / "incoming").resolve()
     try:
         source.resolve().relative_to(incoming)
     except ValueError:
@@ -3671,7 +3605,7 @@ def restore_trash_game_item(game_id: str, metadata: dict) -> dict:
     if game.view != "trash":
         raise ValueError("Only bin files can be restored")
     source = Path(game.path)
-    trash = (COLLECTION / "_Deleted").resolve()
+    trash = (get_collection_lifecycle().current().root / "_Deleted").resolve()
     try:
         source.resolve().relative_to(trash)
     except ValueError:
@@ -3780,7 +3714,7 @@ def purge_trash_game_item(game_id: str, metadata: dict) -> dict:
     if game.view != "trash":
         raise ValueError("Only bin files can be permanently removed")
     source = Path(game.path)
-    trash = (COLLECTION / "_Deleted").resolve()
+    trash = (get_collection_lifecycle().current().root / "_Deleted").resolve()
     try:
         source.resolve().relative_to(trash)
     except ValueError:
@@ -3815,16 +3749,16 @@ def move_between_collection_and_languages(game_id: str) -> dict:
     source = Path(game.path)
     if not source.exists():
         return {"ok": False, "error": f"Missing game file: {source}"}
-    review_root = COLLECTION / "_Non EN-DE Review"
+    review_root = get_collection_lifecycle().current().root / "_Non EN-DE Review"
     if game.view == "languages":
-        if METADATA_FILE.exists():
+        if get_collection_lifecycle().current().metadata_file.exists():
             update_metadata_game(game_id, status="Main")
             get_library().rebuild()
             return {"ok": True, "path": str(source), "message": "Moved to collection"}
-        target = unique_path(COLLECTION / source.resolve().relative_to(review_root.resolve()))
+        target = unique_path(get_collection_lifecycle().current().root / source.resolve().relative_to(review_root.resolve()))
         message = "Moved to collection"
     else:
-        if METADATA_FILE.exists():
+        if get_collection_lifecycle().current().metadata_file.exists():
             update_metadata_game(game_id, status="Language Review")
             get_library().rebuild()
             return {"ok": True, "path": str(source), "message": "Moved to Other Languages"}
@@ -3837,7 +3771,7 @@ def move_between_collection_and_languages(game_id: str) -> dict:
 
 
 def update_metadata_game(game_id: str, **updates: object) -> None:
-    if not METADATA_FILE.exists():
+    if not get_collection_lifecycle().current().metadata_file.exists():
         return
     metadata = load_metadata()
     changed = False
@@ -3851,7 +3785,7 @@ def update_metadata_game(game_id: str, **updates: object) -> None:
 
 
 def relative_collection_path(path: Path) -> Path:
-    return relative_to_root(COLLECTION, path)
+    return relative_to_root(get_collection_lifecycle().current().root, path)
 
 
 def unique_path(path: Path) -> Path:

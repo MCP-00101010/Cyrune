@@ -892,7 +892,7 @@ test('widget is a responsive Sports descriptor using local cache and optional re
   assert.ok(descriptor.capabilities.network.domains.includes('api.sportmonks.com'));
   assert.ok(descriptor.capabilities.network.domains.includes('v3.football.api-sports.io'));
   assert.ok(descriptor.capabilities.network.domains.includes('www.thesportsdb.com'));
-  assert.match(source, /_footballTrackerRenderHistoryAttribution\(\{ providers: displayedProviders \}\)/);
+  assert.doesNotMatch(source, /football-tracker-attribution/);
   assert.doesNotMatch(source, /\blocalStorage\b|\bfetch\s*\(/);
 });
 
@@ -1069,4 +1069,46 @@ test('an empty limited fallback does not hide a primary-provider failure', async
   const context = createContext(); context.widget = widget({ competitionCode: 'DEU-DFB' }); context.competition = vm.runInContext('_footballTrackerCompetition(widget)', context);
   vm.runInContext("_footballTrackerCompetitionPayload = async () => { throw new Error('primary unavailable'); }; _footballTrackerTheSportsDbCompetitionMatches = async () => [];", context);
   await assert.rejects(vm.runInContext("_footballTrackerCompetitionData(widget, competition, 'matches')", context), /primary unavailable/);
+});
+
+test('a cup stays selectable across kickoff, missing provider updates and elimination', () => {
+  const context = createContext();
+  context.widget = widget({ competitionCode: 'SCO-PL' });
+  context.team = { id: 1, name: 'Celtic', provider: 'sportmonks', area: 'Scotland' };
+  context.kickoff = Date.parse('2026-09-13T14:00:00Z');
+  context.matches = [{ id: 123, utcDate: context.kickoff, status: 'SCHEDULED', home: { id: 1, name: 'Celtic' }, away: { id: 2, name: 'Rangers' }, homeScore: null, awayScore: null, competition: { provider: 'sportmonks', name: 'Scottish FA Cup', area: 'Scotland' } }];
+  context.before = vm.runInContext("_footballTrackerBuildTeamHistory(matches, team, { sportmonks: 1 }, 'SCO-PL', kickoff - 1)", context);
+  const snapshot = JSON.stringify(context.before);
+  const visible = vm.runInContext('_footballTrackerVisibleHistoryGroups(widget, before.groups, kickoff + 3600000)', context);
+  assert.equal(visible.length, 1);
+  assert.equal(visible[0].matches[0].status, 'SCHEDULED');
+  assert.equal(visible[0].matches[0].result, '');
+  assert.equal(visible[0].upcoming.length, 0);
+  assert.equal(JSON.stringify(context.before), snapshot, 'reading history does not mutate the cached schedule');
+  const late = vm.runInContext("_footballTrackerBuildTeamHistory(matches, team, { sportmonks: 1 }, 'SCO-PL', kickoff + 86400000)", context);
+  assert.equal(late.groups[0].matches.length, 1, 'a late scheduled response retains participation');
+  Object.assign(context.matches[0], { status: 'FINISHED', homeScore: 0, awayScore: 3 });
+  context.result = vm.runInContext("_footballTrackerBuildTeamHistory(matches, team, { sportmonks: 1 }, 'SCO-PL', kickoff + 86400000)", context);
+  const eliminated = vm.runInContext('_footballTrackerVisibleHistoryGroups(widget, result.groups, kickoff + 86400000)', context);
+  assert.equal(eliminated.length, 1);
+  assert.equal(eliminated[0].matches[0].result, 'L');
+  assert.equal(eliminated[0].upcoming.length, 0);
+  context.matches.unshift({ ...context.matches[0], id: 999, status: 'SCHEDULED', homeScore: null, awayScore: null });
+  const merged = vm.runInContext("_footballTrackerBuildTeamHistory(matches, team, { sportmonks: 1 }, 'SCO-PL', kickoff + 86400000)", context);
+  assert.equal(merged.groups[0].matches.length, 1);
+  assert.equal(merged.groups[0].matches[0].result, 'L', 'a stale scheduled copy cannot hide the known result');
+});
+
+test('TheSportsDB supplemental team feed retains live and interrupted fixtures', async () => {
+  const context = createContext(); context.widget = widget(); context.team = { id: 1, name: 'Celtic', provider: 'theSportsDb', leagueIds: [4330] };
+  vm.runInContext(`
+    _footballTrackerResolveTheSportsDbTeam = async () => team;
+    _footballTrackerPublicJsonRequest = async () => ({ events: [] });
+    _footballTrackerTheSportsDbMatches = () => [
+      { id: 1, utcDate: Date.now(), status: 'IN_PLAY', home: team, away: { id: 2, name: 'Rangers' }, competition: { provider: 'theSportsDb' } },
+      { id: 2, utcDate: Date.now(), status: 'SUSPENDED', home: team, away: { id: 3, name: 'Hearts' }, competition: { provider: 'theSportsDb' } }
+    ];
+  `, context);
+  const result = await vm.runInContext('_footballTrackerTheSportsDbRecentMatches(widget, team, 2026)', context);
+  assert.deepEqual([...result.matches].map(match => match.status).sort(), ['IN_PLAY', 'SUSPENDED']);
 });

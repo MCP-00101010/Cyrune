@@ -31,8 +31,9 @@ const WidgetResponseBuffer = Object.freeze((() => {
     if (!response || typeof response !== 'object' || !response.headers) return response;
     const declaredLength = Number(response.headers.get?.('content-length') || 0);
     if (declaredLength > maxBytes) {
-      controller?.abort?.();
-      throw new Error(`Widget response exceeds the ${maxBytes}-byte limit.`);
+      const error = new Error(`Widget response exceeds the ${maxBytes}-byte limit.`);
+      controller?.abort?.(error);
+      throw error;
     }
 
     const chunks = [];
@@ -41,23 +42,36 @@ const WidgetResponseBuffer = Object.freeze((() => {
       const chunk = value instanceof Uint8Array ? value : new Uint8Array(value || 0);
       received += chunk.byteLength;
       if (received > maxBytes) {
-        controller?.abort?.();
-        throw new Error(`Widget response exceeds the ${maxBytes}-byte limit.`);
+        const error = new Error(`Widget response exceeds the ${maxBytes}-byte limit.`);
+        controller?.abort?.(error);
+        throw error;
       }
       chunks.push(chunk);
     };
 
     if (response.body?.getReader) {
       const reader = response.body.getReader();
+      let cancelled = false;
+      const cancel = () => {
+        if (cancelled) return;
+        cancelled = true;
+        try { void Promise.resolve(reader.cancel()).catch(() => {}); } catch {}
+      };
+      controller?.signal?.addEventListener('abort', cancel, { once: true });
       try {
+        if (controller?.signal?.aborted) throw controller.signal.reason;
         while (true) {
           const part = await reader.read();
+          if (controller?.signal?.aborted) throw controller.signal.reason;
           if (part.done) break;
           append(part.value);
         }
       } catch (error) {
-        try { await reader.cancel(); } catch {}
+        cancel();
         throw error;
+      } finally {
+        controller?.signal?.removeEventListener('abort', cancel);
+        reader.releaseLock?.();
       }
     } else if (typeof response.arrayBuffer === 'function') {
       append(await response.arrayBuffer());

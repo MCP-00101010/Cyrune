@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 require('../web/emulator-shortcuts.js');
 
 class Element {
-  children=[]; events={};
+  children=[]; events={}; dataset={};
   append(...items) { this.children.push(...items); }
   replaceChildren() { this.children=[]; }
   setAttribute(key,value) { this[key]=value; }

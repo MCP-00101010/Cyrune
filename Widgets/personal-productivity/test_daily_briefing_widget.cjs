@@ -115,3 +115,48 @@ test('daily briefing descriptor is read-only, configurable, and supports board o
   const styles = fs.readFileSync(path.join(__dirname, 'daily-briefing-widget.css'), 'utf8');
   assert.match(styles, /daily-briefing-football-crests/);
 });
+
+test('all favourite teams remain in Today after kickoff, across caches and duplicate widgets', () => {
+  const sandbox = context();
+  const now = new Date(2026, 8, 14, 18).getTime();
+  const fixtures = Array.from({ length: 10 }, (_, index) => ({
+    id: index + 1, utcDate: now - 3600000, status: index === 0 ? 'FINISHED' : 'SCHEDULED', homeScore: index === 0 ? 0 : null, awayScore: index === 0 ? 3 : null,
+    home: { id: index + 1, name: `Favourite ${index}`, provider: 'footballData' }, away: { id: 100 + index, name: `Opponent ${index}`, provider: 'footballData' }, competition: { provider: 'footballData' }
+  }));
+  const brief = { id: 'brief', type: 'widget', widgetType: 'dailyBriefing', config: { horizonDays: '1' } };
+  const tracker = { id: 'tracker', type: 'widget', widgetType: 'footballTracker', config: { favouriteTeams: fixtures.map(match => match.home) } };
+  sandbox.state = { boards: [brief, tracker], navItems: [{ ...tracker, id: 'sidebar', config: {} }] };
+  sandbox._footballTrackerRuntime = new Map([['tracker', { data: { matches: [{ ...fixtures[0], status: 'SCHEDULED', homeScore: null, awayScore: null }, ...fixtures.slice(1, 5)] } }]]);
+  sandbox._footballTrackerCached = () => [...fixtures, { ...fixtures[0], id: 90, utcDate: now - 86400000 }, { ...fixtures[0], id: 91, utcDate: now + 86400000 }];
+  sandbox.brief = brief; sandbox.now = now;
+  const before = JSON.stringify(sandbox.state);
+  const rows = vm.runInContext('_dailyBriefingRows(brief, now).sections.find(section => section.title === "Football").rows', sandbox);
+  assert.equal(rows.length, 10);
+  assert.match(rows[0].secondary, /0–3/);
+  assert.match(rows[1].secondary, /Awaiting update/);
+  assert.equal(JSON.stringify(sandbox.state), before);
+  brief.config.horizonDays = '7';
+  assert.equal(vm.runInContext('_dailyBriefingRows(brief, now).sections.find(section => section.title === "Football").rows.length', sandbox), 11);
+});
+
+test('calendar sports have independent sections and toggles, including overlapping darts tournaments', () => {
+  const sandbox = context(); const today = new Date(2026, 8, 14).getTime();
+  const brief = { id: 'brief', type: 'widget', widgetType: 'dailyBriefing', config: { showCalendar: false } };
+  const calendar = { id: 'calendar', type: 'widget', widgetType: 'protonCalendar', config: { calendars: [{ id: 'pdc', type: 'pdc', name: 'My tournaments' }, { id: 'football', type: 'football' }, { id: 'work', type: 'ics' }] } };
+  const events = [
+    { sourceId: 'pdc', uid: 'tournament', title: 'World Series Finals', start: today - 86400000, end: today + 86400000, allDay: true },
+    { sourceId: 'football', uid: '123', title: 'Celtic vs Rangers', start: today + 3600000, end: today + 10800000 },
+    { sourceId: 'work', title: 'Work meeting', start: today + 3600000, end: today + 7200000 }
+  ];
+  sandbox._calendarRuntime = new Map([['calendar', { events }], ['duplicate', { events }]]);
+  sandbox.state = { boards: [brief, calendar], navItems: [{ ...calendar, id: 'duplicate' }] };
+  sandbox.brief = brief; sandbox.now = today + 12 * 3600000;
+  let sections = vm.runInContext('_dailyBriefingRows(brief, now).sections', sandbox);
+  assert.equal(sections.some(section => section.title === 'Calendar'), false);
+  assert.deepEqual([...sections.find(section => section.title === 'Darts').rows].map(row => row.primary), ['World Series Finals']);
+  assert.equal(sections.find(section => section.title === 'Football').rows.length, 1);
+  brief.config.showCalendar = true; brief.config.showDarts = false; brief.config.showFootball = false;
+  sections = vm.runInContext('_dailyBriefingRows(brief, now).sections', sandbox);
+  assert.equal(sections.some(section => ['Darts', 'Football'].includes(section.title)), false);
+  assert.ok(sections.find(section => section.title === 'Calendar').rows.every(row => row.primary === 'Work meeting'));
+});

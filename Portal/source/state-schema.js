@@ -43,6 +43,13 @@ function migrateStateSchema(parsed) {
   if (!Number.isInteger(source) || source < MIN_STATE_MIGRATION_SCHEMA_VERSION || source > CURRENT_STATE_SCHEMA_VERSION) {
     throw new Error(`Portal state schema ${source} is unsupported. Update Portal before opening this database.`);
   }
+  // Optional confirmation fields are normalized for every supported load/import,
+  // including schema 7 snapshots written before these controls existed.
+  const settings = parsed.settings ||= {};
+  const priorConfirmation = settings.confirmDeleteBookmark === true || settings.confirmDeleteTitleDivider === true;
+  for (const key of ['confirmDeleteGame', 'confirmDeleteApplication']) {
+    if (typeof settings[key] !== 'boolean') settings[key] = priorConfirmation;
+  }
   if (source < CURRENT_STATE_SCHEMA_VERSION) upgradePortalState(parsed);
   parsed.schemaVersion = CURRENT_STATE_SCHEMA_VERSION;
   return parsed;

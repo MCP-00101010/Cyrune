@@ -31,6 +31,7 @@ Nexus owns project-status aggregation and presentation, typed shared-settings sc
 - Keep compatibility-sensitive extension/Host IDs, credential names, schema IDs, storage keys, and opaque bindings stable during path migration.
 - Keep mutable runtime data outside the checkout, with portable/development overrides where needed.
 - Keep page storage for explicitly local widget/UI state and a non-authoritative Portal recovery cache rather than the authoritative Portal database. Relay owns the versioned fallback snapshot when Host disk storage is disabled.
+- Relay retains only a versioned `host` or `relay` authority choice in `cyrunePortalAuthorityV1`, never a native path. The choice survives restarts and remains independent of Host connectivity. A configured Host outage or failed write cannot promote browser storage. Without a valid choice, verified Host configuration establishes the initial selection; if it cannot be established, Portal stays read-only and the Relay popup offers an explicit browser-storage choice. Existing browser snapshots alone do not establish authority. Changing selection never copies data between stores.
 - Route Portal database, backup, theme, and managed-background access through fixed-purpose Host operations. Relay may carry portable content and opaque revision metadata, but it must not choose or forward a native target path for those operations.
 - Gate native-only operations on declared Host capabilities and show actionable recovery when unavailable.
 - Use Inbox as the common external-delivery destination.
@@ -53,3 +54,8 @@ Each retirement names its migration baseline and removal conditions. Once those 
 The preference for migrations does not itself migrate live libraries, reset databases or approve new launch targets. Each implementation remains subject to its task scope and native ownership rules.
 
 The detailed Portal/Arcade/Relay/Host contract is defined in `portal-arcade-contract.md`. The Nexus settings and status contract is defined in `nexus-contract.md`. Component manifests, protocol negotiation, migrations, operational events and affected-suite validation are defined in `infrastructure-contract.md`; preserved aliases and their removal conditions live in `compatibility-register.json`. Portal modal and settings presentation rules are defined in `portal-ui-guidelines.md`.
+
+
+Relay owns browser-local Focus and active-site runtime records, including their collection consent, timer state, notifications and bounded IndexedDB persistence. Widgets own views and portable presets. Portal transports only fixed authenticated productivity requests and revision-only pushes; Nexus and Host do not store these browser records. See [productivity services](productivity-services.md).
+
+Relay also owns whole-domain reload, category, exclusion and site-blocking rules. Activity global-preference dialogs are Widget views of Relay state; they commit through the SDK on Done and never store profile settings in portable widget data. See the productivity services contract.

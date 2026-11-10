@@ -1,5 +1,36 @@
 # Cyrune Portal TODO
 
+- Monitor 0.13.7: widened navigation and wrapped names; Settings category rail, scrolling, keyboard navigation, tooltips and header Done in Firefox/Zen. Complete live-session acceptance with saved preferences and connected storage.
+
+- Review 0.13.6 compact workspace in the live Firefox/Zen session: custom themes/background opacity, long navigation names, drag/drop, search, settings drafts and narrow/text-scaled layouts. Automated checks do not replace final visual acceptance.
+
+- Monitor 0.13.5: theme-following Widget card borders and opaque draggable nested Templates.
+
+- Monitor 0.13.4: custom Widget names, settings Done/Cancel and bordered cards at compact widths/text scales.
+
+- Monitor 0.13.3: stable widget body tracking for board/sidebar live refresh.
+
+- Monitor 0.13.2: coordinated Widgets location-search load order and weather/map settings selection/commit.
+
+- Monitor 0.13.1: Widget Templates modal, Escape/focus return, bottom-left action and compact/text-scaled layouts.
+
+- Monitor 0.13.0: shared Focus controls, background phase notifications, restart recovery and explicit legacy adoption; opt-in activity sampling, retention/deletion and compact reporting in board/sidebar layouts. See `../docs/architecture/productivity-services.md`.
+
+
+- Monitor 0.12.30: unified Search, optional history, catalogue placement, inherited locks and reviewed Inbox suggestions across Firefox/Zen and slower devices.
+
+- Monitor 0.12.29: conditional shortcut repair, stable public game references, exact repair preselection and explicit user approval after missing native records.
+
+- Monitor 0.12.28: normal game launch without readiness badges, readable action failures, and explicit missing-shortcut repair through Arcade.
+
+- Monitor 0.12.27: search/command destinations and inherited locks, per-type shortcut confirmations, read-only storage guidance, shared link preferences, scaled typography and Trash destination retention.
+
+- Monitor 0.12.25: early-startup bookmark/import intake, existing Inbox destinations, retries and authoritative persistence.
+
+- Monitor 0.12.24: Monitor delivery retries/timeouts, conflict recovery, captured Inbox destinations and Undo after rebase across Relay and Host storage.
+
+- Monitor 0.12.23: creating widgets in tab columns through Done, including Media Watchlist settings.
+
 - Monitor 0.12.22: coordinated data cutover, current protocol negotiation and first-reload browser upgrades. See `docs/architecture/suite-data-cutover.md` at repository root.
 
 - Monitor 0.12.22: scrape retry/resume, cross-platform artwork, repeated collection switches and Game Boy picker use. Implementation details and validation: `../docs/reviews/arcade-implementation-2026-09-08.md`.
@@ -34,10 +65,10 @@ This file owns outstanding dashboard, board, item, launcher-presentation, and Po
 
 - Continue checking the established content-modal and utility-modal patterns on less-used create/edit surfaces, particularly true text-rail alignment and accessible control sizing.
 
-### Unified search modal — after the current Arcade work
+### Unified search follow-up
 
-- Unify Portal search, the search widget engine and the game picker in one modal for games, bookmarks and applications.
-- Support dragging results into any Portal container that accepts that item type, including eligible columns, folders/subfolders, Essentials and Speed Dial slots. Reuse destination lock/capacity checks, existing item rules and the required binding/save boundaries. Keep games excluded from Sets and bulk-launch workflows.
+- Unified Search now combines Portal records, the Universal Search provider engine and transient Arcade catalogue results, with drag placement and explicit keyboard placement. Keep the existing batch Add Game picker as a complementary multi-selection workflow.
+- Continue acceptance of maximum-length metadata, slow catalogue responses, empty/occupied launcher slots, multiple tabs, reconnects and uncertain authoritative saves. Games remain excluded from Sets and bulk launches.
 
 ## Portal-Fronted Arcade Migration
 
@@ -53,7 +84,7 @@ Portal is the user-facing organiser and launcher for a curated selection of game
 
 ### Catalogue picker and curated placement
 
-- Skip separate **Add Game** entry points for folders/subfolders, Essentials and Speed Dial. Placement from search will be handled by drag-and-drop from the planned unified search modal above.
+- Skip separate **Add Game** entry points for folders/subfolders, Essentials and Speed Dial. Unified Search now supplies drag-and-drop and explicit destination selection for these placements.
 - Continue browser acceptance on Zen and slower devices, including long metadata, maximum selections, partial failures and uncertain saves. Installed Firefox 155.0.1 passed the complete column workflow with 12,933 synthetic entries; adversarial cases remain covered by automated controller and joined native tests.
 - Keep the existing Arcade-to-Portal direction as a complementary batch workflow. Arcade may deliver several compact game items to the active Portal Inbox, but it must not inspect or mutate Portal boards, tabs, folders, or destinations.
 - Do not add the whole Arcade catalogue to Portal state. Defer dynamic catalogue-backed collections unless real use shows they are valuable beyond the curated picker workflow.

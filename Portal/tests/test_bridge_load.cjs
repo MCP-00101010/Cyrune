@@ -34,6 +34,30 @@ test('theme publication uses authoritative snapshots and cannot fail a database 
   assert.equal(sent.filter(msg=>msg.type==='MW_PUBLISH_PORTAL_THEME').at(-1).theme.snapshotTheme,'saved');
 });
 
+test('storage capability does not override an unavailable selected authority', async () => {
+  const listeners = [];
+  const window = { location: { href: 'file:///Portal/index.html' },
+    addEventListener(type, listener) { if (type === 'message') listeners.push(listener); },
+    dispatchEvent() {},
+    postMessage(message) {
+      queueMicrotask(() => listeners.forEach(listener => listener({ source: window, data: {
+        _mw: true, _res: true, id: message.id, ok: true, nativeAvailable: false,
+        authoritativeStorageAvailable: false, storageMode: 'unselected', authoritySelectionRequired: true,
+        storageError: 'Choose Portal storage in the Cyrune Relay popup.', capabilities: ['portalAuthority'],
+        protocols: { 'portal-relay': 2, 'component-settings': 2 }
+      } })));
+    } };
+  const context = vm.createContext({ window, document: { hidden: false, hasFocus: () => true },
+    setTimeout, clearTimeout, CustomEvent: class {} });
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '../source/bridge.js'), 'utf8'), context);
+  await vm.runInContext('bridge.whenReady', context);
+  const info = await vm.runInContext('bridge.getStorageInfo()', context);
+  assert.equal(vm.runInContext('bridge.storageIsAvailable()', context), false);
+  assert.equal(info.authoritySelectionRequired, true);
+  assert.equal(info.storageMode, 'unselected');
+  assert.match(info.storageError, /Choose Portal storage/);
+});
+
 test('Relay reconnection never replays uncertain game actions', async () => {
   const listeners = [], sent = [];
   const dispatch = data => listeners.forEach(fn => fn({source: window, data}));
@@ -53,7 +77,6 @@ test('Relay reconnection never replays uncertain game actions', async () => {
     "bridge.gameVersions('game_abcdefghijklmnop', 'launch', {catalogueId:'version'})",
     "bridge.gameVersions('game_abcdefghijklmnop', 'default', {catalogueId:'version'})",
     "bridge.revealGame('game_abcdefghijklmnop')",
-    "bridge.forgetGame('game_abcdefghijklmnop')",
   ]) {
     const action = vm.runInContext(expression, context);
     const rejected = assert.rejects(action, error => error.code === 'outcome-unknown');
@@ -299,7 +322,6 @@ test('directory approval keeps the page request alive for the interactive picker
       else if (message.type === 'MW_LAUNCH_GAME') response = { ok: true };
       else if (message.type === 'MW_OPEN_GAME_IN_EMUGUI') response = { ok: true };
       else if (message.type === 'MW_REVEAL_GAME') response = { ok: true };
-      else if (message.type === 'MW_FORGET_GAME') response = { ok: true, removed: true };
       else response = { ok: false, error: 'No terminal application was found' };
       setImmediate(() => {
         for (const listener of (windowListeners.get('message') || [])) {
@@ -343,8 +365,7 @@ test('directory approval keeps the page request alive for the interactive picker
   assert.equal(await vm.runInContext("bridge.openGameInArcade('game_abcdefghijklmnop', { rebind: true })", context), true);
   assert.equal(await vm.runInContext("bridge.openGameInArcade('game_abcdefghijklmnop')", context), true);
   assert.equal(await vm.runInContext("bridge.revealGame('game_abcdefghijklmnop')", context), true);
-  assert.equal(await vm.runInContext("bridge.forgetGame('game_abcdefghijklmnop')", context), true);
-  assert.equal(scheduledTimeouts.filter(timeout => timeout === 120000).length, 7);
+  assert.equal(scheduledTimeouts.filter(timeout => timeout === 120000).length, 6);
   await assert.rejects(
     vm.runInContext("bridge.openApprovedDirectory('dir_abcdefghijklmnop', 'git', 'terminal')", context),
     /No terminal application was found/

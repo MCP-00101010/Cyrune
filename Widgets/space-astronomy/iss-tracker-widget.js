@@ -391,10 +391,6 @@ function _destroyIssTracker(widgetId) {
   _issTrackerInstances.delete(widgetId);
 }
 
-function _destroyAllIssTrackers() {
-  [..._issTrackerInstances.keys()].forEach(_destroyIssTracker);
-}
-
 function _captureIssAttribution(instance) {
   const container = instance?.map?.getContainer?.()?.querySelector?.('.maplibregl-ctrl-attrib.maplibregl-compact');
   if (!container) return null;
@@ -467,7 +463,6 @@ function _updateIssTracker(instance, date = new Date(), forceGeometry = false) {
   }
   return position;
 }
-
 
 // ---- ISS Tracker widget ----
 
@@ -569,7 +564,10 @@ WIDGET_REGISTRY['issTracker'] = {
       }
     };
     updateStatus();
-    mapShell.append(mapContainer, focusButton, northButton, status);
+    const focusControls = document.createElement('div');
+    focusControls.className = 'widget-iss-focus-controls';
+    focusControls.append(focusButton, northButton);
+    mapShell.append(mapContainer, focusControls, status);
     el.appendChild(mapShell);
 
     const legend = document.createElement('div');
@@ -592,12 +590,6 @@ WIDGET_REGISTRY['issTracker'] = {
       factElements[`${key}Value`] = value;
     });
     el.appendChild(facts);
-
-    const attribution = document.createElement('div');
-    attribution.className = 'widget-iss-attribution';
-    attribution.innerHTML = 'Orbit: <a href="https://wheretheiss.at/w/developer" target="_blank" rel="noreferrer noopener">Where The ISS At</a> / <a href="https://celestrak.org/" target="_blank" rel="noreferrer noopener">CelesTrak</a> · local SGP4 propagation';
-    attribution.addEventListener('mousedown', event => event.stopPropagation());
-    el.appendChild(attribution);
 
     if (typeof maplibregl === 'undefined' || typeof satellite === 'undefined') {
       status.classList.remove('hidden');
@@ -830,6 +822,6 @@ WIDGET_REGISTRY['issTracker'] = {
         <span>Shade night side</span>
         <label class="settings-toggle"><input type="checkbox" data-cfg="showNightShade" ${c.showNightShade !== false ? 'checked' : ''}/><span class="toggle-track"></span></label>
       </div>
-      <div class="settings-help">Drag the globe with the left mouse button and use the mouse wheel or map controls to zoom. Globe orientation and zoom are saved only in this browser.</div>`;
+      `;
   }
 };

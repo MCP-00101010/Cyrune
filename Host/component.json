@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "host",
   "name": "Host",
-  "version": "0.2.26",
+  "version": "0.2.29",
   "kind": "native-service",
   "entrypoint": null,
   "icon": "assets/host.svg",

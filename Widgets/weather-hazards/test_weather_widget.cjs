@@ -32,7 +32,7 @@ function loadWidgets(fetchImpl = async () => ({ ok: true, json: async () => ({})
   vm.runInContext(fs.readFileSync(responseFilename, 'utf8'), context, { filename: responseFilename });
   const sdkFilename = path.join(__dirname, '..', 'core', 'widget-sdk.js');
   vm.runInContext(fs.readFileSync(sdkFilename, 'utf8'), context, { filename: sdkFilename });
-  for (const moduleName of ['weather-widget.js', 'weather-map-widget.js']) {
+  for (const moduleName of ['location-search.js', 'weather-widget.js', 'weather-map-widget.js']) {
     const moduleFilename = path.join(__dirname, moduleName);
     vm.runInContext(fs.readFileSync(moduleFilename, 'utf8'), context, { filename: moduleFilename });
   }
@@ -397,7 +397,7 @@ test('weather styling includes current conditions, forecast rows and location re
   const weatherSource = fs.readFileSync(path.join(__dirname, 'weather-widget.js'), 'utf8');
   assert.match(weatherSource, /data-cfg="showAirQuality"/);
   assert.match(weatherSource, /data-cfg="airQualityIndex"/);
-  assert.match(weatherSource, /Air quality by CAMS/);
+
 });
 
 test('weather map widget is registered with regional map defaults', () => {
@@ -410,6 +410,7 @@ test('weather map widget is registered with regional map defaults', () => {
     name: 'Weather Map',
     allowedIn: ['column'],
     config: {
+      useWeatherLocation: true,
       locationName: '',
       latitude: '',
       longitude: '',
@@ -536,6 +537,14 @@ test('committing a changed Weather Map origin discards the old camera without re
   assert.equal(vm.runInContext('_readWeatherMapView(widget)', context), null);
   assert.equal(storage.has('morpheus-webhub-weather-map-view:map-settings-commit'), false);
   assert.equal(context.widget.config.originZoom, 8);
+});
+
+test('Weather Map accepts numeric coordinates selected by the location picker', () => {
+  const { context } = loadWidgets();
+  const result = vm.runInContext(`WidgetSDK.settings.validateDraft(WIDGET_REGISTRY.weatherMap, {
+    config: {...WIDGET_REGISTRY.weatherMap.defaultConfig, latitude:55.9533, longitude:-3.1883}
+  })`, context);
+  assert.equal(result.valid, true, result.errors.join('; '));
 });
 
 test('weather map feature collection extracts each forecast layer at the selected hour', () => {
@@ -681,6 +690,62 @@ test('weather map captures a valid MapLibre camera before rerendering', () => {
   assert.deepEqual(JSON.parse(JSON.stringify(context.instance.runtime.camera)), JSON.parse(JSON.stringify(camera)));
 });
 
+test('weather map follows an externally changed origin instead of restoring the previous city camera', () => {
+  const { context } = loadWidgets();
+  const camera = { latitude: 51.5, longitude: -0.1, zoom: 9 };
+  context.widget = { id: 'changed-city', config: { latitude: 51.5, longitude: -0.1, originZoom: 7 } };
+  context.camera = camera;
+  vm.runInContext(`
+    const runtime = _getWeatherMapRuntime(widget);
+    runtime.camera = camera;
+    _weatherMapInstances.set(widget.id, {
+      widgetId: widget.id, widget, runtime, markers: [],
+      map: {getCenter: () => ({lat: camera.latitude, lng: camera.longitude}), getZoom: () => camera.zoom, remove() {}}
+    });
+    widget.config.latitude = 55.9533; widget.config.longitude = -3.1883;
+    _destroyWeatherMap(widget.id);
+  `, context);
+  assert.equal(vm.runInContext('_getWeatherMapRuntime(widget).camera', context), null);
+  assert.deepEqual(JSON.parse(JSON.stringify(vm.runInContext('_weatherMapCenter(widget)', context))), { latitude: 55.9533, longitude: -3.1883 });
+});
+
+test('committing a Weather location refreshes only widgets that inherit Weather locations', () => {
+  const { context } = loadWidgets();
+  const refreshed = [];
+  context._refreshWidget = (id, area) => refreshed.push(`${id}:${area}`);
+  context.widget = { id: 'source', type: 'widget', widgetType: 'weather', config: { latitude: 55.9533, longitude: -3.1883 } };
+  context.state = { boards: [{ items: [context.widget,
+    { id: 'hazards', type: 'widget', widgetType: 'globalHazards', config: { useWeatherLocation: true } },
+    { id: 'sky', type: 'widget', widgetType: 'astronomy', config: {} },
+    { id: 'map', type: 'widget', widgetType: 'weatherMap', config: {} },
+    { id: 'custom', type: 'widget', widgetType: 'globalHazards', config: { useWeatherLocation: false } }
+  ] }] };
+  vm.runInContext('WIDGET_REGISTRY.weather.onSettingsCommit(widget, {latitude:51.5, longitude:-0.1})', context);
+  assert.deepEqual(refreshed, ['hazards:column', 'sky:column', 'map:column']);
+  refreshed.length = 0;
+  vm.runInContext('WIDGET_REGISTRY.weather.onSettingsCommit(widget, {...widget.config})', context);
+  assert.deepEqual(refreshed, []);
+});
+
+test('Weather Map follows Weather by default while an explicit independent origin stays independent', () => {
+  const { context } = loadWidgets();
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '../space-astronomy/astronomy-widget.js'), 'utf8'), context);
+  context.weather = { id: 'source', type: 'widget', widgetType: 'weather', config: { latitude: 55.95, longitude: -3.19, locationName: 'Edinburgh' } };
+  context.widget = { id: 'map', type: 'widget', widgetType: 'weatherMap', config: { latitude: 51.5, longitude: -0.1, locationName: 'London' } };
+  context.state = { boards: [{ items: [context.widget, context.weather] }] };
+  assert.equal(vm.runInContext('_weatherMapEffectiveConfig(widget).locationName', context), 'Edinburgh');
+  assert.deepEqual(JSON.parse(JSON.stringify(vm.runInContext('_weatherMapCenter(widget)', context))), { latitude: 55.95, longitude: -3.19 });
+  vm.runInContext(`globalThis.CyruneSettings = {get:()=>({values:{region:{latitude:53.959,longitude:-1.0815,city:'York'}}})}`, context);
+  context.widget.config.inheritCyruneLocation = true;
+  assert.equal(vm.runInContext('_weatherMapEffectiveConfig(widget).locationName', context), 'York');
+  context.widget.config.inheritCyruneLocation = false;
+  context.widget.config.useWeatherLocation = false;
+  assert.equal(vm.runInContext('_weatherMapEffectiveConfig(widget).locationName', context), 'London');
+  context.widget.config.useWeatherLocation = true;
+  context.state.boards = [{ items: [context.widget] }];
+  assert.equal(vm.runInContext('_weatherMapEffectiveConfig(widget).locationName', context), 'London');
+});
+
 test('weather map captures compact attribution state before recreation', () => {
   const { context } = loadWidgets();
   context.instance = {
@@ -758,13 +823,13 @@ test('weather map uses dedicated layers and animation controls for combined over
   assert.match(widgets, /_restoreWeatherMapAttribution\(instance\)/);
 });
 
-test('weather map forecast refreshes update the existing canvas in place', () => {
+test('weather map forecast refreshes at an unchanged origin update the existing canvas in place', () => {
   const widgets = fs.readFileSync(path.join(__dirname, 'weather-map-widget.js'), 'utf8');
   const refresherStart = widgets.indexOf("timeInput.addEventListener('input'");
   const refresherEnd = widgets.indexOf('\n  renderSettings(widget, container)', refresherStart);
   assert.ok(refresherStart > 0 && refresherEnd > refresherStart);
-  const inPlaceRefresh = widgets.slice(refresherStart, refresherEnd);
-  assert.match(inPlaceRefresh, /_setWidgetRefresher\(widget\.id, context/);
+  const refresher = widgets.slice(refresherStart, refresherEnd);
+  const inPlaceRefresh = refresher.slice(refresher.indexOf('runtime = _getWeatherMapRuntime(widget);'));
   assert.match(inPlaceRefresh, /const refreshedCache = _readWeatherMapCache\(widget\)/);
   assert.match(inPlaceRefresh, /applyLayers\(\)/);
   assert.doesNotMatch(inPlaceRefresh, /_destroyWeatherMap\(/);

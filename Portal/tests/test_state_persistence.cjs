@@ -52,6 +52,118 @@ function loadStateScript() {
   return { context, saves, storage, storageWrites };
 }
 
+test('captured search destinations resolve all tabs, retain ancestors and fail closed after deletion', () => {
+  const {context} = loadStateScript();
+  const result = vm.runInContext(`(() => {
+    state.boards = [{id:'active',tabs:[{id:'home',columns:[]}]},
+      {id:'source',speedDial:[{id:'dial',type:'bookmark'}],tabs:[
+        {id:'first',columns:[]}, {id:'second',columns:[{id:'column',items:[
+          {id:'parent',type:'folder',locked:true,children:[{id:'child',type:'bookmark'}]}
+        ]}]}]}];
+    state.activeBoardId = 'active'; state.activeTabId = 'home';
+    const captured = {area:'board-item',boardId:'source',itemId:'child'};
+    const locked = resolvePortalItemContext(captured);
+    deleteBoardTarget(captured);
+    const retained = !!resolvePortalItemContext(captured);
+    state.boards[1].tabs[1].columns[0].items[0].locked = false;
+    const unlocked = resolvePortalItemContext(captured);
+    const dial = resolvePortalItemContext({area:'speed-dial-item',boardId:'source',itemId:'dial'});
+    deleteBoardTarget(captured);
+    state.boards.pop();
+    return {locked,retained,unlocked,dial,removed:resolvePortalItemContext(captured),stale:getBoardForContext(captured),active:state.activeBoardId};
+  })()`, context);
+  assert.equal(result.locked.locked, true);
+  assert.equal(result.locked.tabId, 'second');
+  assert.equal(result.locked.parentId, 'parent');
+  assert.equal(result.retained, true);
+  assert.equal(result.unlocked.locked, false);
+  assert.equal(result.dial.boardId, 'source');
+  assert.equal(result.dial.slot, 0);
+  assert.equal(result.removed, null);
+  assert.equal(result.stale, null);
+  assert.equal(result.active, 'active');
+});
+
+test('shortcut confirmation normalization preserves older choices and later explicit opt-outs', () => {
+  const {context} = loadStateScript();
+  const result = vm.runInContext(`(() => {
+    const old = migrateStateSchema({schemaVersion:7,settings:{confirmDeleteBookmark:false,confirmDeleteTitleDivider:true}});
+    old.settings.confirmDeleteGame = false;
+    return migrateStateSchema(old).settings;
+  })()`, context);
+  assert.equal(result.confirmDeleteBookmark,false);
+  assert.equal(result.confirmDeleteTitleDivider,true);
+  assert.equal(result.confirmDeleteGame,false);
+  assert.equal(result.confirmDeleteApplication,true);
+});
+
+test('dispatch rechecks a newly locked, read-only or deleted source rather than trusting menu metadata', () => {
+  const {context} = loadStateScript();
+  vm.runInContext(fs.readFileSync(path.join(__dirname,'../source/context.js'),'utf8'),context);
+  const notices=[], opens=[];
+  context.showNotice = text => notices.push(text);
+  context.openHubBookmark = item => opens.push(item.id);
+  vm.runInContext(`state.boards=[{id:'source',tabs:[{id:'tab',columns:[{id:'column',items:[
+    {id:'folder',type:'folder',locked:true,children:[{id:'bookmark',type:'bookmark',url:'https://example.com'}]}
+  ]}]}]}];
+  contextTarget={area:'board-item',boardId:'source',itemId:'bookmark'};
+  handleContextMenuAction('deleteItem');
+  handleContextMenuAction('openNewTab');
+  state.boards[0].tabs[0].columns[0].items[0].locked=false;
+  globalThis.portalReadOnlyMode=true; handleContextMenuAction('deleteItem');
+  globalThis.portalReadOnlyMode=false;state.boards=[];handleContextMenuAction('deleteItem');`,context);
+  assert.equal(notices.length,3);
+  assert.deepEqual(opens,['bookmark']);
+});
+
+test('Trash restores into the original hidden tab and retains items while that destination is locked or missing', () => {
+  const {context} = loadStateScript();
+  const result=vm.runInContext(`(() => {
+    state.boards=[{id:'board',speedDial:[],tabs:[{id:'visible',columns:[{id:'visible-column',items:[]}]},
+      {id:'hidden',columns:[{id:'hidden-column',items:[]}]}]}];
+    state.activeBoardId='board';state.activeTabId='visible';
+    recentlyDeleted=[{trashId:'restore',item:{id:'bookmark',type:'bookmark',title:'Restored',url:'https://example.com',tags:[]},source:{area:'board-item',boardId:'board',tabId:'hidden',columnId:'hidden-column'}}];
+    state.boards[0].tabs[1].locked=true;
+    const locked=restoreFromTrash('restore');const retained=recentlyDeleted.length;
+    state.boards[0].tabs[1].locked=false;const restored=restoreFromTrash('restore');
+    recentlyDeleted=[{trashId:'missing',item:{id:'missing-item',type:'bookmark'},source:{area:'board-item',boardId:'removed',columnId:'removed'}}];
+    const missing=restoreFromTrash('missing');
+    return {locked,retained,restored,visible:state.boards[0].tabs[0].columns[0].items.length,
+      hidden:state.boards[0].tabs[1].columns[0].items[0].id,missing,left:recentlyDeleted.length};
+  })()`,context);
+  assert.equal(result.locked,false);assert.equal(result.retained,1);
+  assert.equal(result.restored,true);assert.equal(result.visible,0);assert.equal(result.hidden,'bookmark');
+  assert.equal(result.missing,false);assert.equal(result.left,1);
+});
+
+test('Speed Dial duplicate/delete keep the owning board and a confirmed Essential deletion follows its current slot', () => {
+  const {context} = loadStateScript();
+  vm.runInContext(fs.readFileSync(path.join(__dirname,'../source/context.js'),'utf8'),context);
+  context.renderAll=()=>{};context.renderEssentials=()=>{};context.saveState=()=>{};
+  context.pushUndoSnapshot=()=>{};context.updateTrashBadge=()=>{};
+  const trash=[];let confirm;
+  context.pushToTrash=(item,source)=>trash.push({item,source});
+  context.confirmDelete=(_key,_message,callback)=>{confirm=callback;};
+  vm.runInContext(`state.boards=[{id:'visible',speedDial:[{id:'other',type:'bookmark'}],tabs:[]},
+    {id:'source',speedDialSlotCount:2,speedDial:[{id:'dial',type:'bookmark',title:'Source',url:'https://example.com'},null],tabs:[]}];
+    state.activeBoardId='visible';
+    contextTarget={area:'speed-dial-item',boardId:'source',itemId:'dial'};
+    handleContextMenuAction('duplicateBookmark');handleContextMenuAction('deleteSpeedDial');
+    contextTarget={area:'speed-dial-item',boardId:'visible',itemId:'other'};`,context);
+  confirm();
+  assert.equal(vm.runInContext("state.boards[0].speedDial[0].id",context),'other');
+  assert.equal(vm.runInContext("state.boards[1].speedDial[0]",context),null);
+  assert.match(vm.runInContext("state.boards[1].speedDial[1].title",context),/Source \(copy\)/);
+  assert.equal(trash[0].source.boardId,'source');
+  vm.runInContext(`state.essentials=[{id:'essential',type:'bookmark',title:'Essential',url:'https://example.com'}];
+    contextTarget={area:'essential',itemId:'essential',slot:0};handleContextMenuAction('deleteEssential');
+    state.essentials.unshift({id:'new-slot',type:'bookmark'});`,context);
+  confirm();
+  assert.equal(vm.runInContext('state.essentials[0].id',context),'new-slot');
+  assert.equal(vm.runInContext('state.essentials.some(item=>item?.id === "essential")',context),false);
+  assert.equal(trash[1].source.slot,1);
+});
+
 test('Portal upgrades its supported baseline once and rejects newer data', () => {
   const { context } = loadStateScript();
   assert.equal(vm.runInContext('migrateStateSchema({ schemaVersion: 2 }).schemaVersion', context), 7);
@@ -177,6 +289,24 @@ test('page debounce resolves every covered save only after latest snapshot persi
     fileInfo: { version: 'v3', contentHash: 'h3' }
   });
   await third;
+});
+
+test('Relay CAS conflict keeps the edit and reaches conflict handling without authority rollback', async () => {
+  const h = loadStateScript(), events = [], readOnly = [];
+  h.context.window.dispatchEvent = event => events.push(event);
+  h.context.setPortalReadOnlyMode = value => readOnly.push(value);
+  const saved = vm.runInContext("state.hubName = 'Pending edit'; saveState()", h.context);
+  const flush = h.context.flushSharedDiskSaveQueue();
+  assert.equal(h.saves.length, 1);
+  h.saves[0].pending.resolve({ ok: false, conflict: true, storageMode: 'relay',
+    fileInfo: { version: 'relay:2:hash', contentHash: 'hash' } });
+  assert.equal((await saved).conflict, true);
+  await flush;
+  assert.equal(vm.runInContext('state.hubName', h.context), 'Pending edit');
+  assert.equal(vm.runInContext('sharedDiskSyncIsBlocked()', h.context), true);
+  assert.equal(events.filter(event => event.type === 'morpheus:shared-disk-conflict').length, 1);
+  assert.deepEqual(readOnly, []);
+  assert.equal(h.context.getAuthoritativePortalSnapshot(), '');
 });
 
 test('snapshot comparison ignores JSON formatting and object property order', () => {

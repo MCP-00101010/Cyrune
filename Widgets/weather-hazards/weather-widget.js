@@ -58,6 +58,26 @@ function _weatherEffectiveConfig(widget) {
   return effective;
 }
 
+function _refreshWeatherLocationDependents(widget, previousConfig) {
+  const locationKey = config => {
+    const effective = _weatherEffectiveConfig({ config });
+    return JSON.stringify([effective.latitude, effective.longitude, effective.locationName]);
+  };
+  if (locationKey(previousConfig) === locationKey(widget.config) || typeof state === 'undefined') return;
+  const visited = new Set();
+  const visit = value => {
+    if (!value || typeof value !== 'object' || visited.has(value)) return;
+    visited.add(value);
+    if (value.type === 'widget') {
+      if (value.id !== widget.id && ['weatherMap', 'globalHazards', 'astronomy'].includes(value.widgetType)
+          && value.config?.useWeatherLocation !== false) _refreshWidget(value.id, 'column');
+      return;
+    }
+    Object.values(value).forEach(visit);
+  };
+  visit(state.boards);
+}
+
 function _weatherSignature(widget) {
   const c = _weatherEffectiveConfig(widget);
   if (c.latitude === '' || c.latitude == null || c.longitude === '' || c.longitude == null) return '';
@@ -445,6 +465,7 @@ function _enableWeatherHourlyDragScroll(viewport) {
 // ---- Weather widget ----
 
 WIDGET_REGISTRY['weather'] = {
+  onSettingsCommit(widget, previousConfig) { _refreshWeatherLocationDependents(widget, previousConfig); },
   name: 'Weather',
   category: 'Weather & Hazards',
   description: 'Current weather, air quality and a multi-day forecast from Open-Meteo',
@@ -484,6 +505,7 @@ WIDGET_REGISTRY['weather'] = {
   },
 
   dispose(widget) {
+    _clearWidgetLocationLabel(widget, 'weather');
 
     _weatherRuntime.delete(widget.id);
     _weatherMemoryCache.delete(widget.id);
@@ -568,7 +590,7 @@ WIDGET_REGISTRY['weather'] = {
       header.className = 'widget-weather-header';
       const location = document.createElement('div');
       location.className = 'widget-weather-location';
-      location.textContent = c.locationName || payload.timezone_abbreviation || 'Weather';
+      location.textContent = _widgetLocationDisplayName(widget, 'weather', c, payload.timezone_abbreviation || 'Weather');
       header.appendChild(location);
 
       const currentRow = document.createElement('div');
@@ -735,28 +757,6 @@ WIDGET_REGISTRY['weather'] = {
       }
     }
 
-    const attribution = document.createElement('div');
-    attribution.className = 'widget-weather-attribution';
-    const openMeteoLink = document.createElement('a');
-    openMeteoLink.href = 'https://open-meteo.com/';
-    openMeteoLink.target = '_blank';
-    openMeteoLink.rel = 'noreferrer noopener';
-    openMeteoLink.textContent = c.showAirQuality !== false
-      ? 'Weather and air-quality data by Open-Meteo.com'
-      : 'Weather data by Open-Meteo.com';
-    openMeteoLink.addEventListener('mousedown', event => event.stopPropagation());
-    attribution.appendChild(openMeteoLink);
-    if (c.showAirQuality !== false) {
-      const separator = document.createTextNode(' · ');
-      const camsLink = document.createElement('a');
-      camsLink.href = 'https://ads.atmosphere.copernicus.eu/';
-      camsLink.target = '_blank';
-      camsLink.rel = 'noreferrer noopener';
-      camsLink.textContent = 'Air quality by CAMS';
-      camsLink.addEventListener('mousedown', event => event.stopPropagation());
-      attribution.append(separator, camsLink);
-    }
-    el.appendChild(attribution);
   },
 
   renderSettings(widget, container) {

@@ -11,7 +11,7 @@ globalThis.CyruneComponentRegistry = (() => {
   {
     "id": "portal",
     "name": "Portal",
-    "version": "0.12.22",
+    "version": "0.13.7",
     "kind": "page",
     "accent": "violet",
     "adapter": "portal",
@@ -43,7 +43,7 @@ globalThis.CyruneComponentRegistry = (() => {
   {
     "id": "widgets",
     "name": "Widgets",
-    "version": "0.2.18",
+    "version": "0.6.6",
     "kind": "catalogue",
     "accent": "cyan",
     "adapter": "widgets",
@@ -59,6 +59,7 @@ globalThis.CyruneComponentRegistry = (() => {
       "managed-network",
       "native-gateways",
       "presets",
+      "productivity-gateway",
       "settings-inheritance",
       "text-scaling"
     ],
@@ -73,7 +74,7 @@ globalThis.CyruneComponentRegistry = (() => {
   {
     "id": "arcade",
     "name": "Arcade",
-    "version": "0.2.58",
+    "version": "0.2.81",
     "kind": "page",
     "accent": "orange",
     "adapter": "arcade",
@@ -110,7 +111,7 @@ globalThis.CyruneComponentRegistry = (() => {
   {
     "id": "relay",
     "name": "Relay",
-    "version": "1.1.13",
+    "version": "1.6.6",
     "kind": "extension",
     "accent": "blue",
     "adapter": "relay",
@@ -120,12 +121,20 @@ globalThis.CyruneComponentRegistry = (() => {
     "todo": "../Relay/Relay-TODO.md",
     "changelog": "../Relay/Relay-CHANGELOG.md",
     "capabilities": [
+      "browser-activity",
       "browser-sessions",
+      "domain-controls",
       "durable-intake",
       "exact-page-auth",
+      "focus-timer",
       "native-transport",
       "notifications",
-      "portal-authority"
+      "portal-authority",
+      "site-allowances",
+      "site-blocking",
+      "tab-timer-overview",
+      "tab-unloading",
+      "temporary-timer-overrides"
     ],
     "protocols": {
       "portal-relay": 2,
@@ -139,13 +148,18 @@ globalThis.CyruneComponentRegistry = (() => {
       "arcade-gameboy": 1
     },
     "schemas": {
-      "manifest": 2
+      "manifest": 2,
+      "productivity": 4,
+      "domainRules": 1,
+      "refreshDomains": 2,
+      "unloadDomains": 1,
+      "siteAllowances": 1
     }
   },
   {
     "id": "host",
     "name": "Host",
-    "version": "0.2.26",
+    "version": "0.2.29",
     "kind": "native-service",
     "accent": "green",
     "adapter": "host",
@@ -181,7 +195,7 @@ globalThis.CyruneComponentRegistry = (() => {
   {
     "id": "nexus",
     "name": "Nexus",
-    "version": "0.3.1",
+    "version": "0.3.2",
     "kind": "page",
     "accent": "pink",
     "adapter": "nexus",

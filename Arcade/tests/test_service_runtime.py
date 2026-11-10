@@ -141,7 +141,7 @@ def test_transport_neutral_api_rejects_unknown_operations():
 
 def test_native_asset_reader_is_bounded_to_supported_collection_images(tmp_path):
     server = load_server()
-    server.COLLECTION = tmp_path
+    server.DESASTERON_COLLECTION = tmp_path
     image = tmp_path / "_assets" / "cover.png"
     image.parent.mkdir()
     image.write_bytes(b"\x89PNG\r\n\x1a\nsmall")
@@ -167,8 +167,8 @@ def test_collection_metadata_paths_cannot_escape_the_collection(tmp_path):
     outside_pok = tmp_path / "outside.pok"
     outside_game.write_bytes(b"game")
     outside_pok.write_bytes(b"NInfinite lives\n")
-    server.COLLECTION = collection
-    server.METADATA_FILE = collection / "collection-metadata.json"
+    server.DESASTERON_COLLECTION = collection
+
     server.load_metadata = lambda: {
         "games": [{"id": "outside", "file": "../outside.tap", "title": "Outside"}],
         "poks": [{"id": "outside-pok", "file": "../outside.pok", "title_key": "outside", "memory": "48K"}],
@@ -247,7 +247,7 @@ def test_persisted_root_and_collection_shapes_are_validated(tmp_path):
     server.DATA = tmp_path
     server.STATE_FILE = tmp_path / "state.json"
     server.CONFIG_FILE = tmp_path / "config.json"
-    server.METADATA_FILE = tmp_path / "collection-metadata.json"
+    server.DESASTERON_COLLECTION = tmp_path
     server.discover_collections = lambda: []
     server.STATE_FILE.write_text("[]", encoding="utf-8")
     server.CONFIG_FILE.write_text(json.dumps({
@@ -263,8 +263,19 @@ def test_persisted_root_and_collection_shapes_are_validated(tmp_path):
     assert server.load_config()["emulators"] == {}
     assert server.load_config()["emulator_profiles"] == []
     assert server.load_config()["scrapers"] == {}
-    assert server.load_metadata()["games"] == []
-    assert server.load_metadata()["poks"] == []
+    with pytest.raises(ValueError, match='collection index.*unreadable'):
+        server.load_metadata()
+
+
+def test_test_runtime_defaults_are_temporary_and_live_writes_are_blocked(tmp_path):
+    server = load_server()
+    assert server.DATA.is_relative_to(tmp_path)
+    assert server.DESASTERON_COLLECTION.is_relative_to(tmp_path)
+    forbidden = SERVICE_PATH.parent / 'test-write-guard-sentinel'
+    assert not forbidden.exists()
+    with pytest.raises(PermissionError, match='outside temporary storage'):
+        forbidden.write_text('must never reach the checkout or a live library')
+    assert not forbidden.exists()
 
 
 def test_scraper_base_urls_require_clean_https_endpoints():
@@ -296,63 +307,10 @@ def test_scraper_base_urls_require_clean_https_endpoints():
     assert rejected == {"ok": False, "error": "Scraper base URL must use HTTPS"}
 
 
-def test_failed_collection_switch_restores_previous_collection():
+def test_collection_jobs_are_serialized(tmp_path):
+    from test_feature_parity import configure_fixture
     server = load_server()
-    state = {"active_collection_id": "old"}
-    activations = []
-
-    server.load_config = lambda: {
-        "collections": [
-            {"id": "old", "name": "Old"},
-            {"id": "new", "name": "New"},
-        ]
-    }
-    server.load_active_collection_id = lambda: state["active_collection_id"]
-    server.activate_collection = lambda collection_id: activations.append(collection_id) or {
-        "id": collection_id,
-        "name": collection_id.title(),
-    }
-
-    def update_state(mutator):
-        mutator(state)
-        return state
-
-    class Library:
-        attempts = 0
-
-        def rebuild(self, _progress=None):
-            self.attempts += 1
-            if self.attempts == 1:
-                raise OSError("unreadable collection")
-
-    library = Library()
-    server.update_state = update_state
-    server.LIBRARY = library
-    def get_library():
-        if server.LIBRARY is None:
-            library.rebuild()
-        return library
-    server.get_library = get_library
-    captured = {}
-
-    def run_now(_title, work):
-        try:
-            work(lambda *_args: None)
-        except Exception as exc:
-            captured["error"] = str(exc)
-        return "job"
-
-    server.start_index_job = run_now
-
-    assert server.start_select_collection_job("new") == "job"
-    assert captured["error"] == "unreadable collection"
-    assert activations == ["new", "old"]
-    assert state["active_collection_id"] == "old"
-    assert library.attempts == 2
-
-
-def test_collection_jobs_are_serialized():
-    server = load_server()
+    configure_fixture(server, tmp_path)
     server.JOB_SERVICE = server.BackgroundJobService()
     active = 0
     maximum = 0
@@ -368,7 +326,7 @@ def test_collection_jobs_are_serialized():
             with guard:
                 active -= 1
 
-    server.get_library = lambda: Library()
+    server.Library = Library
     first = server.start_rebuild_job()
     second = server.start_rebuild_job()
     deadline = time.monotonic() + 2

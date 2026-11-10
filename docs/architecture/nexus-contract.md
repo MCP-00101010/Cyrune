@@ -49,7 +49,7 @@ Authoritative Nexus data belongs beneath `%LOCALAPPDATA%\Cyrune\Nexus` on Window
 
 The repository contains source, schemas, examples, and fixtures only. It must not contain live settings, user location, runtime snapshots, repository paths, database fingerprints from a user's installation, validation receipts, or private component data.
 
-The Nexus page is the settings editor, not the runtime server. Relay and Host make settings readable by Portal/Widgets and Arcade while the Nexus page is closed. A small browser-local settings preview and bounded allowlisted-document cache may make the page useful during disconnection but must be labelled non-authoritative and never silently overwrite a newer Host revision. Document loading prefers authenticated Host, then the same direct local repository URL, then a cached copy; Markdown remains escaped and non-executable in every mode.
+The Nexus page is the settings editor, not the runtime server. Relay and Host make settings readable by Portal/Widgets and Arcade while the Nexus page is closed. A small browser-local settings preview and bounded allowlisted-document cache may make the page useful during disconnection but must be labelled non-authoritative and never silently overwrite a newer Host revision. Document loading prefers authenticated Host, then the same direct local repository URL, then a cached copy. Snapshot timestamps drive preview invalidation; memory retains at most 32 documents / 2 million characters, and late older loads cannot replace the newer offline copy. Markdown remains escaped and non-executable in every mode.
 
 ## Shared Settings
 
@@ -130,3 +130,5 @@ Portal retains its current tags and tag assignments until a separate compatibili
 ## Compatibility and Validation
 
 Every contract change is versioned and backward-compatible or has an explicit migration and rollback. Validation must cover exact-page/role authentication, wrong-role rejection, bounds, redaction, corrupt state, stale revisions, atomic/interrupted writes, unavailable Relay/Host, old caches, unsafe Markdown, repository privacy, and component-specific partial failures.
+
+The Project view previews `PROJECT.md`; the retired root migration TODO is not an allowlisted document or editor target. Work queues and TODO editing remain component-owned.

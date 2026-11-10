@@ -19,6 +19,14 @@
     "current_arguments": ["{file}"],
     "pok_arguments": ["{pok_file}"]
   },
+  "fuse": {
+    "name": "Fuse",
+    "type": "generic",
+    "path": "E:\\Emulation\\Systems\\Sinclair\\Fuse\\fuse.exe",
+    "working_dir": "E:\\Emulation\\Systems\\Sinclair\\Fuse",
+    "supported_extensions": [".tap", ".tzx", ".pzx", ".z80", ".sna", ".szx", ".dsk", ".trd", ".scl"],
+    "arguments": ["{file}"]
+  },
   "spectaculator_stub": {
     "name": "Spectaculator SpecStub",
     "type": "spectaculator_stub",

@@ -139,7 +139,7 @@ test('bulk dialog plans ScummVM versions and wires editable searches, result cho
     addEventListener(event,handler){this[event]=handler;},setAttribute(){},remove(){this.isConnected=false;}};
   const games=['dos','amiga'].map(id=>({id,title:'Pirates',type:'ScummVM',system:id,platform:id,target_ids:[id],scrape_count:1}));
   const calls=[],reviews=[],writes=[];
-  const context=vm.createContext({ArcadePlatforms:globalThis.ArcadePlatforms,ArcadeMetadataScraping:globalThis.ArcadeMetadataScraping,
+  const context=vm.createContext({ArcadeDialogs: {mount(overlay) { context.document.body.appendChild(overlay); }},ArcadePlatforms:globalThis.ArcadePlatforms,ArcadeMetadataScraping:globalThis.ArcadeMetadataScraping,
     setTimeout,clearTimeout,ArcadeScrapeDrafts:{load:()=>null,save(){},remove(){}},
     state:{activeCollection:{id:'scummvm'},selected:games[0]},document:{activeElement:null,querySelector:()=>null,
       createElement:tag=>{
@@ -195,7 +195,7 @@ test('artwork requests coalesce and notify for each completed image without wait
   const vm=require('node:vm'), fs=require('node:fs'), path=require('node:path');
   const source=fs.readFileSync(path.join(__dirname,'../web/app.js'),'utf8')+'\n'+fs.readFileSync(path.join(__dirname,'../web/scrape-views.js'),'utf8');
   const pending=new Map(), calls=[], ready=[];
-  const context=vm.createContext({request:value=>{calls.push(value);return new Promise(resolve=>pending.set(value,resolve));}});
+  const context=vm.createContext({ArcadeDialogs: {mount(overlay) { context.document.body.appendChild(overlay); }},request:value=>{calls.push(value);return new Promise(resolve=>pending.set(value,resolve));}});
   vm.runInContext(fs.readFileSync(path.join(__dirname,'../web/artwork.js'),'utf8'),context);
   context.extensionAssetCache=context.ArcadeArtwork.create({scope:()=> 'one', request:context.request});
   vm.runInContext(source.slice(source.indexOf('async function prepareArtworkAssets('),source.indexOf('function resolveLaunchMeta(')),context);
@@ -217,7 +217,7 @@ test('bulk artwork loads only visible rows and never paints a replaced match', a
   let intersect, finish; const calls=[], observed=[];
   const visible={dataset:{bulkCover:'cover',coverTitle:'Pirates'},isConnected:true};
   const hidden={dataset:{bulkCover:'other',coverTitle:'Other'},isConnected:true};
-  const context=vm.createContext({ArcadePlatforms:globalThis.ArcadePlatforms,extensionAssetCache:new Map(),escapeHtml:String,assetDisplayUrl:()=>'',
+  const context=vm.createContext({ArcadeDialogs: {mount(overlay) { context.document.body.appendChild(overlay); }},ArcadePlatforms:globalThis.ArcadePlatforms,extensionAssetCache:new Map(),escapeHtml:String,assetDisplayUrl:()=>'',
     prepareArtworkAssets:values=>{calls.push(Array.from(values));return new Promise(resolve=>{finish=resolve;});},
     IntersectionObserver:class{constructor(callback){intersect=callback;} observe(node){observed.push(node);} unobserve(){} disconnect(){}}});
   vm.runInContext(source.slice(source.indexOf('function renderBulkCover('),source.indexOf('async function showBulkMatchPreview(')),context);

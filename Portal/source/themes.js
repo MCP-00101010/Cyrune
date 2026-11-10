@@ -5,10 +5,10 @@ const BUILTIN_THEMES = [
     builtin: true,
     colorScheme: 'dark',
     colors: {
-      bg: '#111213', panel: '#18191c', panelStrong: '#212226', panelMuted: '#1a1c20',
-      border: '#2a2c31', text: '#e5e7eb', textMuted: '#9ca3af',
-      accent: '#6d7cff', accentStrong: '#4f5bff', danger: '#ef4444',
-      radius: '18px', shadow: '0 20px 40px rgba(0,0,0,0.35)'
+      bg: '#202b35', panel: '#283641', panelStrong: '#31414e', panelMuted: '#24313c',
+      border: '#41505e', text: '#eef2f6', textMuted: '#afbeca',
+      accent: '#b4baff', accentStrong: '#929bea', danger: '#ef7777',
+      radius: '10px', shadow: '0 16px 48px rgba(0,0,0,0.24)'
     }
   },
   {
@@ -17,10 +17,10 @@ const BUILTIN_THEMES = [
     builtin: true,
     colorScheme: 'light',
     colors: {
-      bg: '#f5f6fa', panel: '#ffffff', panelStrong: '#eef0f5', panelMuted: '#f0f1f7',
-      border: '#d1d5db', text: '#111213', textMuted: '#6b7280',
-      accent: '#4f5bff', accentStrong: '#3748ff', danger: '#ef4444',
-      radius: '18px', shadow: '0 10px 30px rgba(0,0,0,0.12)'
+      bg: '#eaf0f4', panel: '#f8fafc', panelStrong: '#dce5ed', panelMuted: '#e3ebf1',
+      border: '#becbd6', text: '#253543', textMuted: '#586c7c',
+      accent: '#505b9d', accentStrong: '#414c88', danger: '#b33434',
+      radius: '10px', shadow: '0 16px 48px rgba(25,45,65,0.14)'
     }
   },
   {
@@ -141,6 +141,13 @@ function applyTheme(theme) {
   r.setProperty('--radius',        c.radius  || '18px');
   r.setProperty('--shadow',        c.shadow  || '0 20px 40px rgba(0,0,0,0.35)');
   const dark = (theme.colorScheme || 'dark') === 'dark';
+  // Choose the stronger foreground for any built-in or user-defined accent.
+  const linear = _hexComponents(c.accent).map(value => {
+    const channel = value / 255;
+    return channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
+  });
+  const luminance = linear[0] * 0.2126 + linear[1] * 0.7152 + linear[2] * 0.0722;
+  r.setProperty('--accent-foreground', luminance > 0.179 ? '#000000' : '#ffffff');
   r.setProperty('--surface-1', dark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)');
   r.setProperty('--surface-2', dark ? 'rgba(255,255,255,0.09)' : 'rgba(0,0,0,0.07)');
   r.setProperty('--accent-glow',           _themeHexToRgba(c.accent, 0.2));

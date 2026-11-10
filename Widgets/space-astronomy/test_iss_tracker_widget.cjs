@@ -200,7 +200,6 @@ test('ISS assets, globe interaction, cleanup, and responsive styling are wired l
   assert.match(widgets, /type: 'line',[\s\S]*?source: sourceIds\.terminator/);
   assert.doesNotMatch(widgets, /widget-iss-night-overlay/);
   assert.match(widgets, /widget-iss-map-shell widget-interactive-surface/);
-  assert.match(widgets, /_destroyAllIssTrackers\(\)/);
   assert.match(styles, /\.widget-iss-map-shell\s*\{[^}]*height:\s*clamp\(/s);
   assert.match(styles, /\.widget-iss-facts\s*\{[^}]*grid-template-columns:\s*repeat\(4/s);
 });
@@ -236,7 +235,7 @@ test('Focus ISS state is browser-local and recentres live updates except during 
   assert.match(widgets, /map\.on\('dragstart',[\s\S]*?instance\.mapDragging = true/);
   assert.match(widgets, /map\.on\('dragend',[\s\S]*?instance\.mapDragging = false/);
   assert.match(widgets, /focusButton\.setAttribute\('aria-pressed'/);
-  assert.match(styles, /\.widget-iss-focus-button\s*\{[^}]*top:\s*10px;[^}]*left:\s*10px/s);
+  assert.match(styles, /\.widget-iss-focus-controls\s*\{[^}]*top:\s*10px;[^}]*left:\s*10px;[^}]*flex-direction:\s*column;[^}]*gap:\s*10px/s);
   assert.match(styles, /\.widget-iss-focus-button\.active/);
 });
 

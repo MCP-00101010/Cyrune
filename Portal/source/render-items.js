@@ -67,6 +67,23 @@ function appendCompactLauncherArtwork(container, item, faviconSize = 64) {
     artwork.className = container.classList?.contains('speed-link') ? 'speed-link-fallback' : 'essential-slot-fallback';
     artwork.textContent = item.title ? item.title[0].toUpperCase() : '?';
   }
+  if (artwork.tagName === 'IMG') {
+    // A missing/pending image must not lay out its full alt text inside a
+    // compact tile. Keep the link name accessible and show a bounded initial.
+    container.classList.add('has-compact-artwork');
+    container.setAttribute('aria-label', item.title || item.url || 'Shortcut');
+    artwork.alt = '';
+    artwork.style.opacity = '0';
+    const fallback = document.createElement('span');
+    fallback.className = 'compact-artwork-fallback';
+    fallback.setAttribute('aria-hidden', 'true');
+    fallback.textContent = (item.title || '?').slice(0, 1).toUpperCase();
+    container.appendChild(fallback);
+    const loaded = () => { artwork.style.opacity = '1'; fallback.hidden = true; };
+    artwork.addEventListener('load', loaded);
+    artwork.addEventListener('error', () => { artwork.style.opacity = '0'; fallback.hidden = false; });
+    if (artwork.complete && artwork.naturalWidth > 0) loaded();
+  }
   artwork.draggable = false;
   container.appendChild(artwork);
   return artwork;
@@ -192,15 +209,6 @@ function createBoardItemElement(item, columnId, depth = 1, parentFolder = null, 
     }
 
     if (item.type === 'game') {
-      const status = getGameStatus(item);
-      if (status.state !== 'ready') {
-        const presentation = getGameStatusPresentation(status);
-        const badge = document.createElement('span');
-        badge.className = `application-status application-status--${status.state}`;
-        badge.textContent = presentation.label;
-        badge.title = presentation.title;
-        header.appendChild(badge);
-      }
       if (!gameStatusCache.has(item.gameKey) && !gameStatusRequests.has(item.gameKey)) void refreshGameStatus(item);
     }
 

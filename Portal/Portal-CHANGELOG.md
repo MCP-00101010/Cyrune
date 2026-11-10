@@ -1,9 +1,105 @@
 # Cyrune Portal Changelog
 
+## [0.13.7] — 2026-10-26
+
+- Widen navigation to 296px and wrap long collection names. Remove the redundant sidebar Settings gear; the version remains the Settings entry point.
+- Rebuild Settings with a left category rail and independently scrolling content pane, matching the approved preview. Move Done into the header and remove the footer. Keep existing immediate settings edits and explicit theme Save/Revert behaviour.
+- Move 16 explanatory blocks into tooltips, shorten credential/storage status, remove the theme editor's descriptive footer and avoid duplicate Save As actions. Preserve actionable connection errors and all settings controls.
+- Validation: 224 Portal and 30 Nexus tests passed, plus syntax, infrastructure, version and diff checks. Isolated headless Firefox render review covers all six categories, light mode, 125% text, a 430px viewport and long sidebar names using the actual markup/CSS and category/theme renderers. Final connected-session acceptance remains open.
+
+## [0.13.6] — 2026-10-26
+
+- Apply the approved compact workspace direction: a slimmer continuous navigation rail, full-width Search, flat board columns, underline tabs, compact menus and flatter settings sections. Keep existing actions, saved boards and explicit font/colour overrides.
+- Refresh Default Dark and Light with blue-grey surfaces and restrained periwinkle accents. Use theme text for automatic text colours, Bahnschrift for inherited navigation/headings and Segoe UI for content. Select a contrasting primary-button foreground for built-in and custom accents.
+- Retain the Widget action rail and theme-owned card borders/radius. Add no descriptive footers; optional guidance belongs in tooltips.
+- Validation: coordinated gate passed 1,545 tests plus 3 Host subtests, including 222 Portal tests, syntax, infrastructure/versions, Ruff and clean web-ext lint. The Portal suite includes primary-button contrast across built-in and custom accents. Live visual acceptance remains open because browser inspection is unavailable in this session.
+
+## [0.13.5] — 2026-10-25
+
+- Use the current theme border color and radius for board/sidebar widget cards.
+- Give nested Templates dialogs an opaque theme-colored panel and draggable header. Support abort-scoped listeners in the existing drag helper so closing the nested dialog ends an active drag.
+- Firefox 158.0.1 acceptance: opaque Templates at 15% underlying UI opacity, real mouse dragging, resize containment, close-during-drag cleanup, Escape/focus return and all 28 settings forms. Verified live light/dark border color/radius on board/sidebar cards and always-visible pies/percentages/Others in compact layouts with old saved list-mode preferences.
+
+- Validation: coordinated gate passed 1,541 tests plus 3 Host subtests, including 324 Widget and 221 Portal tests, syntax, infrastructure/versions, Ruff and clean web-ext lint.
+
+
+## [0.13.4] — 2026-10-25
+
+- Display configured widget names through a shared host heading across board/sidebar rendering and refresh, preserving settings Done/Cancel and hiding empty names.
+- Give widgets a visible rounded card border and subtle panel surface in both placements, retaining action-rail clearance and responsive wrapping.
+- Validation: coordinated gate passed 1,541 tests plus 3 Host subtests, including 324 Widget and 221 Portal tests, syntax, infrastructure/versions, Ruff and clean web-ext lint. Final ISS/title-style checks also passed the 31-test focused suite.
+- Firefox 158.0.1 acceptance: real Portal board/sidebar hosts at 150% Widget text size, named settings Done/Cancel/clear, separate ISS controls, all Focus phase labels, tracking switch keyboard/failure rollback, site-filtered reports/deletion, tab/list/pie restoration and offline viewing. Real Relay integration separately verified tracking enable/disable and compact hosts in disposable data.
+
+
+## [0.13.3] — 2026-10-24
+
+- Track widget bodies with a stable host-owned data attribute so map theme controls can rerender the live widget after its renderer changes CSS classes.
+- Validation: coordinated gate passed 1,538 tests plus 3 Host subtests, including 321 Widget and 221 Portal tests, syntax, infrastructure/versions, Ruff and clean web-ext lint. Final label-refresh changes also passed the focused location suite and final Firefox acceptance check.
+- Browser validation: disposable Firefox 158.0.1 verified saved postcode labels in both rendered headers, unchanged saved coordinates, live Weather/Hazards light/dark styles, computed SVG contrast, linked/independent locations and settings Done/Cancel. MapLibre used local style fixtures; postcode/city lookup was live.
+
+## [0.13.2] — 2026-10-24
+
+- Load category-owned location search before the weather/astronomy widgets, retaining generic network transport in Widget core. Coordinate with Widgets 0.6.2 for postcode lookup and location-settings fixes.
+- Validation: coordinated validator passed 1,535 tests plus 3 Host subtests, including 221 Portal tests and classic-script symbol checks. Disposable Firefox 158.0.1 verified live location selection, settings Done/Cancel and real MapLibre camera changes with local blank styles.
+
+## [0.13.1] — 2026-10-24
+
+- Add a bottom-left Templates action to Widget settings and style its separate modal with compact sections, a utility footer and native keyboard/focus containment. Preserve Widget Done/Cancel semantics.
+- Keep settings reachable after viewport resize. Validation: coordinated validator passed 1,526 tests plus 3 Host subtests, including 221 Portal tests, syntax, infrastructure, versions, Ruff and web-ext lint. Disposable Firefox 158.0.1 verified template draft application/rollback, keyboard/focus behaviour, repeated opening and compact layout.
+
 All historical Portal releases, formerly published as Morpheus WebHub, are documented here.
 Format: `[version] — date` followed by Added / Changed / Fixed sections.
 
 ---
+
+## [0.13.0] — 2026-10-23
+
+- Add the authenticated productivity bridge and revision-only updates for Relay-owned Focus and Browser Activity services. Load the new reporting widget; browser runtime data stays out of portable Portal databases.
+- Validation: coordinated gate passed (1,468 tests plus 3 Host subtests), including packaging, syntax, versions, infrastructure, Ruff and clean web-ext lint. The final affected-suite run passed 402 tests after additional regressions. Disposable Firefox 158.0.1 verified shared widget controls, Portal-closed phase alarms/notifications, hostname-only activity collection/export/deletion real extension-restart persistence, and compact board/sidebar layouts.
+
+## [0.12.30] — 2026-10-22
+
+- Unify Portal items, web-provider searches and bounded Arcade catalogue results in Search. Add keyboard navigation, optional local recent searches, explicit destination selection and drag placement into regular columns, folders, Inboxes and empty launcher slots. Revalidate sources, inherited locks and storage before one undoable authoritative save.
+- Add Inbox review with sequential rule explanations, an unmatched queue and explicit exact-host destination suggestions based on existing organised bookmarks. No suggestion creates a rule automatically.
+- Validation: all 219 Portal tests and the coordinated 1,455-test gate plus 3 Host subtests passed, with clean syntax, Ruff, versions, infrastructure, packaging and Relay lint. Final focused regressions and isolated Firefox 158.0.1 verified catalogue placement, local drag/drop, keyboard navigation, provider aliases, explicit suggested Inbox moves and rule explanations using disposable native data.
+
+## [0.12.29] — 2026-10-22
+
+- Replace game binding-management menus with Repair shortcut only when the saved launch setup needs repair. Remove the destructive forget action and unused page API. Retain a bounded public catalogue reference through delivery, picker placement, refresh, repair, normalization and portable state; send it only to explicit repair navigation.
+- Validation: 212 Portal tests and the coordinated gate passed (1,446 tests plus 3 Host subtests). Isolated Firefox verified healthy and broken shortcut menus, repair navigation and Arcade review; all 33 current Portal game shortcuts resolve as ready.
+
+## [0.12.28] — 2026-10-22
+
+- Remove per-game readiness/Offline badges from board and search cards. Keep launch clickable despite failed background metadata checks, and translate native error codes into specific recovery guidance.
+- Validation: all 210 Portal tests and the coordinated 1,442-test gate plus 3 Host subtests pass. Isolated Firefox confirms badge-free board/search cards remain clickable after a failed background lookup and native binding errors use readable guidance.
+
+## [0.12.27] — 2026-10-21
+
+- Resolve search and command actions against their current owning board, tab, container and ancestors; recheck inherited locks/read-only state at dispatch and save. Keep navigation stable until explicitly locating an item. Restore Trash items into their source tab and retain them when the destination is unavailable or locked.
+- Add separate game/application deletion choices, initialized from prior bookmark/title confirmations at the supported load/import boundary; use the same type policy in board, Inbox, Essentials, Speed Dial and search. Bulk and permanent deletion keep explicit confirmation.
+- Honour shared external-link preferences for ordinary clicks while preserving explicit new-tab/window and multi-link actions. Correct selected-authority storage guidance, high-contrast precedence and scaled typography; bound compact artwork fallbacks while images are pending or unavailable. Add a Settings gear, selected-item action submenu and Trash context actions.
+- Validation: the full coordinated gate passed (1,435 tests plus 3 Host subtests), including 569 Arcade tests and clean syntax, scoped lint, packaging, infrastructure, versions and Relay lint. Final visual polish passed all 208 Portal tests and 19 focused frontend/theme tests. Isolated Firefox verified dark/light/custom palettes, high-contrast theme updates, 100/150/200% scale, exact virtual-row sizes, keyboard/focus/busy dismissal, scoped settings drafts, storage states and context menus.
+
+## [0.12.26] — 2026-10-21
+
+- Group shared context menus by task with dividers, consistent command order, destructive actions last, keyboard/submenu navigation and viewport scrolling. Offer explicit opening from every bookmark placement, apply the global menu text colour, and group tag actions with locked destinations disabled.
+- Validation: 202 component tests; the full coordinated gate passed (1,430 tests plus 3 Host subtests) with clean lint, syntax, packaging, versions and contracts. Isolated Firefox dark/light, short/narrow-window, keyboard/submenu and settings Cancel checks passed. Final tag-colour presentation preservation was rechecked with Portal and recursive-menu tests.
+
+## [0.12.25] — 2026-10-21
+
+- Wait for authoritative initialization before every external delivery captures its destination or saves; refuse deliveries while storage is unavailable. Remove superseded bookmark, context-menu and state helpers.
+- Validation: 199 component tests; full coordinated gate passed (1,426 tests plus 3 Host subtests), including migration, packaging, tooling, JavaScript syntax, infrastructure/registry, versions, scoped Ruff F checks and Relay lint (zero errors, warnings or notices).
+
+## [0.12.24] — 2026-10-21
+
+- Preserve Relay revision conflicts without authority-loss rollback. Share bookmark Inbox, game Inbox and Import Manager delivery persistence, captured destinations, confirmed duplicate handling, safe rebase, timeout fencing and fresh Undo after reload. Explain unknown-storage and configured-Host recovery separately.
+- Validation: 196 Portal tests and the full nine-suite coordinated gate passed, including executed delivery/Undo/timeout regressions, real Relay CAS conflict handling, startup recovery and classic-script symbol checks.
+
+## [0.12.23] — 2026-09-12
+
+- Fixed Done in new widget settings throwing before creation and leaving the dialog open. Add Widget now resolves columns inside the original board's tabs, preserving the selected destination while asynchronous settings commit.
+- Added regression coverage for Media Watchlist creation, dialog closing, destination preservation, and Cancel discarding the draft.
+- Validation: 215 Portal, Nexus, Media Watchlist, and shared settings tests pass with Node test isolation disabled; infrastructure and version checks pass. The coordinated validator was blocked by sandbox child-process restrictions.
 
 ## [0.12.22] — 2026-09-09
 

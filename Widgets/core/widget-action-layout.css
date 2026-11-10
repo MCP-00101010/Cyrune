@@ -1,4 +1,21 @@
 /* Keep widget content clear of the shared settings/reload action rail. */
+.widget-card .maplibregl-ctrl-group button.widget-map-style-toggle,
+.nav-widget-item .maplibregl-ctrl-group button.widget-map-style-toggle {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 4px;
+  border: 1px solid #64748b;
+  border-radius: 5px;
+  background: #1e293b;
+  color: #f8fafc;
+}
+.widget-card .maplibregl-ctrl-group button.widget-map-style-toggle:hover,
+.nav-widget-item .maplibregl-ctrl-group button.widget-map-style-toggle:hover { background: #334155; }
+.maplibregl-ctrl-group .widget-map-style-toggle svg { width: 20px; height: 20px; color: #f8fafc; pointer-events: none; }
+.widget-map-style-toggle:focus-visible { outline: 2px solid #f8fafc; outline-offset: 2px; }
+
 .service-monitor-header,
 .system-monitor-header,
 .git-workspace-header,

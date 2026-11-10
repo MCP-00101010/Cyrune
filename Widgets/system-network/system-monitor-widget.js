@@ -136,7 +136,7 @@ function _systemMonitorRenderSettings(widget, container) {
     <div class="settings-row"><span>CPU warning</span><input class="settings-text-input" type="number" min="1" max="100" data-cfg="cpuWarning" value="${config.cpuWarning}"/></div>
     <div class="settings-row"><span>Memory warning</span><input class="settings-text-input" type="number" min="1" max="100" data-cfg="memoryWarning" value="${config.memoryWarning}"/></div>
     <div class="settings-row"><span>Disk warning</span><input class="settings-text-input" type="number" min="1" max="100" data-cfg="diskWarning" value="${config.diskWarning}"/></div>
-    <div class="settings-help">Only selected aggregate metrics are requested. History is bounded and remains in this browser; process names and file contents are never collected.</div>`;
+    `;
   const labels = { cpu: 'CPU', memory: 'Memory', disk: 'Disks', network: 'Network totals', uptime: 'Uptime', battery: 'Battery', platform: 'Platform' };
   const target = container.querySelector('.system-monitor-settings-metrics');
   SYSTEM_MONITOR_METRICS.forEach(metric => {

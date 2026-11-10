@@ -31,15 +31,17 @@ function _astronomyCoordinates(config) {
   };
 }
 
-function _findWeatherWidgetLocation(excludeWidgetId = '') {
+function _findWeatherWidgetLocation(excludeWidgetId = '', { weatherOnly = false } = {}) {
   if (typeof state === 'undefined' || !state) return null;
   const visited = new Set();
   const walk = value => {
     if (!value || typeof value !== 'object' || visited.has(value)) return null;
     visited.add(value);
     if (value.id !== excludeWidgetId && value.type === 'widget'
-        && (value.widgetType === 'weather' || value.widgetType === 'weatherMap')) {
-      const effectiveConfig = typeof _weatherEffectiveConfig === 'function' ? _weatherEffectiveConfig(value) : value.config;
+        && (value.widgetType === 'weather' || (!weatherOnly && value.widgetType === 'weatherMap'))) {
+      const effectiveConfig = value.widgetType === 'weatherMap' && typeof _weatherMapEffectiveConfig === 'function'
+        ? _weatherMapEffectiveConfig(value)
+        : (typeof _weatherEffectiveConfig === 'function' ? _weatherEffectiveConfig(value) : value.config);
       const location = _astronomyCoordinates(effectiveConfig);
       if (location) return location;
     }
@@ -393,6 +395,11 @@ WIDGET_REGISTRY['astronomy'] = {
     showEvents: true
   },
   defaultData: {},
+  settingsSchema: { type: 'object', properties: {
+    useWeatherLocation: { type: 'boolean' }, locationName: { type: 'string' }, latitude: { type: 'any' }, longitude: { type: 'any' },
+    timezone: { type: 'string' }, eventDays: { type: 'number' }, showPlanets: { type: 'boolean' },
+    showMeteorShowers: { type: 'boolean' }, showEvents: { type: 'boolean' }
+  }, additionalProperties: false },
   liveSettingsPreview: false,
 
   dispose(widget) {
@@ -583,11 +590,6 @@ WIDGET_REGISTRY['astronomy'] = {
       el.appendChild(section);
     }
 
-    const attribution = document.createElement('div');
-    attribution.className = 'widget-astronomy-attribution';
-    attribution.innerHTML = '<a href="https://github.com/cosinekitty/astronomy" target="_blank" rel="noreferrer noopener">Astronomy Engine</a> · <a href="https://www.imo.net/resources/calendar/" target="_blank" rel="noreferrer noopener">IMO showers</a> · <a href="https://science.nasa.gov/resource/moon-mosaic/" target="_blank" rel="noreferrer noopener">NASA/LRO Moon</a> · JPL comet snapshot';
-    attribution.addEventListener('mousedown', event => event.stopPropagation());
-    el.appendChild(attribution);
   },
 
   renderSettings(widget, container) {

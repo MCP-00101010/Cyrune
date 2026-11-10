@@ -18,12 +18,7 @@ def resolve_plan(lifecycle, catalogue_id, entry_revision=None, *, atari_emulator
     """Read one exact source and explicit policy; never activate a collection."""
     with lifecycle._lock:
         service = lifecycle.service()
-        public = service.detail({"catalogueId": catalogue_id})["entry"]
-        if entry_revision is not None and entry_revision != public["entryRevision"]:
-            raise CatalogueError("entry-changed")
-        target = service.resolve_native(catalogue_id, public["entryRevision"])
-        indexed = service._by_id[catalogue_id]
-        source = next(s for s in service._sources if s.collection_id == indexed.collection_id)
+        public, target, indexed, source = service.launch_context(catalogue_id, entry_revision)
         if atari_emulator_override and public['targetKind'] != 'disk-set':
             raise CatalogueError('unsupported-target')
         if public["targetKind"] == "scummvm-game":

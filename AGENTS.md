@@ -56,3 +56,20 @@ Before committing product changes:
 5. Run `web-ext lint` when Relay files change, and run Host tests when native transport, persistence, launch, or installer code changes.
 
 Keep unrelated user changes out of scoped commits.
+
+## Agent skills
+
+### Issue tracker
+
+Use GitHub Issues for engineering tickets and specs. Read
+`docs/agents/issue-tracker.md` before tracker operations.
+
+### Triage labels
+
+Use the five default triage labels. Read `docs/agents/triage-labels.md`
+before classifying issues.
+
+### Domain docs
+
+Use a single root glossary and ADR directory. Read `docs/agents/domain.md`
+before domain exploration or recording terminology and decisions.

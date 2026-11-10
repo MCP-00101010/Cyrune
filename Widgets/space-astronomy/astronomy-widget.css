@@ -244,23 +244,6 @@
   font-style: italic;
 }
 
-.widget-astronomy-attribution {
-  color: var(--text-muted);
-  font-size: calc(0.58rem * var(--widget-text-scale, 1));
-  line-height: 1.4;
-  text-align: right;
-}
-
-.widget-astronomy-attribution a {
-  color: inherit;
-  text-decoration: none;
-}
-
-.widget-astronomy-attribution a:hover {
-  color: var(--accent-strong);
-  text-decoration: underline;
-}
-
 .astronomy-weather-location {
   margin: -4px 0 4px;
   padding-left: 8px;

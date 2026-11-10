@@ -36,6 +36,7 @@ test('widget library is grouped into ordered categories for board and sidebar me
     fs.readFileSync(path.join(root, '..', 'Widgets', 'utilities', 'calculator-widget.js'), 'utf8'),
     fs.readFileSync(path.join(root, '..', 'Widgets', 'utilities', 'translator-widget.js'), 'utf8'),
     fs.readFileSync(path.join(root, '..', 'Widgets', 'personal-productivity', 'focus-session-widget.js'), 'utf8'),
+    fs.readFileSync(path.join(root, '..', 'Widgets', 'personal-productivity', 'browser-activity-widget.js'), 'utf8'),
     fs.readFileSync(path.join(root, '..', 'Widgets', 'sports', 'football-tracker-widget.js'), 'utf8'),
     fs.readFileSync(path.join(root, '..', 'Widgets', 'weather-hazards', 'global-hazards-widget.js'), 'utf8'),
     fs.readFileSync(path.join(root, '..', 'Widgets', 'personal-productivity', 'saved-sessions-widget.js'), 'utf8'),
@@ -53,7 +54,7 @@ test('widget library is grouped into ordered categories for board and sidebar me
     widgets.slice(widgets.indexOf('const WIDGET_CATEGORY_ORDER'), widgets.indexOf('];', widgets.indexOf('const WIDGET_CATEGORY_ORDER')) + 2)
       .replace('const WIDGET_CATEGORY_ORDER =', '')
   );
-  assert.equal(Object.keys(definitions).length, 27);
+  assert.equal(Object.keys(definitions).length, 28);
   Object.values(definitions).forEach(definition => assert.ok(categoryOrder.includes(definition.category)));
 
   const helperStart = contextSource.indexOf('function _buildWidgetSubmenu');
@@ -68,9 +69,9 @@ test('widget library is grouped into ordered categories for board and sidebar me
   );
   assert.deepEqual(
     JSON.parse(JSON.stringify(boardMenu[0].submenu.map(item => item.label))),
-    ['Calendar', 'Clock', 'Countdown', 'Daily Briefing', 'Focus Session', 'Notes', 'Saved Sessions', 'To-do List', 'Universal Search Launcher']
+    ['Browser Activity', 'Calendar', 'Clock', 'Countdown', 'Daily Briefing', 'Focus Session', 'Notes', 'Saved Sessions', 'To-do List', 'Universal Search Launcher']
   );
-  assert.equal(boardMenu.flatMap(group => group.submenu).length, 27);
+  assert.equal(boardMenu.flatMap(group => group.submenu).length, 28);
   assert.deepEqual(
     JSON.parse(JSON.stringify(boardMenu.find(group => group.label === 'Gaming').submenu.map(item => item.label))),
     ['Nexus Mods Tracker']
@@ -83,7 +84,7 @@ test('widget library is grouped into ordered categories for board and sidebar me
   );
   assert.deepEqual(
     JSON.parse(JSON.stringify(sidebarMenu.flatMap(group => group.submenu).map(item => item.action))),
-    ['addNavWidget:clock', 'addNavWidget:countdown', 'addNavWidget:dailyBriefing', 'addNavWidget:focusSession', 'addNavWidget:savedSessions', 'addNavWidget:universalSearch', 'addNavWidget:calculatorConverter', 'addNavWidget:translator', 'addNavWidget:ipInfo', 'addNavWidget:recentFiles', 'addNavWidget:serviceMonitor', 'addNavWidget:systemMonitor', 'addNavWidget:footballTracker', 'addNavWidget:mediaWatchlist', 'addNavWidget:gitWorkspace']
+    ['addNavWidget:browserActivity', 'addNavWidget:clock', 'addNavWidget:countdown', 'addNavWidget:dailyBriefing', 'addNavWidget:focusSession', 'addNavWidget:savedSessions', 'addNavWidget:universalSearch', 'addNavWidget:calculatorConverter', 'addNavWidget:translator', 'addNavWidget:ipInfo', 'addNavWidget:recentFiles', 'addNavWidget:serviceMonitor', 'addNavWidget:systemMonitor', 'addNavWidget:footballTracker', 'addNavWidget:mediaWatchlist', 'addNavWidget:gitWorkspace']
   );
 });
 
@@ -92,7 +93,8 @@ test('context menu renderer supports recursive submenus without removing their a
   assert.match(source, /function _clearSubmenusFromDepth\(depth\)/);
   assert.match(source, /Number\(submenu\.dataset\.menuDepth \|\| 1\) >= depth/);
   assert.match(source, /function _appendContextMenuAction\(menu, action, depth = 0\)/);
-  assert.match(source, /action\.submenu\.forEach\(subAction => _appendContextMenuAction\(submenu, subAction, depth \+ 1\)\)/);
+  assert.match(source, /_appendContextMenuActions\(submenu, action\.submenu, depth \+ 1\)/);
+  assert.match(source, /_appendContextMenuAction\(menu, action, depth\)/);
   assert.match(source, /submenu\.dataset\.menuDepth = String\(depth \+ 1\)/);
   assert.match(source, /_positionContextSubmenu\(submenu, button\)/);
   assert.match(source, /typeof action\.run === 'function'/);

@@ -1,8 +1,107 @@
 # Cyrune Widgets Changelog
 
+## [0.6.6] — 2026-10-25
+
+- Always show Sites/Categories pies with time and percentage in their legends. Sort by duration, show up to ten slices and consolidate overflow into top nine plus Others, retaining any omitted time. Retire chart-mode controls and saved mode branches.
+- Make Templates draggable through Portal's shared title-bar helper, recenter on viewport resize and cancel drag listeners when the nested dialog closes.
+- Firefox 158.0.1 acceptance: opaque Templates at 15% underlying UI opacity, real mouse dragging, resize containment, close-during-drag cleanup, Escape/focus return and all 28 settings forms. Verified live light/dark border color/radius on board/sidebar cards and always-visible pies/percentages/Others in compact layouts with old saved list-mode preferences.
+
+- Validation: coordinated gate passed 1,541 tests plus 3 Host subtests, including 324 Widget and 221 Portal tests, syntax, infrastructure/versions, Ruff and clean web-ext lint.
+
+
+## [0.6.5] — 2026-10-25
+
+- Give Browser Activity a top tracking switch, Sites/Categories/Work-Focus tabs, independent persisted list/pie modes, bounded scrollable top-ten lists and chart totals that retain remaining activity as Other.
+- Apply the site selector to displayed reports as well as export/deletion, ignore stale filter responses, preserve offline viewing and roll back failed tracking changes. Calculate ranges with local calendar dates across daylight-saving transitions.
+- Move Focus phase labels inside the dial below the time and remove repeated running/paused text. Separate ISS north and theme controls. Use the shared hosted custom title instead of duplicate RSS/IP/Calendar names.
+- Validation: coordinated gate passed 1,541 tests plus 3 Host subtests, including 324 Widget and 221 Portal tests, syntax, infrastructure/versions, Ruff and clean web-ext lint. Final ISS/title-style checks also passed the 31-test focused suite.
+- Firefox 158.0.1 acceptance: real Portal board/sidebar hosts at 150% Widget text size, named settings Done/Cancel/clear, separate ISS controls, all Focus phase labels, tracking switch keyboard/failure rollback, site-filtered reports/deletion, tab/list/pie restoration and offline viewing. Real Relay integration separately verified tracking enable/disable and compact hosts in disposable data.
+
+
+## [0.6.4] — 2026-10-24
+
+- Resolve existing saved postcode labels to locality names in Weather and Weather Map using a bounded local display cache; preserve configured coordinates and portable settings.
+- Fix live map theme switching after widget renderers change body classes. Use high-contrast SVG sun/moon controls.
+- Validation: coordinated gate passed 1,538 tests plus 3 Host subtests, including 321 Widget and 221 Portal tests, syntax, infrastructure/versions, Ruff and clean web-ext lint. Final label-refresh changes also passed the focused location suite and final Firefox acceptance check.
+- Browser validation: disposable Firefox 158.0.1 verified saved postcode labels in both rendered headers, unchanged saved coordinates, live Weather/Hazards light/dark styles, computed SVG contrast, linked/independent locations and settings Done/Cancel. MapLibre used local style fixtures; postcode/city lookup was live.
+
+## [0.6.3] — 2026-10-24
+
+- Make Weather Map follow the first configured Weather widget by default, so committing a Weather location updates both maps. Add Use Weather location; selecting a separate map origin disables following. Retain stored manual origins and preserve explicit Cyrune-location choices.
+- Display postcode results using the returned built-up-area/locality name, with an administrative-area fallback, while keeping exact postcode coordinates for weather and maps.
+- Extend the Firefox acceptance check to use Portal's actual Widget host/settings button and assert the displayed Weather header as well as the linked map camera.
+- Validation: coordinated gate passed 1,537 tests plus 3 Host subtests, including 320 Widget tests, syntax, versions/infrastructure, Ruff and clean web-ext lint. Firefox 158.0.1 verified editing Weather through the real host, locality text in its rendered header, automatic map following, explicit independent map origins, Done/Cancel and inherited Cyrune location. Pin the unrelated Relay recovery/blocking test to its existing noon clock fixture so the gate is deterministic after 17:00.
+
+## [0.6.2] — 2026-10-24
+
+- Resolve complete UK postcodes through bounded, declared Postcodes.io requests, preserving city/non-UK lookup through Open-Meteo. Keep provider-specific location lookup in the Weather & Hazards category.
+- Fix Weather Map and Astronomy settings schemas rejecting numeric location-search coordinates as strings.
+- Tie saved cameras to their effective origin/watch location; prevent an old map from recapturing its camera under a newly selected city. Refocus on changed locations while preserving ordinary panning/reload state and overlays.
+- Refresh Weather-linked Hazards/Astronomy on committed source changes, and rebuild Weather Map when an inherited Cyrune location changes.
+- Validation: coordinated validator passed 1,535 tests plus 3 Host subtests, including 318 Widget tests, syntax, versions, infrastructure, Ruff and web-ext lint. Disposable Firefox 158.0.1 verified live city/public UK postcode searches, actual MapLibre recentering, Done/Cancel, Weather-linked watch changes, inherited location changes and unchanged-canvas refreshes using local blank map styles.
+
+## [0.6.1] — 2026-10-24
+
+- Remove routine explanatory footers and standalone provider/library credits; centralize sources and runtime notes in Nexus/docs/widget-sources.md while preserving meaningful status and copyright controls.
+- Move reusable templates into a separate settings modal with draft-safe application, keyboard-accessible import, inline naming, bounded type-scoped import and surfaced storage errors.
+- Record source-backed workflow/layout follow-ups in Nexus/docs/widget-tidy-review.md.
+- Validation: coordinated validator passed 1,526 tests plus 3 Host subtests, syntax, infrastructure, versions, Ruff and web-ext lint. Disposable Firefox 158.0.1 passed template save/apply, Done/Cancel, Escape/focus return, repeated opening, cross-type import rejection, compact layout and all 28 widget settings forms.
+
+## [0.6.0] — 2026-10-23
+
+- Add compact Focus Session reviews for completed/stopped work phases: timer duration, non-distracting and distracting active browsing, and three main sites. Keep the selected review and disclosure in local view cache, separate from portable widget data; show tracking state and use the existing SDK report gateway.
+- Validation: coordinated gate passed 1,519 tests plus 3 Host subtests, including all 309 Widget tests, packaging, syntax, versions/infrastructure and Ruff. Final focused Relay/Focus checks passed 111 tests. Disposable Firefox 158.0.1 verified real work-phase attribution, daily allowance blocking and compact review rendering on the board and sidebar.
+
 Historical entries below are preserved from Portal releases whose release notes materially changed this component. Version numbers are Portal release versions unless an entry explicitly says otherwise.
 
 ---
+
+## [0.5.0] — 2026-10-23
+
+- Compact Timer & Activity Tracker: automatically persist valid edits, remove routine explanatory footers and Save/Forget buttons, and align daily blocking controls on one row.
+- Sort categories alphabetically with Uncategorized last; add Gaming and Productivity. Move Distracting to an independent domain flag, preserve previous assignments in a recoverable migration, and calculate budget/report totals from flags across categories.
+- Validation: coordinated gate passed 1,493 tests plus 3 Host subtests, including packaging, syntax, versions/infrastructure, Ruff and clean web-ext lint. Final targeted Relay/Widget tests passed after request-order regressions. Disposable Firefox 158.0.1 verified the compact controls, sorted category options, automatic category/flag/exclusion/timer saves across subdomains, automatic blocking changes and restart persistence.
+
+## [0.4.0] — 2026-10-23
+
+- Remove manual domain/category entry from Browser Activity reports and use a dropdown of recorded sites for export/deletion filtering. Direct current-site choices to Relay’s address-bar controls.
+- Move idle cutoff, detail retention and the Distracting budget into the widget settings modal. Treat them as global profile preferences in a transient draft: Done persists only changed fields, Cancel does not mutate Relay, and portable widget config/data stay empty.
+- Validation: coordinated gate passed 1,484 tests plus 3 Host subtests, with packaging, syntax, infrastructure, versions, Ruff and clean web-ext lint. Final service/widget regressions and timer guards passed. Disposable Firefox 158.0.1 verified the three-card popup, cross-subdomain choices/reloads, global settings Done/Cancel, open-tab focus enforcement, pre-request blocking, paused-focus access and daily-rule restart persistence.
+
+## [0.3.1] — 2026-10-23
+
+- Fix adding Browser Activity: provide the settings renderer required by Portal creation/edit flows. Explain explicit tracking opt-in without changing profile settings from the creation dialog.
+- Validation: regression reproduces the original missing-renderer exception and passes after the fix, including Done and Cancel. All 342 Portal/affected Widget/Nexus tests, version/infrastructure checks and Ruff passed. Disposable Firefox 158.0.1 verified actual board creation, Done/Cancel, sidebar creation and unchanged tracking opt-in.
+
+## [0.3.0] — 2026-10-23
+
+- Move Focus Session execution into Relay and retain widgets as synchronized controls with an absolute countdown, history, calendar warnings and explicit start-only launch helpers. Offer explicit import/adoption of old local timers with retained recovery sources.
+- Add Browser Activity reports and controls for opt-in tracking, categories, exclusions, idle cutoff, retention, daily budgets, export and scoped deletion. Persist view choices only; browsing records remain in Relay.
+- Validation: coordinated gate passed (1,468 tests plus 3 Host subtests), including packaging, syntax, versions, infrastructure, Ruff and clean web-ext lint. The final affected-suite run passed 402 tests after additional regressions. Disposable Firefox 158.0.1 verified shared widget controls, Portal-closed phase alarms/notifications, hostname-only activity collection/export/deletion real extension-restart persistence, and compact board/sidebar layouts.
+
+## [0.2.20] — 2026-10-22
+
+- Expose the existing Universal Search provider parser, catalogue and URL builder through a pure gateway for Portal Search. Existing widget configuration, aliases, history ownership and transient query behaviour remain intact.
+- Validation: the coordinated gate passed all 312 Widget tests; the additional pure-gateway regression passed in the final focused run. Global script/load-order checks and isolated Firefox 158.0.1 provider-alias integration passed. The gateway neither mutates widget configuration nor accesses widget histories.
+
+## Unreleased — 2026-09-14
+
+- Football Tracker retains current-season cup participation across kickoff and missing provider updates, showing unresolved results explicitly instead of hiding the competition. Cached schedules are reclassified without mutation, known results/live states win over stale scheduled duplicates, and team-history cache revision 14 discards previously filtered derived histories.
+- TheSportsDB supplemental team history retains live and interrupted fixtures alongside scheduled, postponed and completed matches.
+- Daily Briefing keeps today's favourite-team fixtures after kickoff, matches favourites across active Tracker caches, removes duplicate fixtures, and allows up to 64 football rows instead of eight. Loaded Calendar football and PDC feeds have separate Football/Darts sections and independent controls; Briefing remains a read-only consumer.
+- Reviewed shared SDK capabilities and recorded remaining lifecycle, capability-gateway, summary-subscription, inheritance, asset-ownership and sync work in the Widgets TODO.
+- Validation: all 310 Widget tests pass, including 76 focused Football Tracker/Daily Briefing tests. Root `validate.ps1 -ChangedOnly -SkipWebExtLint` passed all nine selected suites plus JavaScript syntax, manifest, infrastructure/registry and version checks. The final fixture-merge adjustment was rechecked against all 310 Widget tests. Relay lint was skipped because this change does not touch Relay; direct visual verification was unavailable because the in-app browser could not connect.
+
+## Unreleased — 2026-09-12
+
+- Media Watchlist explicitly hides closed wiki menus and dismisses them with Escape, when focus leaves, or after choosing a wiki.
+- Removed the series Complete/Reopen button; episode checkboxes and film Watched/Unwatch controls remain available.
+- Validation: all 19 Media Watchlist tests pass with Node test isolation disabled for the sandbox; direct browser verification was unavailable.
+
+## [0.2.19] — 2026-10-21
+
+- Keep SDK deadlines and teardown cancellation active through response body buffering, cancel stalled readers and release shared request slots. Preserve response-size errors. Remove unused global map cleanup wrappers.
+- Validation: 312 component tests; full coordinated gate passed (1,426 tests plus 3 Host subtests), including migration, packaging, tooling, JavaScript syntax, infrastructure/registry, versions, scoped Ruff F checks and Relay lint (zero errors, warnings or notices).
 
 ## [0.2.18] — 2026-09-09
 

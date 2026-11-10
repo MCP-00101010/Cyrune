@@ -49,6 +49,7 @@ function _dailyBriefingImageUrl(value) {
 }
 
 function _dailyBriefingTeamName(value) {
+  if (typeof _footballTrackerComparableTeamName === 'function') return _footballTrackerComparableTeamName(value);
   return String(value || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/&/g, ' and ').replace(/[^a-z0-9]+/g, ' ').replace(/\b(?:afc|cf|fc|football|club)\b/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
@@ -110,7 +111,8 @@ function _dailyBriefingRows(widget, now = Date.now()) {
   const widgets = _dailyBriefingAllWidgets().filter(source => source.id !== widget.id);
   const enabled = key => widget.config?.[key] !== false;
   const sections = [];
-  const add = (title, rows, empty) => { if (rows.length || widget.config?.showEmptySections === true) sections.push({ title, rows: rows.slice(0, 8), empty }); };
+  const add = (title, rows, empty, limit = 8) => { if (rows.length || widget.config?.showEmptySections === true) sections.push({ title, rows: rows.slice(0, limit), empty }); };
+  const calendarSports = { football: [], pdc: [] };
 
   if (enabled('showTasks')) {
     const tasks = widgets.filter(source => source.widgetType === 'todo')
@@ -128,11 +130,12 @@ function _dailyBriefingRows(widget, now = Date.now()) {
     add('Tasks', tasks, 'No tasks are due in this window.');
   }
 
-  if (enabled('showCalendar')) {
+  if (enabled('showCalendar') || enabled('showFootball') || enabled('showDarts')) {
     const events = [];
     widgets.filter(source => source.widgetType === 'protonCalendar').forEach(source => {
       const runtime = typeof _calendarRuntime !== 'undefined' ? _calendarRuntime.get(source.id) : null;
       const loaded = Array.isArray(runtime?.events) ? runtime.events : [];
+      const sources = Array.isArray(source.config?.calendars) ? source.config.calendars : [];
       const inWindow = typeof _calendarEventsInRange === 'function'
         ? _calendarEventsInRange(loaded, window.start, window.end + 1)
         : loaded.filter(event => Number(event.end) > window.start && Number(event.start) <= window.end);
@@ -142,10 +145,15 @@ function _dailyBriefingRows(widget, now = Date.now()) {
         const timing = event.allDay
           ? `${new Date(eventStart).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })} · All day`
           : _dailyBriefingDate(eventStart);
-        events.push({ primary: String(event.title || 'Calendar event'), secondary: sourceName ? `${timing} · ${sourceName}` : timing, order: eventStart });
+        const row = { primary: String(event.title || 'Calendar event'), secondary: sourceName ? `${timing} · ${sourceName}` : timing, order: eventStart };
+        const sourceType = sources.find(entry => entry.id === event.sourceId)?.type;
+        if (Object.hasOwn(calendarSports, sourceType)) {
+          row.eventId = `${sourceType}:${event.uid || event.title}:${event.start}`;
+          calendarSports[sourceType].push(row);
+        } else events.push(row);
       });
     });
-    add('Calendar', events.sort((left, right) => left.order - right.order), 'No loaded events in this window.');
+    if (enabled('showCalendar')) add('Calendar', events.sort((left, right) => left.order - right.order), 'No loaded events in this window.');
   }
 
   if (enabled('showWeather')) {
@@ -165,18 +173,38 @@ function _dailyBriefingRows(widget, now = Date.now()) {
 
   if (enabled('showFootball')) {
     const matches = [];
-    widgets.filter(source => source.widgetType === 'footballTracker').forEach(source => {
+    const seen = new Set();
+    const trackers = widgets.filter(source => source.widgetType === 'footballTracker');
+    const loadedMatches = trackers.flatMap(source => {
       const runtime = typeof _footballTrackerRuntime !== 'undefined' ? _footballTrackerRuntime.get(source.id) : null;
       const cached = runtime?.data?.matches || (typeof _footballTrackerCached === 'function' ? _footballTrackerCached(source, 'matches') : []);
-      (Array.isArray(cached) ? cached : []).filter(match => Number(match.utcDate) >= window.now && Number(match.utcDate) <= window.end)
-        .filter(match => _dailyBriefingFavouriteTeam(source, match.home) || _dailyBriefingFavouriteTeam(source, match.away))
-        .forEach(match => matches.push({
-          primary: `★ ${match.home?.name || match.home || 'Home'} v ${match.away?.name || match.away || 'Away'}`,
-          secondary: _dailyBriefingDate(match.utcDate), order: Number(match.utcDate),
-          crests: source.config?.showCrests === false ? [] : [match.home?.crest, match.away?.crest].map(_dailyBriefingImageUrl).filter(Boolean)
-        }));
+      return (Array.isArray(cached) ? cached : []).map(match => ({ source, match }));
     });
-    add('Football', matches.sort((left, right) => left.order - right.order), 'No loaded fixtures in this window.');
+    const statusRank = match => ['FINISHED', 'AWARDED'].includes(match.status) ? 2 : (match.status && match.status !== 'SCHEDULED' ? 1 : 0);
+    loadedMatches.sort((left, right) => statusRank(right.match) - statusRank(left.match))
+        .filter(({ match }) => Number(match.utcDate) >= window.start && Number(match.utcDate) <= window.end)
+        .filter(({ match }) => trackers.some(tracker => _dailyBriefingFavouriteTeam(tracker, match.home) || _dailyBriefingFavouriteTeam(tracker, match.away)))
+        .forEach(({ match, source }) => {
+          const key = `${_dailyBriefingTeamName(match.home?.name)}:${_dailyBriefingTeamName(match.away?.name)}:${Number(match.utcDate)}`;
+          if (match.competition?.provider === 'footballData') seen.add(`football:${match.id}:${match.utcDate}`);
+          if (seen.has(key)) return;
+          seen.add(key);
+          const status = ['FINISHED', 'AWARDED'].includes(match.status) && Number.isFinite(match.homeScore) && Number.isFinite(match.awayScore)
+            ? `${match.homeScore}–${match.awayScore}`
+            : (match.status === 'SCHEDULED' && Number(match.utcDate) < window.now ? 'Awaiting update' : String(match.status || '').replaceAll('_', ' ').toLowerCase());
+          matches.push({
+            primary: `★ ${match.home?.name || match.home || 'Home'} v ${match.away?.name || match.away || 'Away'}`,
+            secondary: `${_dailyBriefingDate(match.utcDate)}${status ? ` · ${status}` : ''}`, order: Number(match.utcDate),
+            crests: source.config?.showCrests === false ? [] : [match.home?.crest, match.away?.crest].map(_dailyBriefingImageUrl).filter(Boolean)
+          });
+        });
+    calendarSports.football.forEach(row => { if (!seen.has(row.eventId)) { seen.add(row.eventId); matches.push(row); } });
+    add('Football', matches.sort((left, right) => left.order - right.order), 'No loaded fixtures in this window.', 64);
+  }
+
+  if (enabled('showDarts')) {
+    const unique = [...new Map(calendarSports.pdc.map(row => [row.eventId, row])).values()];
+    add('Darts', unique.sort((left, right) => left.order - right.order), 'No loaded darts events in this window.', 64);
   }
 
   if (enabled('showMedia')) {
@@ -286,7 +314,7 @@ WIDGET_REGISTRY['dailyBriefing'] = {
   allowedIn: ['column', 'navpane'],
   defaultConfig: {
     horizonDays: '1', showTasks: true, showCalendar: true, showWeather: true,
-    showHazards: true, showFootball: true, showMedia: true, showRss: true, showServices: true,
+    showHazards: true, showFootball: true, showDarts: true, showMedia: true, showRss: true, showServices: true,
     showEmptySections: false
   },
   defaultData: {},
@@ -302,7 +330,7 @@ WIDGET_REGISTRY['dailyBriefing'] = {
     const config = widget.config || {};
     const sources = [
       ['showTasks', 'Tasks'], ['showCalendar', 'Calendar'], ['showWeather', 'Weather'],
-      ['showHazards', 'Hazards'], ['showFootball', 'Football'], ['showMedia', 'Media watchlist'], ['showRss', 'RSS'],
+      ['showHazards', 'Hazards'], ['showFootball', 'Football'], ['showDarts', 'Darts'], ['showMedia', 'Media watchlist'], ['showRss', 'RSS'],
       ['showServices', 'Service warnings (Today only)'], ['showEmptySections', 'Show empty sections']
     ];
     container.innerHTML = `<label class="settings-row"><span>Briefing window</span><select data-cfg="horizonDays" class="settings-select"><option value="1">Today</option><option value="7">Next 7 days</option><option value="14">Next 14 days</option></select></label>`;

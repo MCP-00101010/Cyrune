@@ -285,10 +285,10 @@ function applySettings() {
   const preset = fontPresets[style.globalFontScale || 'medium'] || fontPresets.medium;
   const globalColor = style.globalFontColorFromTheme === false
     ? (style.globalFontColor || '#e5e7eb')
-    : 'var(--accent)';
+    : 'var(--text)';
   const globalMutedColor = style.globalFontColorFromTheme === false
     ? (style.globalFontColor || '#e5e7eb')
-    : 'var(--accent)';
+    : 'var(--text-muted)';
   const sectionColor = (section, key, fallback = globalColor) => {
     if (!overrides[section]) return fallback;
     if (style[`${key}FromTheme`] === true) return THEME_STYLE_COLOR_FALLBACKS[key] || fallback;
@@ -296,23 +296,28 @@ function applySettings() {
   };
   const sectionSize = (section, key, fallback) => overrides[section] ? (style[key] || fallback) : fallback;
 
-  r.setProperty('--board-font-size', `${sectionSize('board', 'boardFontSize', preset.nav)}px`);
-  r.setProperty('--bookmark-font-size', `${sectionSize('bookmark', 'bookmarkFontSize', preset.base)}px`);
-  r.setProperty('--folder-font-size', `${sectionSize('folder', 'folderFontSize', preset.nav + 1)}px`);
-  r.setProperty('--title-font-size', `${sectionSize('title', 'titleFontSize', preset.title)}px`);
+  r.setProperty('--board-font-size', `${sectionSize('board', 'boardFontSize', preset.nav) / 16}rem`);
+  r.setProperty('--bookmark-font-size', `${sectionSize('bookmark', 'bookmarkFontSize', preset.base) / 16}rem`);
+  r.setProperty('--folder-font-size', `${sectionSize('folder', 'folderFontSize', preset.nav + 1) / 16}rem`);
+  r.setProperty('--title-font-size', `${sectionSize('title', 'titleFontSize', preset.title) / 16}rem`);
   r.setProperty('--title-line-thickness', `${overrides.title ? style.titleLineThickness : 1}px`);
   r.setProperty('--global-font-color', globalColor);
   const widgetFontScale = ['90', '100', '115', '130', '150'].includes(String(style.widgetFontScale))
     ? Number(style.widgetFontScale) / 100
     : 1;
   r.setProperty('--widget-text-scale', String(widgetFontScale));
-  r.setProperty('--board-title-font-size', `${sectionSize('boardTitle', 'boardTitleFontSize', preset.boardTitle)}px`);
+  r.setProperty('--board-title-font-size', `${sectionSize('boardTitle', 'boardTitleFontSize', preset.boardTitle) / 16}rem`);
   r.setProperty('--tags-display', s.showTags ? 'flex' : 'none');
   r.setProperty('--tags-grid-display', s.showTags ? 'grid' : 'none');
   r.setProperty('--sidebar-container-alpha', resolveSidebarContainerAlpha());
   r.setProperty('--ui-panel-alpha', resolveUiPanelAlpha());
 
-  const ff = (section, key) => overrides[section] ? (style[key] || 'inherit') : 'inherit';
+  const ff = (section, key) => {
+    if (overrides[section]) return style[key] || 'inherit';
+    return ['hubName', 'boardTitle', 'board', 'title'].includes(section)
+      ? 'Bahnschrift, "Segoe UI", sans-serif'
+      : 'inherit';
+  };
   const fw = (section, key, def = 'normal') => overrides[section] ? (style[key] ? 'bold' : def) : def;
   const fi = (section, key) => overrides[section] && style[key] ? 'italic' : 'normal';
   const td = (section, key) => overrides[section] && style[key] ? 'underline' : 'none';
@@ -333,7 +338,7 @@ function applySettings() {
   r.setProperty('--title-font-style',             fi('title', 'titleItalic'));
   r.setProperty('--title-text-decoration',        td('title', 'titleUnderline'));
 
-  r.setProperty('--hub-name-font-size',           `${sectionSize('hubName', 'hubNameFontSize', preset.hub)}px`);
+  r.setProperty('--hub-name-font-size',           `${sectionSize('hubName', 'hubNameFontSize', preset.hub) / 16}rem`);
   r.setProperty('--hub-name-font-family',         ff('hubName', 'hubNameFontFamily'));
   r.setProperty('--hub-name-font-weight',         fw('hubName', 'hubNameBold'));
   r.setProperty('--hub-name-font-style',          fi('hubName', 'hubNameItalic'));
@@ -541,6 +546,7 @@ function _activateBoardSelection(boardId, tabId = null) {
 }
 
 function openSearchModal(opts = {}) {
+  if (typeof portalUnifiedSearch !== 'undefined' && elements.searchModal.classList.contains('hidden')) portalUnifiedSearch.opened();
   const modal = elements.searchModal;
   const firstOpen = !modal.dataset.draggableAttached;
   modal.classList.remove('hidden');
@@ -558,11 +564,12 @@ function openSearchModal(opts = {}) {
     elements.searchModalInput.focus();
     const q = elements.searchModalInput.value.trim();
     if (q || activeTagFilters.size > 0) renderSearchResults();
-    else elements.searchModalResults.innerHTML = '';
+    else renderSearchResults();
   }
 }
 
 function closeSearchModal() {
+  if (typeof portalUnifiedSearch !== 'undefined') portalUnifiedSearch.closed();
   _cancelScheduledSearchRender();
   elements.searchModal.classList.add('hidden');
   elements.searchModalInput.value = '';
@@ -575,6 +582,11 @@ function closeSearchModal() {
 }
 
 function renderSearchResults(options = {}) {
+  renderPortalSearchResults(options);
+  if (typeof portalUnifiedSearch !== 'undefined') portalUnifiedSearch.render();
+}
+
+function renderPortalSearchResults(options = {}) {
   _cancelScheduledSearchRender();
   if (!options.reuseDerivedCaches) invalidateDerivedCaches();
   const q = elements.searchModalInput.value.trim().toLowerCase() || null;
@@ -648,19 +660,19 @@ function renderSearchResults(options = {}) {
 
   const buildSearchIndex = () => {
     const index = [];
-    const collectFromList = (items, board, columnId) => {
+    const collectFromList = (items, board, columnId, tabId, parentId = null) => {
     const hits = [];
     for (const item of (items || [])) {
       const childItems = item.type === 'folder'
         ? (isDynamicFolder(item) ? [] : (item.children || []))
         : item.children;
       if (item.type === 'title') {
-        if (childItems) hits.push(...collectFromList(childItems, board, columnId));
+        if (childItems) hits.push(...collectFromList(childItems, board, columnId, tabId, item.id));
         continue;
       }
       const data = getSearchData(item, board);
-      hits.push({ item, meta: { area: 'board-item', boardId: board.id, columnId }, board, searchData: data });
-      if (childItems) hits.push(...collectFromList(childItems, board, columnId));
+      hits.push({ item, meta: { area: 'board-item', boardId: board.id, columnId, tabId, parentId }, board, searchData: data });
+      if (childItems) hits.push(...collectFromList(childItems, board, columnId, tabId, item.id));
     }
     return hits;
     };
@@ -679,9 +691,9 @@ function renderSearchResults(options = {}) {
         if (item) index.push({ item, meta: { area: 'speed-dial-item', boardId: board.id }, board, searchData: getSearchData(item, board) });
       });
       for (const tab of getBoardTabs(board)) {
-        (tab.columns || []).forEach(column => index.push(...collectFromList(column.items, board, column.id)));
+        (tab.columns || []).forEach(column => index.push(...collectFromList(column.items, board, column.id, tab.id)));
         const inbox = getTabInbox(tab, tab.id);
-        if (inbox) index.push(...collectFromList(inbox.items, board, inbox.id));
+        if (inbox) index.push(...collectFromList(inbox.items, board, inbox.id, tab.id));
       }
     }
     const collectImports = items => {
@@ -844,6 +856,12 @@ function _makePickerChip(id, tag, count) {
 }
 
 function createSearchResultItem(item, meta = {}) {
+  const element = createPortalSearchResultItem(item, meta);
+  if (typeof portalUnifiedSearch !== 'undefined') portalUnifiedSearch.decorate(element,item,meta);
+  return element;
+}
+
+function createPortalSearchResultItem(item, meta = {}) {
   if (meta.area === 'set') return createSetSearchResultItem(item, meta);
   if (item.type === 'folder') return createFolderSearchResultItem(item, meta);
   if (item.type === 'board') return createBoardSearchResultItem(item, meta);
@@ -859,7 +877,7 @@ function createSearchResultItem(item, meta = {}) {
   el.dataset.bookmarkId = item.id || '';
   el.dataset.tooltip = buildTooltip(item);
   el.dataset.tooltipKind = 'bookmark';
-  el.addEventListener('click', () => recordBookmarkOpen(item));
+  el.addEventListener('click', event => handleHubBookmarkClick(event, item));
   el.addEventListener('contextmenu', e => handleSearchResultContextMenu(e, item, meta));
 
   const header = document.createElement('div');
@@ -960,15 +978,6 @@ function createGameSearchResultItem(item, meta = {}) {
   name.classList.add('game-title-label');
   header.appendChild(name);
   renderGameDefaultIcons(header, item);
-  const status = getGameStatus(item);
-  if (status.state !== 'ready') {
-    const presentation = getGameStatusPresentation(status);
-    const badge = document.createElement('span');
-    badge.className = `application-status application-status--${status.state}`;
-    badge.textContent = presentation.label;
-    badge.title = presentation.title;
-    header.appendChild(badge);
-  }
   el.appendChild(header);
   if (item.tags?.length) {
     const tagsEl = document.createElement('div');
@@ -1183,16 +1192,12 @@ function _renderEssentialsActivityView(viewId, displayCount) {
     link.dataset.bookmarkId = item.id || '';
     link.dataset.tooltip = [buildTooltip(item), detail, result.entry.location].filter(Boolean).join('\n');
     link.dataset.tooltipKind = 'bookmark';
-    link.addEventListener('click', () => {
-      recordBookmarkOpen(item);
+    link.addEventListener('click', event => {
+      handleHubBookmarkClick(event, item);
       requestAnimationFrame(() => renderEssentials());
     });
 
-    const img = document.createElement('img');
-    setFavicon(img, item, 64);
-    img.alt = item.title || '';
-    img.draggable = false;
-    link.appendChild(img);
+    appendCompactLauncherArtwork(link, item, 64);
     cell.appendChild(link);
 
     if (viewId === 'most-used') {
@@ -1254,7 +1259,7 @@ function renderEssentials() {
           event.preventDefault();
           void launchGameShortcut(item);
         } else {
-          recordBookmarkOpen(item);
+          handleHubBookmarkClick(event, item);
         }
       });
       appendCompactLauncherArtwork(link, item, 64);
@@ -2169,7 +2174,7 @@ function renderSpeedDial(board) {
         if (!getActiveBoard()?.locked) handleSpeedDialContextMenu(event, item, slot);
       } else {
         if (getActiveBoard()?.locked) return;
-        contextTarget = { area: 'speed-dial', slot };
+        contextTarget = { area: 'speed-dial', boardId: board.id, slot };
         showContextMenu(event.clientX, event.clientY, [
           { label: 'Add bookmark', action: 'addSpeedDialBookmark' },
           { label: 'Add application', action: 'addApplication' }
@@ -2215,7 +2220,7 @@ function renderSpeedDial(board) {
         event.preventDefault();
         void launchGameShortcut(item);
       } else {
-        recordBookmarkOpen(item);
+        handleHubBookmarkClick(event, item);
       }
     });
     appendCompactLauncherArtwork(link, item, 256);

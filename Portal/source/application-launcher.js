@@ -69,7 +69,7 @@ function _applicationTargetList(context) {
     context.item.collapsed = false;
     return context.item.children;
   }
-  const board = getBoardForContext(context) || getActiveBoard();
+  const board = getBoardForContext(context);
   if (!board) return null;
   return getBoardItemContainers(board).find(container => container.id === context.columnId)?.items
     || getBoardTab(board)?.columns?.[0]?.items
@@ -81,7 +81,7 @@ function _storeApprovedApplication(application, context) {
   const item = createApplicationItem(application);
   const area = context?.area || '';
   if (area === 'speed-dial' || area === 'speed-dial-item') {
-    const board = getBoardForContext(context) || getActiveBoard();
+    const board = getBoardForContext(context);
     const slot = Number.isInteger(context?.slot) ? context.slot : firstEmptySpeedDialSlot(board);
     if (!board || slot === -1 || board.speedDial?.[slot]) {
       showNotice('Choose an empty speed dial slot.');
@@ -245,7 +245,7 @@ async function forgetApplicationShortcut(item) {
 }
 
 function duplicateApplicationShortcut(context = contextTarget) {
-  const board = getBoardForContext(context) || getActiveBoard();
+  const board = getBoardForContext(context);
   let source = context?.item || null;
   let target = null;
   let insertAt = -1;

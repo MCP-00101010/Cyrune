@@ -131,7 +131,7 @@ def test_pending_transaction_blocks_review_and_confirmation_without_recovery(tmp
 def test_fixed_api_confirms_exact_source_and_rejects_page_authority(tmp_path, monkeypatch):
     manager, root = setup_source(tmp_path)
     server = native_runtime(manager, root, monkeypatch)
-    monkeypatch.setattr(server, "COLLECTION", tmp_path / "different-active-source")
+    monkeypatch.setattr(server, "DESASTERON_COLLECTION", tmp_path / "different-active-source")
     preview_route = "/api/catalogue-preparation/preview"
     confirm_route = "/api/catalogue-preparation/confirm"
     for data in ({"collection_id": "spectrum", "root": str(root)}, {"collection_id": []},

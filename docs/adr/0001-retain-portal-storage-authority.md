@@ -1,0 +1,3 @@
+# Retain Portal storage authority independently of connectivity
+
+On 2026-10-21 we chose a path-free, versioned Host-or-Relay authority record rather than choosing storage from current Host reachability. A failed initial probe cannot distinguish an intentionally Host-free installation from an unavailable configured database, so installations without a valid record require verified configuration discovery or an explicit Relay storage choice; this adds a one-time setup decision while preserving existing data and preventing silent authority changes. The durable rules and recovery behavior are in [component boundaries](../architecture/component-boundaries.md).

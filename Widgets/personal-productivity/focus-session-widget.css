@@ -5,6 +5,7 @@
   align-items: stretch;
   gap: 10px;
   color: var(--text);
+  padding-inline-end: var(--widget-action-rail-width, 26px);
 }
 
 .focus-session-header,
@@ -17,7 +18,12 @@
 }
 
 .focus-session-phase {
-  font-size:calc(14px * var(--widget-text-scale, 1));
+  margin-top: 8px;
+  max-width: 75%;
+  text-align: center;
+  line-height: 1.15;
+  color: var(--text-muted);
+  font-size:calc(12px * var(--widget-text-scale, 1));
 }
 
 .focus-session-preset,
@@ -135,6 +141,8 @@
   color: var(--text);
 }
 
+.focus-session-stats[hidden] { display: none; }
+
 .focus-session-history {
   border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
   padding-top: 7px;
@@ -143,6 +151,14 @@
 .focus-session-history summary {
   cursor: pointer;
 }
+.focus-session-review { border-top:1px solid var(--border);padding-top:7px;font-size:calc(11px * var(--widget-text-scale,1)); }
+.focus-session-review summary { cursor:pointer;color:var(--text-muted); }
+.focus-session-review select { width:100%;min-width:0;margin:6px 0;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:5px;padding:4px;font:inherit; }
+.focus-review-totals { display:flex;flex-wrap:wrap;gap:5px 10px;color:var(--text-muted); }
+.focus-review-totals strong,.focus-review-site strong { color:var(--text); }
+.focus-review-site { display:flex;justify-content:space-between;gap:6px;margin-top:5px; }
+.focus-review-site span { min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+.focus-review-state { color:var(--text-muted);margin-top:5px; }
 
 .focus-session-history-row {
   margin-top: 6px;

@@ -178,7 +178,7 @@ const arcadeGamePicker = (() => {
           if (result.ok !== true || !keys(result, ['catalogueId', 'ok', 'game']) || !keys(game, ['title', 'systemId', 'systemName', 'gameKey', 'state', 'tags'])
               || !text(game.title, 160) || game.systemId !== selected[index].platformId || game.systemName !== selected[index].platformLabel || game.state !== 'ready'
               || typeof game.gameKey !== 'string' || !/^game_[A-Za-z0-9_-]{12,75}$/.test(game.gameKey) || !Array.isArray(game.tags) || game.tags.length) throw failure('unavailable');
-          approved.push({ title: game.title, systemId: game.systemId, systemName: game.systemName, gameKey: game.gameKey,
+          approved.push({ title: game.title, systemId: game.systemId, systemName: game.systemName, gameKey: game.gameKey, catalogueId: result.catalogueId,
             suggestedTags: binding.tags.get(result.catalogueId) || [] });
         });
         model.approved = approved; model.failures = failures; model.phase = approved.length ? 'approved' : 'complete'; emit();

@@ -46,7 +46,7 @@ def test_apply_persists_exact_edition_metadata_and_artwork_without_changing_regi
         "platform": "PC", "system": "128K", "language": "de", "path": "bad", "arguments": ["bad"]},
         "remote_assets": {"loading_screen": artwork}})
     assert result["ok"]
-    server.LIBRARY = None  # A fresh library reads the durable override.
+    server.get_collection_lifecycle().invalidate()  # A fresh library reads the durable override.
     updated = server.get_library().get_game(game.id)
     assert updated.title.endswith(": Scraped")
     assert updated.publisher == "Fixture Publisher" and updated.genre == "Adventure"
@@ -78,7 +78,7 @@ def test_catalogue_refresh_preserves_ids_defaults_and_generic_engine_family(setu
         "title": "Updated Scraped Title", "publisher": "Updated Publisher", "description": "Updated description"}})["ok"]
     server.activate_collection("desasteron")
     server.update_state(lambda state: state.update(active_collection_id="desasteron"))
-    server.LIBRARY = None
+    server.get_collection_lifecycle().invalidate()
     after = catalogue.search({"includeScummvm": True, "query": "Updated Scraped"})
     assert before["catalogueRevision"] != after["catalogueRevision"]
     assert len(after["entries"]) == 1
@@ -127,6 +127,6 @@ def test_retargeted_registrations_and_other_sources_do_not_inherit_overrides(set
     assert post(server, "/api/apply-scrape", {"game_id": game.id, "candidate": {"publisher": "Override"}})["ok"]
     config["monkey-dos"]["platform"] = "windows"
     write(ini, config)
-    server.LIBRARY = None
+    server.get_collection_lifecycle().invalidate()
     assert server.get_library().get_game(game.id).publisher != "Override"
     assert ScummvmOverrides(server.DATA, {**collection, "id": "another"}).load() == {}

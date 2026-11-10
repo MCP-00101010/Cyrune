@@ -108,6 +108,19 @@ function makeContext(registry = {}) {
   return context;
 }
 
+test('productivity gateway restricts operations by widget and carries timer revisions', async () => {
+  const context = makeContext({focusSession:{capabilities:{extensionRelay:true}},browserActivity:{capabilities:{extensionRelay:true}},clock:{capabilities:{extensionRelay:true}}});
+  context.calls=[];
+  vm.runInContext('globalThis.bridge={productivityRequest:async payload=>{calls.push(payload);return {ok:true};}}',context);
+  await vm.runInContext("WidgetSDK.productivity.request('focusSession','focus','pause',{},7)",context);
+  assert.equal(context.calls[0].expectedRevision,7);
+  assert.match(context.calls[0].requestId,/^widget-/);
+  await assert.rejects(vm.runInContext("WidgetSDK.productivity.request('browserActivity','focus','stop')",context),/cannot use/);
+  await assert.rejects(vm.runInContext("WidgetSDK.productivity.request('focusSession','activity','delete')",context),/cannot use/);
+  await assert.rejects(vm.runInContext("WidgetSDK.productivity.request('clock','activity','report')",context),/cannot use/);
+  assert.equal(context.calls.length,1);
+});
+
 test('SDK adopts legacy built-ins into the complete trusted descriptor contract', () => {
   const context = makeContext({
     clock: {
@@ -475,8 +488,42 @@ test('network requests are aborted when their widget is torn down', async () => 
     (_url, options) => new Promise(resolve => options.signal.addEventListener('abort', () => resolve('aborted'), { once: true }))
   )`, context);
   vm.runInContext("WidgetSDK.runtime.teardown({ id: 'network-one', type: 'widget', widgetType: 'weather' })", context);
-  assert.equal(await pending, 'aborted');
+  await assert.rejects(pending, { name: 'AbortError' });
 });
+
+for (const ending of ['deadline', 'teardown']) {
+  test(`managed body reads obey ${ending} and release their network slot`, async () => {
+    const context = makeContext({ weather: {
+      name: 'Weather', category: 'Weather & Network', description: 'Forecast', allowedIn: ['column'],
+      defaultConfig: {}, defaultData: {}, render() {}, capabilities: { network: { domains: ['api.open-meteo.com'] } }
+    } });
+    let signal;
+    let cancelled = 0;
+    let bodyStarted;
+    const started = new Promise(resolve => { bodyStarted = resolve; });
+    context.fetch = async (_url, options) => {
+      signal = options.signal;
+      let finish;
+      return { headers: { get: () => null }, body: { getReader: () => ({
+        read: () => { bodyStarted(); return new Promise(resolve => { finish = resolve; }); },
+        cancel: () => { cancelled++; finish?.({ done: true }); return Promise.resolve(); }
+      }) } };
+    };
+    vm.runInContext(fs.readFileSync(path.join(__dirname, 'widget-network.js'), 'utf8'), context);
+    const pending = vm.runInContext(`_fetchWithTimeout('https://api.open-meteo.com/data',
+      { widgetType: 'weather', widgetFetchKey: 'weather:body' }, ${ending === 'deadline' ? 30 : 1000})`, context);
+    const rejected = assert.rejects(pending, { name: ending === 'deadline' ? 'TimeoutError' : 'AbortError' });
+    await started;
+    if (ending === 'teardown') vm.runInContext("WidgetSDK.runtime.teardown({ id: 'body', type: 'widget', widgetType: 'weather' })", context);
+    await rejected;
+    await new Promise(setImmediate);
+    assert.equal(signal.aborted, true);
+    assert.equal(cancelled, 1);
+    assert.equal(vm.runInContext('_widgetSdkActiveRequests', context), 0);
+    context.fetch = async () => 'next request';
+    assert.equal(await vm.runInContext("_fetchWithTimeout('https://api.open-meteo.com/data', { widgetType: 'weather' }, 1000)", context), 'next request');
+  });
+}
 
 test('network service enforces actual response bytes without trusting Content-Length', async () => {
   const context = makeContext({

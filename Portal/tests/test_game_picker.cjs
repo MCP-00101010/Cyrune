@@ -45,7 +45,7 @@ test('ScummVM original platforms and variants survive mixed selection and compac
   await picker.search(); rows.slice().reverse().forEach(picker.toggle); await picker.confirm();
   assert.equal(picker.model.phase, 'complete');
   assert.deepEqual(calls.saves[0].games.map(game => game.systemId), ['windows', 'dos', 'zx-spectrum']);
-  assert.doesNotMatch(JSON.stringify(calls.saves), /targetId|engineId|directory|arguments|catalogueId/);
+  assert.doesNotMatch(JSON.stringify(calls.saves), /targetId|engineId|directory|arguments/);
 });
 
 test('picker rejects platform substitution after a ScummVM selection', async () => {
@@ -67,7 +67,7 @@ test('picker searches bounded pages, retains distinct variants and confirms in s
   assert.equal(calls.saves.length, 1);
   assert.deepEqual(calls.saves[0].destination, target);
   assert.deepEqual(calls.saves[0].games[0].suggestedTags, []);
-  assert.doesNotMatch(JSON.stringify(calls.saves), /catalogueId|sourceId|entryRevision|requestId|description|artworkRef/);
+  assert.doesNotMatch(JSON.stringify(calls.saves), /sourceId|entryRevision|requestId|description|artworkRef/);
 });
 
 test('obsolete searches cannot replace newer results and closing drops late reads', async () => {
@@ -228,7 +228,8 @@ test('batch persistence uses the captured column, one Undo/save and portable fie
   assert.deepEqual(h.counts(), { saves: 1, undo: 1 }); assert.equal(h.other.items.length, 0);
   assert.equal(h.column.items.length, 2); assert.equal(h.state.tags.length, 2);
   assert.deepEqual(plain(h.column.items[0].tags), ['action', h.state.tags[1].id]);
-  assert.deepEqual(Object.keys(h.column.items[0]).sort(), ['gameKey', 'id', 'systemId', 'systemName', 'tags', 'thumbnailCache', 'title', 'type']);
+  assert.deepEqual(Object.keys(h.column.items[0]).sort(), ['catalogueId', 'gameKey', 'id', 'systemId', 'systemName', 'tags', 'thumbnailCache', 'title', 'type']);
+  assert.equal(h.column.items[0].catalogueId, 'one');
   assert.notEqual(h.column.items[0].id, h.column.items[1].id);
 });
 

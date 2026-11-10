@@ -4,11 +4,14 @@
   'use strict';
 
   const MAX_DOCUMENT_BYTES = 500000;
+  const MAX_CACHED_DOCUMENTS = 32;
+  const MAX_CACHED_CHARACTERS = 2000000;
   const DOCUMENT_CACHE_PREFIX = 'cyrune-nexus-document-cache:v1:';
 
   function createDocumentRepository(options = {}) {
     const cache = new Map();
     const inFlight = new Map();
+    let serviceRevision = 0;
     const bridge = options.bridge || null;
     const isAuthenticated = options.isAuthenticated || (() => false);
 
@@ -50,6 +53,7 @@
     async function load(request = {}) {
       const authority = isAuthenticated() && bridge && request.serviceDocument ? 'service' : 'file';
       const revision = authority === 'service' ? Number(request.revision || 0) : 0;
+      if (authority === 'service') discardOlderServiceRevisions(revision);
       const key = `${authority}:${revision}:${String(request.cacheKey || request.url || '')}`;
       if (cache.has(key)) return cache.get(key);
       if (inFlight.has(key)) return inFlight.get(key);
@@ -58,8 +62,15 @@
         if (!text || text.length > MAX_DOCUMENT_BYTES) {
           throw new Error(text ? 'Document exceeds the preview limit' : 'Authoritative document is empty');
         }
-        cache.set(key, text);
-        writePersistent(request, text);
+        // A slow old request must not repopulate an evicted snapshot revision.
+        if (authority !== 'service' || revision >= serviceRevision) {
+          cache.set(key, text);
+          writePersistent(request, text);
+        }
+        while (cache.size > MAX_CACHED_DOCUMENTS
+          || [...cache.values()].reduce((size, value) => size + value.length, 0) > MAX_CACHED_CHARACTERS) {
+          cache.delete(cache.keys().next().value);
+        }
         return text;
       }).finally(() => inFlight.delete(key));
       inFlight.set(key, pending);
@@ -68,6 +79,7 @@
 
     function discardOlderServiceRevisions(revision) {
       const current = Number(revision || 0);
+      serviceRevision = Math.max(serviceRevision, current);
       for (const key of cache.keys()) {
         if (!key.startsWith('service:')) continue;
         const cachedRevision = Number(key.split(':', 3)[1] || 0);

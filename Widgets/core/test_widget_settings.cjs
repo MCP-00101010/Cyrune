@@ -4,9 +4,31 @@ const path = require('node:path');
 const test = require('node:test');
 const vm = require('node:vm');
 
+test('hosted custom names update safely and disappear when the name is cleared', () => {
+  const source = fs.readFileSync(path.join(__dirname, 'widgets.js'), 'utf8');
+  const helper = source.slice(source.indexOf('function _syncWidgetTitle'), source.indexOf('function _appendWidgetActionButtons'));
+  let heading;
+  const host = { querySelector: () => heading, prepend: node => { heading = node; } };
+  const context = vm.createContext({ document: { createElement: () => ({ remove() { heading = null; } }) } });
+  vm.runInContext(helper, context);
+  context.host = host;
+  context.widget = {title:'  <My clock>  '};
+  vm.runInContext('_syncWidgetTitle(host, widget)', context);
+  assert.equal(heading.textContent, '<My clock>');
+  assert.equal(heading.className, 'widget-custom-title');
+  const original = heading;
+  context.widget.title = 'Renamed';
+  vm.runInContext('_syncWidgetTitle(host, widget)', context);
+  assert.equal(heading, original);
+  assert.equal(heading.textContent, 'Renamed');
+  context.widget.title = '';
+  vm.runInContext('_syncWidgetTitle(host, widget)', context);
+  assert.equal(heading, null);
+});
+
 test('widget settings use a full draft and restore original data on cancel', () => {
   const source = fs.readFileSync(path.join(__dirname, 'widgets.js'), 'utf8');
-  const settings = source.match(/function openWidgetSettings[\s\S]*?\/\/ ={20,}\n\/\/ Built-in widgets/)?.[0] || '';
+  const settings = source.match(/function openWidgetSettings[\s\S]*?\/\/ ={20,}\r?\n\/\/ Built-in widgets/)?.[0] || '';
   assert.match(settings, /const savedData\s*= cloneData\(widget\.data\)/);
   assert.match(settings, /const draftWidget =/);
   assert.match(settings, /def\.renderSettings\(draftWidget, body\)/);

@@ -39,11 +39,12 @@ test('extension declares alarms and notifications and rehydrates jobs at startup
   assert.match(background, /LAST_HUB_URL_KEY/);
 });
 
-test('Countdown and Focus route alerts through WidgetSDK notifications', () => {
+test('Countdown uses SDK notifications and Focus delegates its background clock to Relay', () => {
   const widgets = fs.readFileSync(path.join(root, '..', 'Widgets', 'core', 'widgets.js'), 'utf8');
   const focus = fs.readFileSync(path.join(root, '..', 'Widgets', 'personal-productivity', 'focus-session-widget.js'), 'utf8');
   assert.match(widgets, /_countdownSyncNotification/);
   assert.match(widgets, /Notify when complete/);
-  assert.match(focus, /_focusSyncNotification/);
+  assert.match(focus, /WidgetSDK\.productivity\.request/);
+  assert.match(background, /id: 'productivity-focus'/);
   assert.doesNotMatch(focus, /new Notification/);
 });

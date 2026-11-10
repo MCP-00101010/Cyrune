@@ -1,9 +1,6 @@
-// Focus Session widget. Active state, history, and daily totals remain in the
-// Widget SDK local cache and never enter the shared Hub database.
+// Focus Session controls the Relay-owned timer. Legacy SDK cache is read only
+// for explicit adoption; runtime history never enters portable Portal data.
 
-const FOCUS_SESSION_CACHE_KEY = 'runtime';
-const FOCUS_SESSION_HISTORY_LIMIT = 120;
-const FOCUS_SESSION_MAX_RECOVERY_PHASES = 64;
 const FOCUS_SESSION_PRESETS = Object.freeze({
   pomodoro: { label: 'Pomodoro', workMinutes: 25, breakMinutes: 5, longBreakMinutes: 15, longBreakEvery: 4 },
   deepWork: { label: 'Deep work', workMinutes: 50, breakMinutes: 10, longBreakMinutes: 30, longBreakEvery: 3 },
@@ -11,7 +8,6 @@ const FOCUS_SESSION_PRESETS = Object.freeze({
   custom: { label: 'Custom' }
 });
 
-const _focusSessionRuntimeMemory = new Map();
 let _focusSessionCalendarWarmAt = 0;
 
 function _focusClampMinutes(value, fallback) {
@@ -35,191 +31,8 @@ function _focusNormalizedConfig(widget) {
   };
 }
 
-function _focusPhaseDurationMs(widget, phase) {
-  const config = _focusNormalizedConfig(widget);
-  const minutes = phase === 'longBreak' ? config.longBreakMinutes : phase === 'break' ? config.breakMinutes : config.workMinutes;
-  return minutes * 60 * 1000;
-}
-
-function _focusDefaultRuntime(widget) {
-  return {
-    status: 'idle',
-    phase: 'work',
-    endsAt: 0,
-    remainingMs: _focusPhaseDurationMs(widget, 'work'),
-    phaseStartedAt: 0,
-    completedWorkSessions: 0,
-    sessionActive: false,
-    history: [],
-    historyOpen: false
-  };
-}
-
-function _focusSanitizeHistory(history) {
-  if (!Array.isArray(history)) return [];
-  return history.filter(entry => entry && ['work', 'break', 'longBreak'].includes(entry.phase) && Number.isFinite(Number(entry.endedAt)))
-    .map(entry => ({
-      phase: entry.phase,
-      endedAt: Number(entry.endedAt),
-      durationMs: Math.max(0, Number(entry.durationMs) || 0),
-      skipped: entry.skipped === true
-    }))
-    .slice(0, FOCUS_SESSION_HISTORY_LIMIT);
-}
-
-function _focusReadRuntime(widget) {
-  if (_focusSessionRuntimeMemory.has(widget.id)) return _focusSessionRuntimeMemory.get(widget.id);
-  const fallback = _focusDefaultRuntime(widget);
-  let stored = null;
-  try { stored = typeof WidgetSDK !== 'undefined' ? WidgetSDK.cache.get('focusSession', widget.id, FOCUS_SESSION_CACHE_KEY) : null; } catch {}
-  const runtime = stored && typeof stored === 'object' ? { ...fallback, ...stored } : fallback;
-  runtime.status = ['idle', 'running', 'paused'].includes(runtime.status) ? runtime.status : 'idle';
-  runtime.phase = ['work', 'break', 'longBreak'].includes(runtime.phase) ? runtime.phase : 'work';
-  runtime.endsAt = Math.max(0, Number(runtime.endsAt) || 0);
-  runtime.remainingMs = Math.max(0, Number(runtime.remainingMs) || _focusPhaseDurationMs(widget, runtime.phase));
-  runtime.phaseStartedAt = Math.max(0, Number(runtime.phaseStartedAt) || 0);
-  runtime.completedWorkSessions = Math.max(0, Math.round(Number(runtime.completedWorkSessions) || 0));
-  runtime.sessionActive = runtime.sessionActive === true;
-  runtime.history = _focusSanitizeHistory(runtime.history);
-  runtime.historyOpen = runtime.historyOpen === true;
-  if (runtime.status === 'running' && !runtime.endsAt) runtime.status = 'paused';
-  _focusSessionRuntimeMemory.set(widget.id, runtime);
-  return runtime;
-}
-
-function _focusPersistRuntime(widget, runtime) {
-  runtime.history = _focusSanitizeHistory(runtime.history);
-  _focusSessionRuntimeMemory.set(widget.id, runtime);
-  try { if (typeof WidgetSDK !== 'undefined') WidgetSDK.cache.set('focusSession', widget.id, FOCUS_SESSION_CACHE_KEY, runtime); } catch {}
-  void _focusSyncNotification(widget, runtime);
-  return runtime;
-}
-
 function _focusPhaseLabel(phase) {
   return phase === 'longBreak' ? 'Long break' : phase === 'break' ? 'Short break' : 'Focus';
-}
-
-function _focusNextPhase(widget, runtime, completedPhase = runtime.phase) {
-  if (completedPhase !== 'work') return 'work';
-  return runtime.completedWorkSessions > 0 && runtime.completedWorkSessions % _focusNormalizedConfig(widget).longBreakEvery === 0
-    ? 'longBreak'
-    : 'break';
-}
-
-function _focusStartTimer(widget, runtime, now = Date.now()) {
-  if (runtime.status === 'running') return runtime;
-  const duration = _focusPhaseDurationMs(widget, runtime.phase);
-  const remaining = runtime.status === 'paused' && runtime.remainingMs > 0 ? Math.min(runtime.remainingMs, duration) : duration;
-  runtime.status = 'running';
-  runtime.remainingMs = remaining;
-  runtime.endsAt = now + remaining;
-  if (!runtime.phaseStartedAt) runtime.phaseStartedAt = now;
-  runtime.sessionActive = true;
-  return runtime;
-}
-
-function _focusPauseTimer(runtime, now = Date.now()) {
-  if (runtime.status !== 'running') return runtime;
-  runtime.remainingMs = Math.max(0, runtime.endsAt - now);
-  runtime.endsAt = 0;
-  runtime.status = 'paused';
-  return runtime;
-}
-
-function _focusRecordPhase(widget, runtime, phase, endedAt, skipped = false) {
-  const durationMs = skipped
-    ? Math.max(0, Math.min(_focusPhaseDurationMs(widget, phase), endedAt - (runtime.phaseStartedAt || endedAt)))
-    : _focusPhaseDurationMs(widget, phase);
-  runtime.history.unshift({ phase, endedAt, durationMs, skipped });
-  runtime.history = runtime.history.slice(0, FOCUS_SESSION_HISTORY_LIMIT);
-  if (phase === 'work' && !skipped) runtime.completedWorkSessions += 1;
-}
-
-function _focusNotificationId(widget) { return `focus:${widget.id}`; }
-function _focusNotificationEvent(widget, phase, endsAt) {
-  const runtime = _focusReadRuntime(widget);
-  const projectedRuntime = phase === 'work' ? { ...runtime, completedWorkSessions: runtime.completedWorkSessions + 1 } : runtime;
-  const nextPhase = _focusNextPhase(widget, projectedRuntime, phase);
-  return {
-    id: _focusNotificationId(widget), title: phase === 'work' ? 'Focus complete' : 'Break complete',
-    message: `Next: ${_focusPhaseLabel(nextPhase)}.`, when: endsAt, expiresAt: endsAt + 24 * 60 * 60 * 1000,
-    dedupeKey: `${_focusNotificationId(widget)}:${endsAt}`,
-    source: { widgetType: 'focusSession', widgetId: widget.id, label: 'Focus Session' }
-  };
-}
-function _focusSyncNotification(widget, runtime = _focusReadRuntime(widget)) {
-  if (typeof WidgetSDK === 'undefined') return false;
-  if (!_focusNormalizedConfig(widget).notifications || runtime.status !== 'running' || !runtime.endsAt) return WidgetSDK.notifications.cancel(_focusNotificationId(widget));
-  return WidgetSDK.notifications.schedule(_focusNotificationEvent(widget, runtime.phase, runtime.endsAt));
-}
-function _focusNotify(widget, completedPhase, nextPhase, completedAt) {
-  if (!_focusNormalizedConfig(widget).notifications || typeof WidgetSDK === 'undefined') return false;
-  const title = completedPhase === 'work' ? 'Focus complete' : 'Break complete';
-  const body = `Next: ${_focusPhaseLabel(nextPhase)}.`;
-  void WidgetSDK.notifications.publish({ id: _focusNotificationId(widget), title, message: body, createdAt: Date.now(), dedupeKey: `${_focusNotificationId(widget)}:${completedAt}`, source: { widgetType: 'focusSession', widgetId: widget.id, label: 'Focus Session' } }, { system: true });
-  return true;
-}
-
-function _focusAdvanceExpired(widget, runtime, now = Date.now()) {
-  if (runtime.status !== 'running' || runtime.endsAt > now) return false;
-  const autoStart = _focusNormalizedConfig(widget).autoStartNext;
-  let changed = false;
-  let recovered = 0;
-  let lastTransition = null;
-  while (runtime.status === 'running' && runtime.endsAt <= now && recovered < FOCUS_SESSION_MAX_RECOVERY_PHASES) {
-    const completedAt = runtime.endsAt;
-    const completedPhase = runtime.phase;
-    _focusRecordPhase(widget, runtime, completedPhase, completedAt, false);
-    runtime.phase = _focusNextPhase(widget, runtime, completedPhase);
-    runtime.remainingMs = _focusPhaseDurationMs(widget, runtime.phase);
-    runtime.phaseStartedAt = 0;
-    runtime.endsAt = 0;
-    changed = true;
-    recovered += 1;
-    lastTransition = { completedPhase, nextPhase: runtime.phase, completedAt };
-    if (!autoStart) {
-      runtime.status = 'paused';
-      break;
-    }
-    runtime.status = 'running';
-    runtime.phaseStartedAt = completedAt;
-    runtime.endsAt = completedAt + runtime.remainingMs;
-  }
-  if (recovered >= FOCUS_SESSION_MAX_RECOVERY_PHASES && runtime.endsAt <= now) {
-    runtime.status = 'paused';
-    runtime.endsAt = 0;
-    runtime.phaseStartedAt = 0;
-    runtime.remainingMs = _focusPhaseDurationMs(widget, runtime.phase);
-  }
-  if (lastTransition) _focusNotify(widget, lastTransition.completedPhase, lastTransition.nextPhase, lastTransition.completedAt);
-  return changed;
-}
-
-function _focusSkipTimer(widget, runtime, now = Date.now()) {
-  const completedPhase = runtime.phase;
-  _focusRecordPhase(widget, runtime, completedPhase, now, true);
-  runtime.phase = _focusNextPhase(widget, runtime, completedPhase);
-  runtime.status = 'paused';
-  runtime.endsAt = 0;
-  runtime.phaseStartedAt = 0;
-  runtime.remainingMs = _focusPhaseDurationMs(widget, runtime.phase);
-  return runtime;
-}
-
-function _focusResetTimer(widget, runtime) {
-  runtime.status = 'idle';
-  runtime.phase = 'work';
-  runtime.endsAt = 0;
-  runtime.remainingMs = _focusPhaseDurationMs(widget, 'work');
-  runtime.phaseStartedAt = 0;
-  runtime.completedWorkSessions = 0;
-  runtime.sessionActive = false;
-  return runtime;
-}
-
-function _focusRemainingMs(widget, runtime, now = Date.now()) {
-  if (runtime.status === 'running') return Math.max(0, runtime.endsAt - now);
-  return Math.max(0, Number(runtime.remainingMs) || _focusPhaseDurationMs(widget, runtime.phase));
 }
 
 function _focusFormatDuration(milliseconds) {
@@ -235,15 +48,6 @@ function _focusLocalDayKey(timestamp = Date.now()) {
   const date = new Date(timestamp);
   const pad = value => String(value).padStart(2, '0');
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
-}
-
-function _focusDailySummary(runtime, now = Date.now()) {
-  const today = _focusLocalDayKey(now);
-  const completed = runtime.history.filter(entry => entry.phase === 'work' && !entry.skipped && _focusLocalDayKey(entry.endedAt) === today);
-  return {
-    sessions: completed.length,
-    milliseconds: completed.reduce((total, entry) => total + entry.durationMs, 0)
-  };
 }
 
 function _focusCollectWidgetItems(widgetType) {
@@ -287,12 +91,6 @@ function _focusFindCalendarConflict(start, end) {
     });
   }
   return events.sort((left, right) => left.start - right.start)[0] || null;
-}
-
-function _focusCalendarConflict(widget, runtime, now = Date.now()) {
-  if (!_focusNormalizedConfig(widget).warnCalendarConflicts || runtime.phase !== 'work') return null;
-  const end = runtime.status === 'running' ? runtime.endsAt : now + _focusRemainingMs(widget, runtime, now);
-  return _focusFindCalendarConflict(now, end);
 }
 
 function _focusWalkFolders(items, location, board, output) {
@@ -386,164 +184,123 @@ function _focusEscape(value) {
   return String(value ?? '').replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]);
 }
 
-function _focusElement(tag, className, text) {
-  const element = document.createElement(tag);
-  if (className) element.className = className;
-  if (text !== undefined) element.textContent = text;
-  return element;
+const _focusServiceViews = new Map();
+function _focusSessionReviewMarkup(report, phase, tracking) {
+  const minutes=value=>`${Math.round(Math.max(0,value)/60000)}m`;
+  return `<div class="focus-review-totals"><span>Session <strong>${minutes(phase.durationMs)}</strong></span><span title="Browsing on sites not flagged distracting">Focused <strong>${minutes(report.totalMs-report.distractingMs)}</strong></span><span>Distracting <strong>${minutes(report.distractingMs)}</strong></span></div>
+    ${!tracking?'<div class="focus-review-state">Tracking off</div>':''}${report.sites.slice(0,3).map(site=>`<div class="focus-review-site"><span>${_focusEscape(site.name)}</span><strong>${minutes(site.milliseconds)}</strong></div>`).join('')}`;
 }
-
-function _focusUpdateLiveElements(widget, runtime, element, now = Date.now()) {
-  const remaining = _focusRemainingMs(widget, runtime, now);
-  const duration = _focusPhaseDurationMs(widget, runtime.phase);
-  const progress = duration ? Math.max(0, Math.min(1, (duration - remaining) / duration)) : 0;
-  const countdown = element.querySelector('[data-focus-countdown]');
-  if (countdown) countdown.textContent = _focusFormatDuration(remaining);
-  const dial = element.querySelector('[data-focus-dial]');
-  if (dial) dial.style.setProperty('--focus-progress', `${progress * 360}deg`);
-  const conflict = element.querySelector('[data-focus-conflict]');
-  if (conflict) {
-    const event = _focusCalendarConflict(widget, runtime, now);
-    conflict.classList.toggle('hidden', !event);
-    if (event) {
-      const time = new Date(event.start).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
-      conflict.textContent = `Calendar: ${event.title || 'Event'} at ${time} overlaps this focus window.`;
-    }
-  }
-}
-
 function _focusRenderWidget(widget, element, context = 'column') {
-  const runtime = _focusReadRuntime(widget);
-  if (_focusAdvanceExpired(widget, runtime)) _focusPersistRuntime(widget, runtime);
-  else void _focusSyncNotification(widget, runtime);
-  if (typeof WidgetSDK !== 'undefined') WidgetSDK.runtime.cancelSchedule(`${widget.id}:${context}`);
-  element.innerHTML = '';
-  element.classList.remove('focus-session--column', 'focus-session--navpane');
-  element.classList.add('focus-session', `focus-session--${context}`);
-
-  const header = _focusElement('div', 'focus-session-header');
-  header.append(
-    _focusElement('strong', 'focus-session-phase', _focusPhaseLabel(runtime.phase)),
-    _focusElement('span', 'focus-session-preset', FOCUS_SESSION_PRESETS[_focusNormalizedConfig(widget).preset]?.label || 'Custom')
-  );
-  element.appendChild(header);
-
-  const dial = _focusElement('div', `focus-session-dial focus-session-dial--${runtime.phase}`);
-  dial.dataset.focusDial = '';
-  const time = _focusElement('time', 'focus-session-time', _focusFormatDuration(_focusRemainingMs(widget, runtime)));
-  time.dataset.focusCountdown = '';
-  const stateLabel = _focusElement('span', 'focus-session-state', runtime.status === 'running'
-    ? 'In progress'
-    : runtime.status === 'paused' && runtime.phaseStartedAt ? 'Ready to resume' : 'Ready to start');
-  dial.append(time, stateLabel);
-  element.appendChild(dial);
-
-  const controls = _focusElement('div', 'focus-session-controls');
-  const primary = _focusElement('button', 'focus-session-primary', runtime.status === 'running'
-    ? 'Pause'
-    : runtime.status === 'paused' && runtime.phaseStartedAt ? 'Resume' : 'Start');
-  primary.type = 'button';
-  primary.addEventListener('click', () => {
-    if (runtime.status === 'running') _focusPauseTimer(runtime);
-    else {
-      const shouldLaunch = runtime.phase === 'work' && !runtime.sessionActive;
-      _focusStartTimer(widget, runtime);
-      if (shouldLaunch) _focusLaunchTarget(widget);
+  const key = widget.id + ':' + context;
+  _focusServiceViews.get(key)?.();
+  let snapshot, pending = false, disposed = false, lastRevision = -1;
+  const legacy = WidgetSDK.cache.get('focusSession', widget.id, 'runtime');
+  const view = WidgetSDK.cache.get('focusSession', widget.id, 'view') || {};
+  const request = (action, args = {}) => WidgetSDK.productivity.request('focusSession', 'focus', action, args, snapshot?.focus.revision);
+  const config = () => Object.fromEntries(['workMinutes','breakMinutes','longBreakMinutes','longBreakEvery','autoStartNext','notifications'].map(name => [name, _focusNormalizedConfig(widget)[name]]));
+  const reviewPhases=()=>snapshot.focus.history.filter(row=>typeof row.id==='string'&&row.phase==='work'&&!row.interrupted&&(!row.skipped||row.stopped)&&!row.id.startsWith('legacy-')).slice(0,20);
+  let reviewRead=0;
+  async function updateReview() {
+    const generation=++reviewRead,phase=reviewPhases().find(row=>row.id===view.reviewSessionId)||reviewPhases()[0],output=element.querySelector('[data-focus-review]');
+    if(!phase||!output)return;
+    try {const result=await WidgetSDK.productivity.request('focusSession','activity','report',{sessionId:phase.id,from:_focusLocalDayKey(Date.now()-365*86400000),to:_focusLocalDayKey(phase.endedAt)});
+      if(disposed||generation!==reviewRead)return;
+      output.innerHTML=_focusSessionReviewMarkup(result.report,phase,snapshot.activity.enabled&&!snapshot.activity.paused);
+    }catch{if(!disposed&&generation===reviewRead)output.textContent='Review unavailable';}
+  }
+  function clock() {
+    const output = element.querySelector('[data-focus-countdown]');
+    if (output && snapshot) {
+      const focus = snapshot.focus, remaining = focus.status === 'running' ? Math.max(0, focus.endsAt - Date.now()) : focus.remainingMs;
+      output.textContent = _focusFormatDuration(remaining);
+      const duration = focus.config[focus.phase === 'work' ? 'workMinutes' : focus.phase === 'break' ? 'breakMinutes' : 'longBreakMinutes'] * 60000;
+      element.querySelector('[data-focus-dial]')?.style.setProperty('--focus-progress', `${Math.max(0, Math.min(1, 1 - remaining / duration)) * 360}deg`);
     }
-    _focusPersistRuntime(widget, runtime);
-    _focusRenderWidget(widget, element, context);
-  });
-  const skip = _focusElement('button', '', 'Skip');
-  skip.type = 'button';
-  skip.addEventListener('click', () => { _focusSkipTimer(widget, runtime); _focusPersistRuntime(widget, runtime); _focusRenderWidget(widget, element, context); });
-  const reset = _focusElement('button', '', 'Reset');
-  reset.type = 'button';
-  reset.addEventListener('click', () => { _focusResetTimer(widget, runtime); _focusPersistRuntime(widget, runtime); _focusRenderWidget(widget, element, context); });
-  controls.append(primary, skip, reset);
-  element.appendChild(controls);
-
-  const sequence = _focusElement('div', 'focus-session-sequence');
-  const sequenceLength = _focusNormalizedConfig(widget).longBreakEvery;
-  const completedInCycle = runtime.phase === 'longBreak' ? sequenceLength : runtime.completedWorkSessions % sequenceLength;
-  for (let index = 0; index < sequenceLength; index += 1) {
-    const marker = _focusElement('span', index < completedInCycle ? 'complete' : '');
-    marker.title = index < completedInCycle ? 'Completed focus block' : 'Upcoming focus block';
-    sequence.appendChild(marker);
   }
-  element.appendChild(sequence);
-
-  const conflict = _focusElement('div', 'focus-session-conflict hidden');
-  conflict.dataset.focusConflict = '';
-  element.appendChild(conflict);
-
-  const config = _focusNormalizedConfig(widget);
-  if (config.launchTarget) {
-    const launch = _focusLaunchOptions().find(option => option.value === config.launchTarget);
-    element.appendChild(_focusElement('div', 'focus-session-launch', launch ? `Starts with ${launch.label}` : 'Launch target is missing'));
-  }
-
-  if (config.showDailyTotals) {
-    const summary = _focusDailySummary(runtime);
-    const stats = _focusElement('div', 'focus-session-stats');
-    stats.append(
-      _focusElement('span', '', `Today: ${summary.sessions} session${summary.sessions === 1 ? '' : 's'}`),
-      _focusElement('strong', '', `${Math.round(summary.milliseconds / 60000)} min`)
-    );
-    element.appendChild(stats);
-  }
-
-  if (context !== 'navpane' && runtime.history.length) {
-    const history = _focusElement('details', 'focus-session-history');
-    history.open = runtime.historyOpen;
-    history.addEventListener('toggle', () => {
-      runtime.historyOpen = history.open;
-      _focusPersistRuntime(widget, runtime);
-    });
-    const summary = _focusElement('summary', '', 'Recent phases');
-    history.appendChild(summary);
-    runtime.history.slice(0, 5).forEach(entry => {
-      const row = _focusElement('div', 'focus-session-history-row');
-      row.append(
-        _focusElement('span', '', `${entry.skipped ? 'Skipped ' : ''}${_focusPhaseLabel(entry.phase)}`),
-        _focusElement('time', '', new Date(entry.endedAt).toLocaleString(undefined, { weekday: 'short', hour: '2-digit', minute: '2-digit' }))
-      );
-      history.appendChild(row);
-    });
-    element.appendChild(history);
-  }
-
-  _focusUpdateLiveElements(widget, runtime, element);
-  if (runtime.status === 'running' && typeof WidgetSDK !== 'undefined') {
-    WidgetSDK.runtime.schedule(`${widget.id}:${context}`, () => {
-      if (!element.isConnected) {
-        WidgetSDK.runtime.cancelSchedule(`${widget.id}:${context}`);
-        return;
+  async function command(action, args = {}) {
+    if (pending) return;
+    pending = true;
+    element.querySelectorAll('button').forEach(button => { button.disabled = true; });
+    try {
+      if (action === 'start') {
+        await Promise.all(_focusWarmCalendarData());
+        const conflict = _focusFindCalendarConflict(Date.now(), Date.now() + _focusNormalizedConfig(widget).workMinutes * 60000);
+        if (_focusNormalizedConfig(widget).warnCalendarConflicts && conflict && typeof showNotice === 'function') showNotice(`Focus overlaps Calendar: ${conflict.title}`);
       }
-      if (_focusAdvanceExpired(widget, runtime)) {
-        _focusPersistRuntime(widget, runtime);
-        _focusRenderWidget(widget, element, context);
-      } else _focusUpdateLiveElements(widget, runtime, element);
-    }, 1000, { runWhenHidden: true, maxBackoffMs: 5000 });
+      await request(action, args);
+      if (action === 'start') _focusLaunchTarget(widget);
+      lastRevision = -1;
+      await refresh();
+    } catch (error) {
+      const message = element.querySelector('[data-focus-error]');
+      if (message) message.textContent = error.message;
+    } finally {
+      pending = false;
+      element.querySelectorAll('button').forEach(button => { button.disabled = snapshot?.focus.status === 'idle' && button.matches('[data-focus-skip],[data-focus-stop]'); });
+    }
   }
-  const calendarTasks = _focusWarmCalendarData();
-  if (calendarTasks.length) Promise.allSettled(calendarTasks).then(() => { if (element.isConnected) _focusUpdateLiveElements(widget, runtime, element); });
-}
-
-async function _focusRequestNotificationPermission(widget) {
-  if (!_focusNormalizedConfig(widget).notifications) return true;
-  const permissionGranted = typeof WidgetSDK !== 'undefined' && await WidgetSDK.notifications.requestPermission();
-  if (!permissionGranted) {
-    widget.config.notifications = false;
-    if (typeof showNotice === 'function') showNotice('Notification permission was not granted. Other Focus settings were saved.');
+  function paint() {
+    const focus = snapshot.focus;
+    const legacyPending = legacy && !snapshot.adopted.includes(widget.id) && (legacy.history?.length || legacy.status === 'running' || legacy.status === 'paused');
+    element.classList.add('focus-session');
+    element.classList.toggle('focus-session--navpane', context === 'navpane');
+    element.innerHTML = `<div class="focus-session-dial focus-session-dial--${focus.phase}" data-focus-dial><div class="focus-session-time" data-focus-countdown></div><div class="focus-session-phase">${_focusPhaseLabel(focus.phase)}</div></div>
+      <div class="focus-session-controls"><button type="button" class="focus-session-primary" data-focus-primary title="${focus.status === 'idle' ? 'Start' : focus.status === 'running' ? 'Pause' : 'Resume'}" aria-label="${focus.status === 'idle' ? 'Start' : focus.status === 'running' ? 'Pause' : 'Resume'}">${focus.status === 'running' ? 'Ⅱ' : '▶'}</button><button type="button" data-focus-skip title="Skip phase" aria-label="Skip phase">↠</button><button type="button" data-focus-stop title="Stop" aria-label="Stop">■</button></div>
+      <div class="focus-session-stats" ${_focusNormalizedConfig(widget).showDailyTotals ? '' : 'hidden'}>${focus.history.filter(row => row.phase === 'work' && !row.skipped && !row.interrupted && _focusLocalDayKey(row.endedAt) === _focusLocalDayKey()).length} completed today · ${focus.workCount} in cycle</div>
+      <div data-focus-browsing class="focus-session-stats"></div>
+      ${reviewPhases().length?`<details class="focus-session-review" ${view.reviewOpen!==false?'open':''}><summary>Session review</summary><select data-focus-review-phase aria-label="Review focus session"><option value="">Latest</option>${reviewPhases().map(row=>`<option value="${_focusEscape(row.id)}" ${view.reviewSessionId===row.id?'selected':''}>${_focusEscape(new Date(row.endedAt).toLocaleString())}${row.stopped?' · Stopped':''}</option>`).join('')}</select><div data-focus-review></div></details>`:''}
+      ${focus.interrupted ? '<div class="focus-session-conflict">Interrupted while Firefox was unavailable. Review before resuming.</div>' : ''}
+      ${legacyPending ? '<div class="focus-session-conflict">Earlier local timer/history found. The original cache is retained.</div><button type="button" data-focus-import>Import history only</button><button type="button" data-focus-adopt>Adopt this timer (paused)</button>' : ''}
+      <details class="focus-session-history" ${view.historyOpen ? 'open' : ''}><summary>Recent phases</summary>${focus.history.slice(0,20).map(row => `<div class="focus-session-history-row"><span>${row.interrupted ? 'Interrupted ' : row.skipped ? 'Skipped ' : ''}${_focusPhaseLabel(row.phase)}</span><time>${_focusEscape(new Date(row.endedAt).toLocaleString())}</time></div>`).join('')}</details>
+      <div data-focus-error role="status"></div>`;
+    element.querySelector('[data-focus-primary]').onclick = () => command(focus.status === 'idle' ? 'start' : focus.status === 'running' ? 'pause' : 'resume', focus.status === 'idle' ? { config: config(), widgetId: widget.id } : {});
+    element.querySelector('[data-focus-skip]').onclick = () => command('skip');
+    element.querySelector('[data-focus-stop]').onclick = () => command('stop');
+    element.querySelector('[data-focus-skip]').disabled = focus.status === 'idle';
+    element.querySelector('[data-focus-stop]').disabled = focus.status === 'idle';
+    for (const [selector, activate] of [['[data-focus-import]',false],['[data-focus-adopt]',true]]) {
+      const button = element.querySelector(selector);
+      if (button) button.onclick = () => command('adopt', { widgetId: widget.id, runtime: legacy, config: config(), activate });
+    }
+    element.querySelector('.focus-session-history').ontoggle = event => { view.historyOpen = event.target.open; WidgetSDK.cache.set('focusSession', widget.id, 'view', view); };
+    const review=element.querySelector('.focus-session-review');
+    if(review){review.ontoggle=event=>{view.reviewOpen=event.target.open;WidgetSDK.cache.set('focusSession',widget.id,'view',view);};element.querySelector('[data-focus-review-phase]').onchange=event=>{view.reviewSessionId=event.target.value;WidgetSDK.cache.set('focusSession',widget.id,'view',view);void updateReview();};}
+    clock();
   }
-  return true;
+  let reading = false;
+  async function refresh() {
+    if (disposed || reading) return;
+    reading = true;
+    try {
+      const result = await request('state');
+      if (disposed) return;
+      snapshot = result;
+      if (lastRevision !== result.focus.revision) { paint(); lastRevision = result.focus.revision; }
+      clock();
+      const today = _focusLocalDayKey();
+      const report = await WidgetSDK.productivity.request('focusSession', 'activity', 'report', { from: today, to: today });
+      const output = element.querySelector('[data-focus-browsing]');
+      if (output) output.textContent = `Browsing today · ${Math.round(report.report.totalMs / 60000)} min`;
+      await updateReview();
+    } catch (error) {
+      element.textContent = `Focus unavailable: ${error.message}`;
+      lastRevision = -1;
+    } finally { reading = false; }
+  }
+  const unsubscribe = WidgetSDK.productivity.subscribe(() => { void refresh(); });
+  let ticks = 0;
+  WidgetSDK.runtime.schedule(key + ':focus', () => { clock(); if (++ticks % 15 === 0) void refresh(); }, 1000);
+  const stop = () => { disposed = true; unsubscribe(); WidgetSDK.runtime.cancelSchedule(key + ':focus'); };
+  _focusServiceViews.set(key, stop);
+  element.textContent = 'Connecting to Relay Focus…';
+  void refresh();
 }
 
 WIDGET_REGISTRY['focusSession'] = {
   id: 'focusSession',
   name: 'Focus Session',
   category: 'Personal & Productivity',
-  description: 'A local Pomodoro and custom focus timer with reliable recovery, daily totals, and optional launch helpers.',
+  description: 'One shared Relay Pomodoro timer, background notifications, daily history, and optional launch helpers.',
   allowedIn: ['column', 'navpane'],
   liveSettingsPreview: false,
   defaultConfig: {
@@ -561,24 +318,18 @@ WIDGET_REGISTRY['focusSession'] = {
     },
     additionalProperties: false
   },
-  capabilities: { timers: true, localCache: { quotaBytes: 128 * 1024 }, notifications: { optional: true } },
+  capabilities: { extensionRelay: { optional: true }, timers: true, localCache: { quotaBytes: 128 * 1024 }, notifications: { optional: true } },
   responsive: { minWidth: 180, preferredWidth: 360, compactBelow: 250 },
   migrate(widget) {
     widget.config = { ...this.defaultConfig, ...(widget.config || {}) };
     widget.data = {};
     return widget;
   },
-  beforeSettingsCommit(widget) { return _focusRequestNotificationPermission(widget); },
-  onSettingsCommit(widget, previousConfig) {
-    const runtime = _focusReadRuntime(widget);
-    const durationChanged = ['workMinutes', 'breakMinutes', 'longBreakMinutes'].some(key => Number(widget.config[key]) !== Number(previousConfig?.[key]));
-    if (durationChanged && runtime.status !== 'running') runtime.remainingMs = _focusPhaseDurationMs(widget, runtime.phase);
-    _focusPersistRuntime(widget, runtime);
-  },
+  onSettingsCommit() { /* Presets apply only on the next explicit Start. */ },
   cleanup(widget) {
-    _focusSessionRuntimeMemory.delete(widget.id);
-    try { void WidgetSDK.notifications.cancel(_focusNotificationId(widget)); } catch {}
-    try { if (typeof WidgetSDK !== 'undefined') WidgetSDK.cache.remove('focusSession', widget.id, FOCUS_SESSION_CACHE_KEY); } catch {}
+    for (const [key, stop] of _focusServiceViews) if (key.startsWith(widget.id + ':')) { stop(); _focusServiceViews.delete(key); }
+    // Legacy runtime remains a recoverable migration source; removing a view never stops the shared timer.
+    WidgetSDK.cache.remove('focusSession', widget.id, 'view');
   },
   render(widget, element, context) { _focusRenderWidget(widget, element, context); },
   renderSettings(widget, container) {
@@ -600,8 +351,8 @@ WIDGET_REGISTRY['focusSession'] = {
       <div class="settings-row"><span>Start the next phase automatically</span><label class="settings-toggle"><input type="checkbox" data-cfg="autoStartNext" ${config.autoStartNext ? 'checked' : ''} /><span class="toggle-track"></span></label></div>
       <div class="settings-row"><span>Show today's totals</span><label class="settings-toggle"><input type="checkbox" data-cfg="showDailyTotals" ${config.showDailyTotals ? 'checked' : ''} /><span class="toggle-track"></span></label></div>
       <div class="settings-row"><span>Warn about upcoming Calendar conflicts</span><label class="settings-toggle"><input type="checkbox" data-cfg="warnCalendarConflicts" ${config.warnCalendarConflicts ? 'checked' : ''} /><span class="toggle-track"></span></label></div>
-      <div class="settings-row"><span>Phase-complete notifications</span><label class="settings-toggle"><input type="checkbox" data-cfg="notifications" ${config.notifications ? 'checked' : ''} /><span class="toggle-track"></span></label></div>
-      <div class="settings-help">Timer state, history, and daily totals stay in this browser. Enabling notifications asks for browser permission when you save.</div>`;
+      <div class="settings-row"><span>Phase start/end notifications</span><label class="settings-toggle"><input type="checkbox" data-cfg="notifications" ${config.notifications ? 'checked' : ''} /><span class="toggle-track"></span></label></div>
+`;
 
     const preset = container.querySelector('.focus-settings-preset');
     preset?.addEventListener('change', () => {

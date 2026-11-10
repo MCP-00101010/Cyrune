@@ -11,6 +11,7 @@
 .media-watchlist-wiki-menu{position:relative;margin:0}
 .media-watchlist-wiki-menu>summary{list-style:none;border:0;border-radius:6px;background:var(--hover-bg);color:var(--text-muted);font-size:calc(10px * var(--widget-text-scale, 1));padding:4px 6px;white-space:nowrap;cursor:pointer}
 .media-watchlist-wiki-menu>summary::-webkit-details-marker{display:none}
+.media-watchlist-wiki-menu:not([open])>.media-watchlist-wiki-links{display:none}
 .media-watchlist-wiki-links{position:absolute;z-index:20;top:calc(100% + 4px);right:0;display:flex;flex-direction:column;min-width:190px;max-width:min(300px,70vw);padding:4px;border:1px solid var(--border);border-radius:8px;background:var(--panel-bg);box-shadow:0 8px 24px rgba(0,0,0,.28)}
 .media-watchlist-wiki-links a{display:flex;flex-direction:column;min-width:0;padding:6px 7px;border-radius:6px;color:var(--text);text-decoration:none}
 .media-watchlist-wiki-links a:hover{background:var(--hover-bg)}
@@ -74,5 +75,5 @@ a.media-watchlist-settings-wiki-page{color:var(--accent);text-decoration:none}
 .media-watchlist-settings-wiki-results{display:flex;flex-wrap:wrap;gap:4px}
 .media-watchlist-settings-wiki-add{display:grid;grid-template-columns:minmax(160px,1fr) minmax(100px,.5fr) 70px auto auto;gap:5px;padding-top:2px}
 .media-watchlist-settings-wiki-add>.widget-error-state{grid-column:1/-1}
-.media-watchlist-settings-attribution{padding:0 6px}
+
 @media(max-width:650px){.media-watchlist-main{align-items:flex-start}.media-watchlist-actions{flex-wrap:wrap;justify-content:flex-end}.media-watchlist-series-overview{display:grid}.media-watchlist-settings-controls{grid-template-columns:minmax(120px,1fr) auto auto}.media-watchlist-settings-controls button:nth-of-type(n+3){display:none}.media-watchlist-settings-item{grid-template-columns:minmax(0,1fr) auto}.media-watchlist-settings-visibility{grid-column:1/-1;grid-row:2}.media-watchlist-settings-item-actions{grid-column:2;grid-row:1}.media-watchlist-settings-wiki{grid-template-columns:1fr}.media-watchlist-settings-wiki-actions{justify-content:flex-start}.media-watchlist-settings-wiki-add{grid-template-columns:1fr auto}.media-watchlist-settings-wiki-add>input:first-child{grid-column:1/-1}}

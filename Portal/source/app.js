@@ -1,4 +1,4 @@
-const APP_VERSION = '0.12.22';
+const APP_VERSION = '0.13.7';
 const PORTAL_UI_TEXT = Object.freeze({
   readOnlyCached: 'Read-only: reconnect Cyrune Relay to edit Portal data. The last authoritative cache remains available for viewing and export.',
   readOnlyIncompatible: 'Read-only: Cyrune Relay is incompatible or outdated. Reload the temporary extension from this checkout, then reload Portal.',
@@ -42,6 +42,12 @@ function getPortalReadOnlyMessage() {
   const error = `${diagnostics?.relayError || ''} ${diagnostics?.bridgeError || ''}`.trim();
   if (/incompatible|outdated|protocol/i.test(error)) {
     return PORTAL_UI_TEXT.readOnlyIncompatible;
+  }
+  if (/choose.*storage|storage choice/i.test(error)) {
+    return 'Read-only: choose Portal storage in the Cyrune Relay popup or reconnect Cyrune Host to discover its configured database.';
+  }
+  if (/Host storage|Cyrune Host/i.test(error)) {
+    return 'Read-only: reconnect Cyrune Host to restore access to the configured Portal database.';
   }
   return PORTAL_UI_TEXT.readOnlyCached;
 }
@@ -421,6 +427,9 @@ function reloadHubDataManually() {
 
 async function prepareForExternalDelivery() {
   if (portalReadOnlyMode) return { ok: false, conflict: false, error: 'Portal is read-only until Cyrune Relay reconnects.' };
+  if (!authoritativePortalStorageReady()) {
+    return { ok: false, error: 'Portal storage is not ready. Reload Portal after restoring Cyrune Relay.' };
+  }
   if (sharedDiskSyncIsBlocked()) {
     return { ok: false, conflict: true, error: 'Shared database sync is paused in this hub tab.' };
   }
@@ -436,7 +445,7 @@ async function prepareForExternalDelivery() {
   if (hasPendingSharedDiskChanges()) {
     return { ok: false, conflict: false, error: 'This hub tab still has unsaved changes.' };
   }
-  if (!authoritativePortalStorageReady() || bridge.storageMode?.() !== 'host' || !state.databasePath) {
+  if (bridge.storageMode?.() !== 'host' || !state.databasePath) {
     return { ok: true };
   }
 
@@ -451,169 +460,12 @@ async function prepareForExternalDelivery() {
     : { ok: false, conflict: true, error: 'Could not refresh the latest shared database before delivery.' };
 }
 
-function resolveExternalInboxTarget(targetBoardId = '', targetTabId = '') {
-  const board = targetBoardId
-    ? state.boards.find(candidate => candidate.id === targetBoardId) || null
-    : getActiveBoard();
-  if (!board) return { error: 'No destination board is available.' };
-  const tab = targetTabId
-    ? findBoardTabById(board, targetTabId)
-    : (board.id === state.activeBoardId ? getActiveTab() : getBoardTab(board));
-  if (!tab) return { error: 'No destination tab is available.' };
-  if (board.locked || tab.locked) return { error: 'The destination board or tab is locked.' };
-  const inbox = getBoardInbox(board, tab);
-  if (!inbox) return { error: 'The destination tab has no inbox.' };
-  return { board, tab, inbox };
+function persistExternalTabDelivery(detail = {}) {
+  return portalExternalDeliveries.receive('bookmark-inbox', detail);
 }
 
-function findInboxDeliveryItem(itemId) {
-  if (!itemId) return null;
-  for (const board of state.boards || []) {
-    for (const tab of getBoardTabs(board)) {
-      const found = findBoardItemInList(getBoardInbox(board, tab)?.items || [], itemId);
-      if (found?.item) return found.item;
-    }
-  }
-  return null;
-}
-
-function awaitExternalDeliverySave(savePromise, timeoutMs = 45000) {
-  return new Promise(resolve => {
-    const timer = setTimeout(() => resolve({ ok: false, timedOut: true }), timeoutMs);
-    Promise.resolve(savePromise)
-      .then(result => {
-        clearTimeout(timer);
-        resolve(result);
-      })
-      .catch(error => {
-        clearTimeout(timer);
-        resolve({ ok: false, error: error?.message || String(error) });
-      });
-  });
-}
-
-async function persistExternalTabDelivery(detail = {}, allowRebase = true) {
-  const prepared = await prepareForExternalDelivery();
-  if (!prepared.ok) return prepared;
-
-  const url = typeof detail.url === 'string' ? detail.url.trim() : '';
-  if (!url || !isValidUrl(url)) return { ok: false, error: 'The received tab URL is invalid.' };
-
-  const deliveryId = detail.deliveryId || `legacy-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  const itemId = `bm-delivery-${deliveryId}`;
-  let target = resolveExternalInboxTarget(detail.targetBoardId || '', detail.targetTabId || '');
-  if (target.error) return { ok: false, error: target.error };
-
-  const targetBoardId = target.board.id;
-  const targetTabId = target.tab.id;
-  let item = findInboxDeliveryItem(itemId);
-  if (!item) {
-    item = {
-      id: itemId,
-      type: 'bookmark',
-      title: detail.title || url || 'Untitled',
-      url: normalizeUrl(url),
-      tags: [],
-      faviconCache: detail.faviconCache || ''
-    };
-    pushUndoSnapshot();
-    target.inbox.items.push(item);
-    if (typeof phaseTwoApplyAutomationRecords === 'function') {
-      phaseTwoApplyAutomationRecords([{ item, parent: target.inbox.items, source: 'extension' }], {
-        pushUndo: false,
-        persist: false,
-        render: false
-      });
-    }
-  }
-
-  const deliveryMutationSequence = getLocalStateMutationSequence() + 1;
-  let result = await awaitExternalDeliverySave(saveState());
-  if (result?.conflict && allowRebase && getLocalStateMutationSequence() === deliveryMutationSequence) {
-    const reloaded = await reloadHubData({ source: 'shared', notice: '' });
-    if (!reloaded) return { ok: false, conflict: true, error: 'The shared database changed during delivery.' };
-    target = resolveExternalInboxTarget(targetBoardId, targetTabId);
-    if (target.error) return { ok: false, error: target.error };
-    if (!findInboxDeliveryItem(itemId)) target.inbox.items.push(item);
-    result = await awaitExternalDeliverySave(saveState());
-  }
-
-  renderNav();
-  renderBoardTabBar(getActiveBoard(), getActiveTab());
-  updateInboxBadge();
-  if (typeof inboxPanelOpen !== 'undefined' && inboxPanelOpen) renderInboxPanel();
-  if (!result?.ok || result.conflict) {
-    return {
-      ok: false,
-      conflict: result?.conflict === true,
-      error: result?.conflict
-        ? 'The shared database changed during delivery.'
-        : (result?.timedOut
-          ? 'Timed out while saving the delivered bookmark.'
-          : 'The bookmark was added locally but could not be saved yet.')
-    };
-  }
-  return { ok: true, persisted: result.persisted || 'shared' };
-}
-
-async function persistExternalGameDelivery(detail = {}, allowRebase = true) {
-  const prepared = await prepareForExternalDelivery();
-  if (!prepared.ok) return prepared;
-  const source = detail.game && typeof detail.game === 'object' ? detail.game : {};
-  const gameKey = String(source.gameKey || '').trim();
-  if (!/^game_[a-zA-Z0-9_-]{12,75}$/.test(gameKey)) return { ok: false, error: 'The received game binding is invalid.' };
-  const thumbnail = String(source.thumbnailCache || '');
-  if (thumbnail && (!/^data:image\/(?:png|jpe?g|gif|webp|avif);base64,/i.test(thumbnail) || thumbnail.length > 700000)) {
-    return { ok: false, error: 'The received game thumbnail is invalid.' };
-  }
-  const deliveryId = String(detail.deliveryId || `legacy-${Date.now()}-${Math.random().toString(36).slice(2)}`).slice(0, 160);
-  const itemId = `game-delivery-${deliveryId}`;
-  let target = resolveExternalInboxTarget(detail.targetBoardId || '', detail.targetTabId || '');
-  if (target.error) return { ok: false, error: target.error };
-  const targetBoardId = target.board.id;
-  const targetTabId = target.tab.id;
-  let item = findInboxDeliveryItem(itemId);
-  if (!item) {
-    item = {
-      id: itemId,
-      type: 'game',
-      title: String(source.title || 'Game').slice(0, 160),
-      gameKey,
-      tags: (Array.isArray(source.tags) ? source.tags : []).map(tag => String(tag || '').slice(0, 80)).filter(Boolean).slice(0, 12),
-      systemId: /^[a-z0-9][a-z0-9_-]{0,47}$/.test(String(source.systemId || '').trim().toLowerCase())
-        ? String(source.systemId).trim().toLowerCase() : '',
-      systemName: String(source.systemName || '').trim().slice(0, 80),
-      emulatorName: String(source.emulatorName || '').trim().slice(0, 120),
-      profileName: String(source.profileName || '').trim().slice(0, 120),
-      thumbnailCache: thumbnail
-    };
-    pushUndoSnapshot();
-    target.inbox.items.push(item);
-    if (typeof phaseTwoApplyAutomationRecords === 'function') {
-      phaseTwoApplyAutomationRecords([{ item, parent: target.inbox.items, source: 'extension' }], { pushUndo: false, persist: false, render: false });
-    }
-  }
-
-  const deliveryMutationSequence = getLocalStateMutationSequence() + 1;
-  let result = await awaitExternalDeliverySave(saveState());
-  if (result?.conflict && allowRebase && getLocalStateMutationSequence() === deliveryMutationSequence) {
-    const reloaded = await reloadHubData({ source: 'shared', notice: '' });
-    if (!reloaded) return { ok: false, conflict: true, error: 'The shared database changed during delivery.' };
-    target = resolveExternalInboxTarget(targetBoardId, targetTabId);
-    if (target.error) return { ok: false, error: target.error };
-    if (!findInboxDeliveryItem(itemId)) target.inbox.items.push(item);
-    result = await awaitExternalDeliverySave(saveState());
-  }
-  renderNav();
-  renderBoardTabBar(getActiveBoard(), getActiveTab());
-  updateInboxBadge();
-  if (typeof inboxPanelOpen !== 'undefined' && inboxPanelOpen) renderInboxPanel();
-  if (!result?.ok || result.conflict) {
-    return { ok: false, conflict: result?.conflict === true, error: result?.conflict
-      ? 'The shared database changed during delivery.'
-      : (result?.timedOut ? 'Timed out while saving the delivered game.' : 'The game was added locally but could not be saved yet.') };
-  }
-  return { ok: true, persisted: result.persisted || 'shared' };
+function persistExternalGameDelivery(detail = {}) {
+  return portalExternalDeliveries.receive('game-inbox', detail);
 }
 
 function summarizeHubSnapshot(snapshot) {
@@ -858,8 +710,16 @@ function renderTrashPanel() {
       </div>
       <div class="trash-item-actions">
         <button class="secondary-btn trash-restore-btn" data-trash-id="${entry.trashId}">Restore</button>
-        <button class="danger-btn trash-delete-btn" data-trash-id="${entry.trashId}">×</button>
+        <button class="danger-btn trash-delete-btn" data-trash-id="${entry.trashId}" title="Delete permanently" aria-label="Delete permanently">×</button>
       </div>`;
+    div.addEventListener('contextmenu', event => {
+      event.preventDefault(); event.stopPropagation();
+      contextTarget = {area:'trash', item:entry.item};
+      showContextMenu(event.clientX,event.clientY,[
+        {label:'Restore',group:'organize',run:() => div.querySelector('.trash-restore-btn').click()},
+        {label:'Delete permanently',group:'remove',run:() => div.querySelector('.trash-delete-btn').click()}
+      ]);
+    });
     list.appendChild(div);
   }
 }
@@ -885,7 +745,7 @@ function confirmDelete(settingKey, message, onConfirm) {
 
 // --- Draggable panels ---
 
-function makeDraggable(panel, handle, onDrop) {
+function makeDraggable(panel, handle, onDrop, options = {}) {
   if (panel.dataset.draggableAttached) return;
   panel.dataset.draggableAttached = '1';
   handle.addEventListener('mousedown', e => {
@@ -904,9 +764,9 @@ function makeDraggable(panel, handle, onDrop) {
       document.removeEventListener('mouseup', onUp);
       if (onDrop) onDrop();
     };
-    document.addEventListener('mousemove', onMove);
-    document.addEventListener('mouseup', onUp);
-  });
+    document.addEventListener('mousemove', onMove, { signal: options.signal });
+    document.addEventListener('mouseup', onUp, { signal: options.signal });
+  }, { signal: options.signal });
 }
 
 function centerPanel(panel) {
@@ -938,8 +798,11 @@ function attachEventListeners() {
       saveState();
       renderTrashPanel();
     } else if (deleteBtn) {
-      removeTrashItem(deleteBtn.dataset.trashId);
-      renderTrashPanel();
+      const trashId = deleteBtn.dataset.trashId;
+      showConfirmDialog('Delete this item permanently? This cannot be undone.', () => {
+        removeTrashItem(trashId);
+        renderTrashPanel();
+      }, 'Delete permanently');
     }
   });
   document.getElementById('undoBtn').addEventListener('click', undo);
@@ -947,11 +810,12 @@ function attachEventListeners() {
 
   document.getElementById('bulkDeleteBtn').addEventListener('click', () => {
     const n = selectedItemIds.size;
-    if (!n) return;
+    if (!n || !_portalSelectionIsWritable()) { showNotice('Select unlocked, available items first.'); return; }
     const isImportSelection = selectionContext === 'import-manager';
     showConfirmDialog(isImportSelection
       ? `Delete ${n} selected imported ${n > 1 ? 'items' : 'item'}?`
       : `Delete ${n} selected ${n > 1 ? 'items' : 'item'}?`, () => {
+      if (!_portalSelectionIsWritable()) { showNotice('The selection is locked or unavailable.'); return; }
       pushUndoSnapshot();
       if (isImportSelection) {
         const toDelete = collectSelectedImportManagerItems(selectedItemIds);
@@ -965,7 +829,8 @@ function attachEventListeners() {
       for (const itemId of [...selectedItemIds]) {
         const found = findBoardItemInColumns(board, itemId);
         if (found?.item) {
-          pushToTrash(cloneData(found.item), { area: 'board-item', boardId: board.id });
+          const placement = resolvePortalItemContext({area:'board-item',boardId:board.id,itemId});
+          pushToTrash(cloneData(found.item), { area: 'board-item', boardId: board.id, tabId:placement.tabId, columnId:placement.columnId, parentId:placement.parentId });
           found.list.splice(found.list.indexOf(found.item), 1);
         }
       }
@@ -1131,14 +996,14 @@ function attachEventListeners() {
   });
 
   document.getElementById('searchModalDoneBtn').addEventListener('click', closeSearchModal);
+  portalUnifiedSearch.init();
+  document.getElementById('inboxReviewBtn').addEventListener('click',() => {
+    activePhaseTwoSection = 'automation'; phaseTwoReviewScope = 'inbox'; showHubToolsPanel('workflows');
+  });
 
   document.getElementById('searchModalInput').addEventListener('input', () => {
     const q = elements.searchModalInput.value.trim();
-    if (q || activeTagFilters.size > 0) scheduleSearchResultsRender();
-    else {
-      _cancelScheduledSearchRender();
-      elements.searchModalResults.innerHTML = '';
-    }
+    scheduleSearchResultsRender({delay:q ? 120 : 0});
   });
 
   document.getElementById('searchModal').addEventListener('click', e => {

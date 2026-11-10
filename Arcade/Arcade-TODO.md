@@ -1,5 +1,35 @@
 # Cyrune Arcade TODO
 
+- Monitor 0.2.81: compact workspace and Settings category rail with saved Portal themes, scaled text, long collection names and narrow screens. Retain review of live settings drafts, child editors and collection controls.
+
+- Monitor 0.2.80: named-view save/update/delete, browser quota failures, edition exclusions and sorting/column restoration across platform switches.
+
+- Monitor 0.2.79: title-level Favourites remains consistent across default changes and edition filters; genuine default-exclusion warnings and grouped unfavourite actions remain intact.
+
+- Monitor 0.2.78: combined Spectrum compatibility badges keep one default marker and distinct launch targets alongside dedicated hardware editions.
+
+- Monitor 0.2.77: default-system outlines, exact-version badge launches, scoped edition choosers and shared defaults; vertical context submenus with long emulator names.
+
+- Monitor 0.2.76: steady platform/emulator insertion previews during repeated drag-over events and slot changes.
+
+- Monitor 0.2.75: platform and per-platform emulator tile ordering, drag previews at narrow sidebar widths, keyboard movement and browser-local persistence.
+
+- Monitor 0.2.74: conditional shortcut repair, stable public game references, exact repair preselection and explicit user approval after missing native records.
+
+- Monitor 0.2.73: malformed index rejection, guarded synthetic tests and Spectrum index recovery. Test defaults and all test writes must stay in temporary storage.
+
+- Monitor 0.2.72: an unreadable collection index stays isolated from healthy Portal shortcuts; repair/reconnect that source explicitly. Changed launch approvals still require review.
+
+- Monitor 0.2.71: scoped unsaved settings, dialog focus/busy dismissal, selected-item and emulator submenus, filtered-default indicators, high contrast and 100–200% scaling.
+
+- Monitor 0.2.69: job admission guidance under repeated maintenance requests and unchanged large-library refresh latency.
+
+- Monitor 0.2.68: Monitor catalogue lookup after refresh, collection selection rollback, inactive settings edits and rebuilds after collection changes.
+
+- Monitor 0.2.67 versioned compilation names, inline content types and themed contents cards, software-title searches and Contents column; retain preferred CD provenance in the catalogue. Disk 268 has no separate image on this CD repack; retain existing differing images and review source conflicts. Enigma and unidentified parts remain catalogue gaps. Never infer menu keys from content order.
+- Monitor 0.2.62 Floppyshop Utility matches and local-only file-index fallback.
+- Monitor 0.2.60 explicit boot-image choices, saved defaults and additive rebuilding. Group/series filters are confirmed working after native Host restart. Verify actual menu boot in an authorized emulator session.
+- Monitor 0.2.59 Fuse selection, application shortcuts and tape/snapshot/disk launches with the installed emulator; real game boot remains to be checked in an authorized live session.
 - Monitor 0.2.58: coordinated data cutover, current protocol negotiation and first-reload browser upgrades. See `docs/architecture/suite-data-cutover.md` at repository root.
 - Reconnect the unavailable configured Spectrum source, then rerun `tools/upgrade_suite_data.py --apply` from the repository root to materialize its index groups; all available indexes are already current.
 
@@ -78,7 +108,7 @@ Arcade becomes Cyrune's game-library workshop, catalogue, metadata authority, em
 - Separate discovery/parsing from review/apply. Use a staged, previewable, recoverable pipeline for scan, metadata extraction, duplicate grouping, meaningful-version retention, merge/sort decisions, artwork acquisition, and catalogue publication.
 - Monitor Arcade 0.2.16's [configured ScummVM integration](../docs/architecture/arcade-scummvm-adapter.md): source selection, mixed-platform Portal browsing, exact registered-target launch and single/batch Send. The supplied library has 169 registrations, including 27 without an explicit original platform. Native API launch verified with Elvira II (DOS/German), including visible startup and survival after Host exits; continue monitoring other engines. Add unregistered-directory discovery and richer metadata/artwork separately. Atari ST/STe now use the disk-set adapter; add TT/Falcon emulators separately.
 - Define launch-target kinds rather than forcing every game into a single-file model: confined media file, multi-file/disc manifest, ScummVM game ID/configuration, DOSBox configuration/working directory, MAME machine/driver, and other explicitly validated adapters.
-- Support multiple installed emulators per platform with device-local defaults and exact-entry overrides, including the existing EightyOne/Spectaculator path and future Fuse, STEem SSE, Hatari, and ScummVM profiles. Portal bindings identify an exact Arcade entry, while Arcade remains free to change its emulator/profile configuration without rewriting Portal cards.
+- Support multiple installed emulators per platform with device-local defaults and exact-entry overrides, including EightyOne, Spectaculator, Fuse, STEem SSE, Hatari, and ScummVM. Extend managed profiles where needed. Portal bindings identify an exact Arcade entry, while Arcade remains free to change its emulator/profile configuration without rewriting Portal cards.
 - Keep system-specific cleanup scripts small and replaceable by having them emit the common manifest. Do not accumulate unrelated platform parsing, filesystem reorganisation, or emulator quirks in the Portal client or Relay.
 
 ### Arcade interface transition and validation
